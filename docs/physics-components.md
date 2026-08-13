@@ -18,7 +18,7 @@ write only the data they touch:
 
 - **Ownership**: ECS structs and the registration entry points live in
   `plugins/jolt/jolt_components.{h,c}`; the repository payload type
-  descriptors (reflection) live in `core/resource_jolt_component_types.{h,c}`
+  descriptors (reflection) live in `foundation/resource_jolt_component_types.{h,c}`
   so hosts/tests can register and serialize them without linking the plugin.
 - **Type identity**: each component's registered repository type id **is** the
   ECS component type id (resource-to-ECS mapping contract §3), so an authored
@@ -38,10 +38,11 @@ write only the data they touch:
   character components with the entities API (idempotent). Called from the
   plugin entry point once the entities table is available (retried on first
   `init` for out-of-order plugin loads).
-- `sk_jolt_component_types_register(repository)` — registers the payload
-  types into a repository via manual field descriptors (reflection; no C++
-  Reflection — see `core/repository.h`), making them appear in the repository
-  type listing and serialize/deserialize through `core/resource_serialize.h`.
+- `sk_jolt_component_types_register(repository, repo_api)` — registers the
+  payload types into a repository via manual field descriptors (reflection; no
+  C++ Reflection — see `foundation/repository.h`), making them appear in the
+  repository type listing and serialize/deserialize through
+  `foundation/resource_serialize.h`.
   The editor project host calls this next to the built-in asset type
   registration so the types show up in the same listing.
 
@@ -50,7 +51,7 @@ write only the data they touch:
 Vector / quaternion / color fields use the JSON wire form defined by the
 serialization contract ("arrays of f64 in field order"); enum fields serialize
 as plain unsigned integers. The serializer support for these generic field
-kinds lives in `core/resource_serialize.c` (previously skipped: "not used by
+kinds lives in `foundation/resource_serialize.c` (previously skipped: "not used by
 asset types today").
 
 ## Tests

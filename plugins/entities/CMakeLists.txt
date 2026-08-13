@@ -1,4 +1,6 @@
 file(GLOB_RECURSE SKORE_ENTITIES_SOURCES *.h *.c)
+# APX-275: exclude the internal-only extension (*.internal.h) — pattern rule, never exported/installed.
+list(FILTER SKORE_ENTITIES_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(entities SOURCES ${SKORE_ENTITIES_SOURCES})
 

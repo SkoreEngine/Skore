@@ -8,7 +8,7 @@
  * click/wheel/key/text/focus events with capture → target → bubble order.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 
@@ -890,9 +890,13 @@ i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* even
 	switch (event->kind) {
 	case SK_UI_INPUT_POINTER_MOVE:
 		ui_handle_pointer_move(ctx, event->x, event->y, event->mods);
+		ui_dock_drag_tick(ctx, event->x, event->y, 0);
 		return 0;
 	case SK_UI_INPUT_POINTER_BUTTON:
 		ui_handle_pointer_button(ctx, event->x, event->y, event->button, event->down, event->mods);
+		if (event->button == SK_UI_POINTER_BUTTON_LEFT && event->down == 0) {
+			ui_dock_drag_tick(ctx, event->x, event->y, 1);
+		}
 		return 0;
 	case SK_UI_INPUT_WHEEL:
 		ui_handle_wheel(ctx, event->x, event->y, event->scroll_x, event->scroll_y, event->mods);

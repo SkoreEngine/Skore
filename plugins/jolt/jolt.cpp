@@ -107,6 +107,16 @@ extern "C" void sk_jolt_components_register_all(sk_app_context_t* context, const
 static sk_app_context_t* g_jolt_app_context = nullptr;
 static const sk_app_api_t* g_jolt_app_api = nullptr;
 
+/* Logger plumbing: the app registry owns the logger context + table (there
+ * is no process-wide sk_logger_api() on the foundation refactor). */
+static const sk_logger_api_t* jolt_logger_api() {
+	return (g_jolt_app_api != nullptr) ? g_jolt_app_api->logger_api(g_jolt_app_context) : nullptr;
+}
+
+static sk_logger_context_t* jolt_logger_context() {
+	return (g_jolt_app_api != nullptr) ? g_jolt_app_api->logger_context(g_jolt_app_context) : nullptr;
+}
+
 namespace {
 
 /* ---- world constants (mirror SkoreEngine/Skore + Jolt HelloWorld) ---- */
@@ -554,7 +564,11 @@ void jolt_shutdown_impl() noexcept {
 		JPH::Factory::sInstance = nullptr;
 	}
 	if (g_jolt_log != nullptr) {
-		sk_logger_api()->destroy_logger(g_jolt_log);
+		const sk_logger_api_t* api = jolt_logger_api();
+		sk_logger_context_t* ctx = jolt_logger_context();
+		if (api != nullptr && ctx != nullptr) {
+			api->destroy_logger(ctx, g_jolt_log);
+		}
 		g_jolt_log = nullptr;
 	}
 }
@@ -571,7 +585,11 @@ i32 jolt_init_impl(const sk_jolt_settings_t* settings) noexcept {
 		sk_jolt_settings_t resolved;
 		jolt_settings_resolve(settings, &resolved);
 
-		g_jolt_log = sk_logger_api()->create_logger("jolt");
+		const sk_logger_api_t* api = jolt_logger_api();
+		sk_logger_context_t* ctx = jolt_logger_context();
+		if (api != nullptr && ctx != nullptr) {
+			g_jolt_log = api->create_logger(ctx, "jolt");
+		}
 
 		/* Process-wide Jolt setup: allocator first (Jolt classes route new/
 		 * delete through JPH::Allocate, which is null until registered). */
@@ -581,10 +599,10 @@ i32 jolt_init_impl(const sk_jolt_settings_t* settings) noexcept {
 
 		g_jolt_world = new JoltWorld(resolved, jolt_thread_count());
 
-		if (g_jolt_log != nullptr) {
-			sk_log_info(sk_logger_api(), g_jolt_log, "jolt world init: gravity=(%.2f, %.2f, %.2f) dt=%.6f substeps=%u bodies=%u pairs=%u constraints=%u",
-						(double)resolved.gravity[0], (double)resolved.gravity[1], (double)resolved.gravity[2], (double)resolved.fixed_timestep, resolved.substeps,
-						resolved.max_bodies, resolved.max_body_pairs, resolved.max_constraints);
+		if (g_jolt_log != nullptr && api != nullptr) {
+			sk_log_info(api, g_jolt_log, "jolt world init: gravity=(%.2f, %.2f, %.2f) dt=%.6f substeps=%u bodies=%u pairs=%u constraints=%u", (double)resolved.gravity[0],
+						(double)resolved.gravity[1], (double)resolved.gravity[2], (double)resolved.fixed_timestep, resolved.substeps, resolved.max_bodies, resolved.max_body_pairs,
+						resolved.max_constraints);
 		}
 		return 0;
 	} catch (...) {
@@ -656,7 +674,10 @@ void jolt_step_impl(f32 delta_time, sk_jolt_step_callback_fn callback, void_ptr_
 	while (world->accumulator + kAccumulatorEpsilon >= world->fixed_timestep) {
 		const JPH::EPhysicsUpdateError error = world->physics_system.Update(world->fixed_timestep, static_cast<int>(world->substeps), &world->temp_allocator, &world->job_system);
 		if (error != JPH::EPhysicsUpdateError::None && g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "physics update error 0x%x (increase max_body_pairs / max_constraints)", static_cast<unsigned>(error));
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "physics update error 0x%x (increase max_body_pairs / max_constraints)", static_cast<unsigned>(error));
+			}
 		}
 		/* CharacterVirtual is not owned by PhysicsSystem — update after the
 		 * rigid-body step so the controller collides with the latest poses
@@ -681,7 +702,10 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 	}
 	if (motion_type != SK_JOLT_MOTION_TYPE_STATIC && motion_type != SK_JOLT_MOTION_TYPE_KINEMATIC && motion_type != SK_JOLT_MOTION_TYPE_DYNAMIC) {
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: invalid motion type %u", static_cast<unsigned>(motion_type));
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "body create failed: invalid motion type %u", static_cast<unsigned>(motion_type));
+			}
 		}
 		return nullptr;
 	}
@@ -689,7 +713,10 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 	 * broad-phase filters index their mask tables by it). */
 	if (object_layer >= SK_JOLT_OBJECT_LAYER_COUNT) {
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: invalid object layer %u", object_layer);
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "body create failed: invalid object layer %u", object_layer);
+			}
 		}
 		return nullptr;
 	}
@@ -715,13 +742,19 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 	}
 	default:
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: unknown shape kind %d", static_cast<int>(shape->kind));
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "body create failed: unknown shape kind %d", static_cast<int>(shape->kind));
+			}
 		}
 		return nullptr;
 	}
 	if (!shape_result.IsValid()) {
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: shape error: %s", shape_result.GetError().c_str());
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "body create failed: shape error: %s", shape_result.GetError().c_str());
+			}
 		}
 		return nullptr;
 	}
@@ -740,7 +773,10 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 	const JPH::BodyID id = g_jolt_world->physics_system.GetBodyInterface().CreateAndAddBody(creation, JPH::EActivation::Activate);
 	if (id.IsInvalid()) {
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: no free body slots (max_bodies=%u)", g_jolt_world->physics_system.GetMaxBodies());
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "body create failed: no free body slots (max_bodies=%u)", g_jolt_world->physics_system.GetMaxBodies());
+			}
 		}
 		return nullptr;
 	}
@@ -1338,7 +1374,10 @@ sk_jolt_body_t* jolt_create_spec_body(const sk_jolt_sync_spec_t* spec) noexcept 
 	const JPH::BodyID id = g_jolt_world->physics_system.GetBodyInterface().CreateAndAddBody(creation, JPH::EActivation::Activate);
 	if (id.IsInvalid()) {
 		if (g_jolt_log != nullptr) {
-			sk_log_warn(sk_logger_api(), g_jolt_log, "entity body create failed: no free body slots");
+			const sk_logger_api_t* api = jolt_logger_api();
+			if (api != nullptr) {
+				sk_log_warn(api, g_jolt_log, "entity body create failed: no free body slots");
+			}
 		}
 		return nullptr;
 	}

@@ -122,6 +122,9 @@ i32 sk_ui_test_capture_frame(sk_ui_test_t* t, const_chr_t tag);
 
 /* ---- registration macros (bridge onto SK_TEST runner) ---- */
 
+/* File-local linkage for the generated body; expands at the authoring .c site. */
+#define SK_UI_TEST_STATIC static
+
 /**
  * Register a UI test with automatic engine setup/teardown.
  * Body signature: void body(sk_ui_test_t* t)
@@ -135,33 +138,33 @@ i32 sk_ui_test_capture_frame(sk_ui_test_t* t, const_chr_t tag);
  *   }
  */
 #define SK_UI_TEST(name)                                                                     \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t);                                     \
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t);                          \
 	SK_TEST(ui_author_##name) {                                                              \
 		sk_ui_test_run(ui_get_api_table(), #name, NULL, NULL, NULL, sk_ui_test_body_##name); \
 	}                                                                                        \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t)
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t)
 
 /**
  * Same as SK_UI_TEST with per-test setup/teardown hooks.
  * Hooks: void hook(sk_ui_test_t* t)
  */
 #define SK_UI_TEST_EX(name, setup_fn, teardown_fn)                                                          \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t);                                                    \
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t);                                         \
 	SK_TEST(ui_author_##name) {                                                                             \
 		sk_ui_test_run(ui_get_api_table(), #name, NULL, (setup_fn), (teardown_fn), sk_ui_test_body_##name); \
 	}                                                                                                       \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t)
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t)
 
 /**
  * Integration / host form: pass an explicit API table (from app get_api).
  * Registers as SK_TEST(ui_author_##name).
  */
 #define SK_UI_TEST_WITH_API(name, ui_expr, setup_fn, teardown_fn)                                  \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t);                                           \
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t);                                \
 	SK_TEST(ui_author_##name) {                                                                    \
 		sk_ui_test_run((ui_expr), #name, NULL, (setup_fn), (teardown_fn), sk_ui_test_body_##name); \
 	}                                                                                              \
-	static void sk_ui_test_body_##name(sk_ui_test_t* t)
+	SK_UI_TEST_STATIC void sk_ui_test_body_##name(sk_ui_test_t* t)
 
 /* Plugin-local default API (defined in plugins/ui; not on the public vtable). */
 const sk_ui_api_t* ui_get_api_table(void);

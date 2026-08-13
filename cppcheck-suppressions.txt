@@ -21,8 +21,12 @@ badBitmaskCheck
 variableScope
 unmatchedSuppression
 # Known false positives (branch analysis / buffer confusion).
-uninitvar:app/filesystem_unix.c
-arrayIndexOutOfBoundsCond:app/platform_unix.c
+uninitvar:foundation/filesystem_unix.c
+arrayIndexOutOfBoundsCond:foundation/platform_unix.c
+arrayIndexOutOfBoundsCond:plugins/ui/dock.c
+# fopen(..., "a") already positions at EOF; fseek(SEEK_END)+ftell is used to
+# read the current size. cppcheck seekOnAppendedFile is a false positive here.
+seekOnAppendedFile:foundation/logger.c
 # jolt plugin test helper: cppcheck cannot see that the C++ body_create
 # implementation consumes the shape description synchronously, so it models
 # the call as retaining the caller's local desc (opaque API boundary).

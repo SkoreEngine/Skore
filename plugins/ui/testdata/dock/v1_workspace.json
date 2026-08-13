@@ -1,0 +1,68 @@
+{
+    "version": 1,
+    "id": "editor-main",
+    "flags": 1,
+    "root": {
+        "kind": "split",
+        "axis": 0,
+        "ratio": 0.25,
+        "id": "root",
+        "flags": 0,
+        "a": {
+            "kind": "leaf",
+            "id": "left",
+            "flags": 0,
+            "tabs": [
+                "hierarchy"
+            ],
+            "active_index": 0,
+            "active": "hierarchy"
+        },
+        "b": {
+            "kind": "split",
+            "axis": 1,
+            "ratio": 0.75,
+            "id": "root/1",
+            "flags": 0,
+            "a": {
+                "kind": "leaf",
+                "id": "central",
+                "flags": 1,
+                "tabs": [
+                    "scene",
+                    "game"
+                ],
+                "active_index": 1,
+                "active": "game"
+            },
+            "b": {
+                "kind": "leaf",
+                "id": "bottom",
+                "flags": 0,
+                "tabs": [
+                    "console"
+                ],
+                "active_index": 0,
+                "active": "console"
+            }
+        }
+    },
+    "floating": [
+        {
+            "id": "profiler",
+            "x": 80.0,
+            "y": 60.0,
+            "w": 360.0,
+            "h": 240.0,
+            "z": 50
+        },
+        {
+            "id": "inspector",
+            "x": 120.0,
+            "y": 90.0,
+            "w": 320.0,
+            "h": 200.0,
+            "z": 51
+        }
+    ]
+}

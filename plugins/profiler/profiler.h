@@ -11,7 +11,7 @@
  *   const sk_profiler_api_t* prof =
  *       (const sk_profiler_api_t*)app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
  *
- * Lifecycle (host wiring lives in sk-app):
+ * Lifecycle (host wiring lives in sk-foundation):
  *   - prof->init(dev) after plugins are loaded; pass a render device handle to
  *     attach GPU timestamp query pools, or sk_render_device_t_zero() for a
  *     CPU-only session. Re-call later with a real device to attach GPU pools
@@ -243,7 +243,7 @@ typedef struct sk_profiler_api_t {
 	/**
 	 * Emit the human-readable report (same content as dump_report) through
 	 * the engine logger — the console/log form of the reporting surface.
-	 * Uses the process logger (sk_logger_api) with a "profiler" logger; a
+	 * Uses the host logger from the app context given at plugin load; a
 	 * no-op when the logger is unavailable.
 	 * @return 0 on success; non-zero if the logger could not be used.
 	 */
@@ -260,17 +260,6 @@ typedef struct sk_profiler_api_t {
 	bool (*is_active)(void);
 } sk_profiler_api_t;
 
-/**
- * Register the static sk_profiler_api_t on the app context.
- * Called from sk_plugin_entry_point; also caches the context/API table used
- * for later registry lookups (platform clock, render device for GPU pools).
- * Requires the platform API to be registered already (hosts register it
- * before plugin load; see sk_app_startup).
- * @param context App context (must not be NULL).
- * @param app_api App module table (must not be NULL).
- */
-void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
-
 /* ------------------------------------------------------------------ */
 /* Instrumentation macros (compile-time switch: SK_PROFILER_ENABLED)   */
 /* ------------------------------------------------------------------ */
@@ -284,9 +273,9 @@ void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 #if defined(SK_PROFILER_ENABLED)
 
-/* Zone helper types/functions (macro backing; static per TU, zero cost when
- * unused). The cleanup attribute takes the end function's address, so these
- * must not be SK_FINLINE (always_inline). */
+/* Zone helper types/functions (macro backing; SK_FINLINE per TU, zero cost
+ * when unused). cleanup() takes the end function's address; the compiler
+ * emits an out-of-line copy in that TU when the address is taken. */
 
 /**
  * CPU scoped zone handle (opened at declaration, closed at block exit).
@@ -309,7 +298,7 @@ typedef struct sk_profiler_gpu_zone_t {
 /* Zones tolerate a NULL table (profiler plugin not loaded): begin no-ops and
  * returns a closed-loop-safe handle so engine call sites can instrument
  * unconditionally. */
-static inline sk_profiler_cpu_zone_t sk_profiler_cpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color) {
+SK_FINLINE sk_profiler_cpu_zone_t sk_profiler_cpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color) {
 	sk_profiler_cpu_zone_t zone;
 	zone.api = api;
 	zone.open = 1;
@@ -319,14 +308,14 @@ static inline sk_profiler_cpu_zone_t sk_profiler_cpu_zone_begin(const sk_profile
 	return zone;
 }
 
-static inline void sk_profiler_cpu_zone_end(sk_profiler_cpu_zone_t* zone) {
+SK_FINLINE void sk_profiler_cpu_zone_end(sk_profiler_cpu_zone_t* zone) {
 	if (zone->api != NULL) {
 		zone->api->end_cpu_sample();
 	}
 	zone->open = 0;
 }
 
-static inline sk_profiler_gpu_zone_t sk_profiler_gpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd) {
+SK_FINLINE sk_profiler_gpu_zone_t sk_profiler_gpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd) {
 	sk_profiler_gpu_zone_t zone;
 	zone.api = api;
 	zone.cmd = cmd;
@@ -337,7 +326,7 @@ static inline sk_profiler_gpu_zone_t sk_profiler_gpu_zone_begin(const sk_profile
 	return zone;
 }
 
-static inline void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
+SK_FINLINE void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
 	if (zone->api != NULL) {
 		zone->api->end_gpu_sample(zone->cmd);
 	}

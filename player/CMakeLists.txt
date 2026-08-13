@@ -2,13 +2,13 @@ file(GLOB_RECURSE SKORE_PLAYER_SOURCES *.h *.c)
 
 add_executable(sk-player ${SKORE_PLAYER_SOURCES})
 
-# App entry: sk-app (sk_app_init + platform APIs) + core (transitively via sk-app).
-target_link_libraries(sk-player PRIVATE sk-app)
+# App entry: sk-foundation (sk_app_init + platform APIs + engine utilities).
+target_link_libraries(sk-player PRIVATE sk-foundation)
 
 # Export the executable's dynamic symbols so the POSIX stacktrace backend can
 # resolve function names in crash traces via dladdr (-rdynamic equivalent).
 # Linux only: --export-dynamic would leak sk-player's statically-linked
-# sk-core/mimalloc copies into the global scope and interpose over the
+# sk-foundation/mimalloc copies into the global scope and interpose over the
 # plugins' own static copies at dlopen time, so it is deliberately not used;
 # unknown frames fall back to module + base offset (see stacktrace.h).
 if(APPLE)

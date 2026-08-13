@@ -62,7 +62,7 @@
  *  - flex-wrap (container multi-line) remains unsupported by Clay.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "clay.h"
 
@@ -565,11 +565,14 @@ static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t node_id, con
 		return;
 	}
 	fr->limitation_logged = 1;
-	logger = sk_logger_api()->create_logger("clay_adapter");
+	if (ui_logger_api() == NULL || ui_logger_context() == NULL) {
+		return;
+	}
+	logger = ui_logger_api()->create_logger(ui_logger_context(), "clay_adapter");
 	if (logger != NULL) {
-		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_WARN, logger, "element '%s' Clay limitation: %s (kept best-effort mapping)", node_id != NULL ? node_id : "(anon)",
+		sk_log_message(ui_logger_api(), SK_LOGGER_TYPE_WARN, logger, "element '%s' Clay limitation: %s (kept best-effort mapping)", node_id != NULL ? node_id : "(anon)",
 					   detail != NULL ? detail : "unknown");
-		sk_logger_api()->destroy_logger(logger);
+		ui_logger_api()->destroy_logger(ui_logger_context(), logger);
 	}
 }
 
@@ -656,9 +659,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	is_menu_popup = ui_clay_is_menu_popup(widget);
 	is_dock = ui_clay_is_dock_surface(widget);
 	is_dock_drag = ui_clay_is_dock_drag_target(widget);
-	/* Closed / hidden menu popups: omit from Clay so hover cannot land on them;
-	 * zero layout so engine hit-test and paint skip the overlay. */
-	if (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0) {
+	/* Hidden nodes (stash, closed popups, inactive drop overlay) omit from
+	 * Clay so they do not participate in flex or hit-test. */
+	if (ui_clay_prop_i32(slot, "hidden", 0) != 0 || (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0)) {
 		ui_clay_zero_subtree(ctx, node);
 		fr->present[node.index] = 0u;
 		/* Still hash a stable id so open frames resolve the same CLAY_SID. */
@@ -1227,6 +1230,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	if (ctx == NULL || !sk_ui_node_is_valid(ctx->root)) {
 		return -1;
 	}
+	ui_dock_layout_begin(ctx);
 	root_slot = ui_slot_mut(ctx, ctx->root);
 	if (root_slot == NULL) {
 		return -1;
@@ -1324,6 +1328,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	 * tree (root included) so paint, hit-test, scale, and queries see the
 	 * same geometry as before. */
 	ui_clay_writeback_node(ctx, ctx->root, 0.0f, 0.0f);
+	ui_dock_layout_end(ctx);
 
 	(void)limitations;
 	return 0;

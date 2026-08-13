@@ -11,9 +11,11 @@
  */
 
 #include "ui.h"
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
+
+#include <stdlib.h>
 
 /* -------------------------------------------------------------------------- */
 /* String helpers                                                             */
@@ -388,6 +390,7 @@ static void ui_free_node_recursive(sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 	/* Drop hover/active/focus/capture before the handle becomes stale. */
 	ui_input_on_node_destroy(ctx, node);
+	ui_dock_on_window_destroy(ctx, node);
 
 	/* Snapshot children first — recursive free mutates the tree. */
 	child_count = slot->children.count;
@@ -434,6 +437,8 @@ static i32 ui_init_impl(void) {
 }
 
 static void ui_shutdown_impl(void) {}
+
+static void ui_context_destroy(sk_ui_context_t* ctx);
 
 static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_ui_context_t* ctx;
@@ -491,6 +496,10 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	ctx->root = root;
 	/* Default widget styles so factories work without hand-styling. */
 	(void)ui_widgets_register_defaults_impl(ctx);
+	if (ui_dock_context_init(ctx) != 0) {
+		ui_context_destroy(ctx);
+		return NULL;
+	}
 	return ctx;
 }
 
@@ -537,6 +546,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
 	ui_clay_context_shutdown(ctx);
+	ui_dock_context_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -802,6 +812,7 @@ static i32 ui_node_set_id(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t i
 		return -1;
 	}
 	slot->id = copy;
+	ui_dock_on_node_set_id(ctx, node, slot->id);
 	return 0;
 }
 
@@ -1447,11 +1458,11 @@ static const sk_ui_api_t ui_api = {
 	ui_font_destroy_impl,
 	ui_font_get_metrics_impl,
 	ui_font_glyph_index_impl,
-	ui_font_get_glyph_impl,
-	ui_font_atlas_page_count_impl,
-	ui_font_atlas_get_page_impl,
-	ui_font_cache_count_impl,
-	ui_font_cache_stats_impl,
+	ui_font_msdf_bake_impl,
+	ui_font_msdf_get_atlas_impl,
+	ui_font_msdf_get_glyph_impl,
+	ui_font_msdf_dump_impl,
+	ui_font_measure_text_impl,
 	ui_renderer_create_impl,
 	ui_renderer_destroy_impl,
 	ui_renderer_set_render_pass_impl,
@@ -1463,6 +1474,7 @@ static const sk_ui_api_t ui_api = {
 	ui_cpu_image_write_png_impl,
 	ui_test_artifact_root_impl,
 	ui_test_artifact_png_path_impl,
+	ui_test_artifact_png_path_in_impl,
 	ui_widgets_register_defaults_impl,
 	ui_set_clipboard_fns_impl,
 	ui_widget_panel_impl,
@@ -1611,9 +1623,71 @@ static const sk_ui_api_t ui_api = {
 	ui_test_engine_type_impl,
 	ui_test_engine_scroll_impl,
 	ui_test_engine_focus_impl,
+	ui_dockspace_begin_impl,
+	ui_dockspace_end_impl,
+	ui_dockspace_create_impl,
+	ui_dockspace_apply_impl,
+	ui_dockspace_find_impl,
+	ui_dockspace_host_node_impl,
+	ui_dockspace_destroy_impl,
+	ui_dock_window_to_node_impl,
+	ui_dock_window_undock_impl,
+	ui_dock_tab_close_impl,
+	ui_dock_tab_reorder_impl,
+	ui_dock_tab_set_active_impl,
+	ui_dock_set_tab_callback_impl,
+	ui_dock_builder_begin_impl,
+	ui_dock_builder_split_node_impl,
+	ui_dock_builder_dock_window_impl,
+	ui_dock_builder_set_node_id_impl,
+	ui_dock_builder_set_node_flags_impl,
+	ui_dock_builder_finish_impl,
+	ui_dock_node_at_point_impl,
+	ui_dock_find_node_for_window_impl,
+	ui_dock_leaf_tabs_impl,
+	ui_dock_node_is_leaf_impl,
+	ui_dock_node_is_split_impl,
+	ui_dock_split_get_axis_impl,
+	ui_dock_split_get_ratio_impl,
+	ui_dock_split_set_ratio_impl,
+	ui_dock_split_child_impl,
+	ui_dock_node_host_impl,
+	ui_dock_window_is_docked_impl,
+	ui_dock_window_register_impl,
+	ui_dock_layout_save_json_impl,
+	ui_dock_layout_load_json_impl,
+	ui_dockspace_layout_impl,
+	ui_dock_node_get_rect_impl,
+	ui_dock_split_get_splitter_rect_impl,
+	ui_sample_dock_demo_register_styles_impl,
+	ui_sample_dock_demo_build_impl,
+	ui_sample_dock_demo_logical_size_impl,
 };
 
+/**
+ * Register the UI API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
+static const sk_logger_api_t* g_ui_logger_api;
+static sk_logger_context_t* g_ui_log_ctx;
+
+const sk_logger_api_t* ui_logger_api(void) {
+	return g_ui_logger_api;
+}
+
+sk_logger_context_t* ui_logger_context(void) {
+	return g_ui_log_ctx;
+}
+
+void ui_bind_host_logger(const sk_logger_api_t* api, sk_logger_context_t* log_ctx) {
+	g_ui_logger_api = api;
+	g_ui_log_ctx = log_ctx;
+}
+
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
+	ui_bind_host_logger(app_api->logger_api(context), app_api->logger_context(context));
 	app_api->set_api(context, SK_UI_API_TYPE_ID, (const_ptr_t)&ui_api);
 }
 
@@ -1628,7 +1702,7 @@ const sk_ui_api_t* ui_get_api_table(void) {
 #ifdef SK_TESTS
 #include "test.h"
 
-/* Vendored deps: prove FreeType and stb_rect_pack still link.
+/* Vendored deps: prove FreeType (face load) still links.
  * Unity (via test.h) may include <stdnoreturn.h>, which defines
  * `noreturn` as `_Noreturn`. FreeType's ftstdlib.h then includes
  * <stdlib.h>; on Windows UCRT that uses `__declspec(noreturn)`, which
@@ -1638,7 +1712,6 @@ const sk_ui_api_t* ui_get_api_table(void) {
 #endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
-#include "stb_rect_pack.h"
 
 static const sk_ui_api_t* ui_test_api(void) {
 	return ui_get_api_table();
@@ -1653,23 +1726,10 @@ SK_TEST(ui_stub_init) {
 SK_TEST(ui_thirdparty_deps_link) {
 	FT_Library library = NULL;
 	const FT_Error ft_err = FT_Init_FreeType(&library);
-	stbrp_context pack_ctx;
-	stbrp_node nodes[8];
-	stbrp_rect rects[1];
 
 	TEST_ASSERT_EQUAL_INT(0, (int)ft_err);
 	TEST_ASSERT_NOT_NULL(library);
 	FT_Done_FreeType(library);
-
-	stbrp_init_target(&pack_ctx, 64, 64, nodes, 8);
-	rects[0].id = 0;
-	rects[0].w = 16;
-	rects[0].h = 16;
-	rects[0].x = 0;
-	rects[0].y = 0;
-	rects[0].was_packed = 0;
-	stbrp_pack_rects(&pack_ctx, rects, 1);
-	TEST_ASSERT_TRUE(rects[0].was_packed != 0);
 }
 
 SK_TEST(ui_tree_hierarchy_mutation) {

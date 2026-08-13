@@ -11,6 +11,7 @@
  * {app_folder}/plugins — no manual load_plugin here.
  */
 
+#include "allocator.h"
 #include "app.h"
 #include "dxc_compiler.h"
 #include "filesystem.h"
@@ -74,7 +75,9 @@ typedef struct player_ui_state_t {
 	i32 pointer_down;
 	u32 click_count;
 	u32 frame;
+	i32 dock_demo;
 	sk_logger_t* log;
+	const sk_logger_api_t* logger_api;
 	player_gpu_t gpu;
 } player_ui_state_t;
 
@@ -628,8 +631,7 @@ static i32 player_gpu_recreate_swapchain(player_ui_state_t* st, sk_window_t wind
 	return 0;
 }
 
-static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_platform_window_api_t* win_api, sk_window_t window) {
-	const sk_app_api_t* app_api = sk_app_api();
+static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_platform_window_api_t* win_api, sk_window_t window, const sk_app_api_t* app_api) {
 	player_gpu_t* g = &st->gpu;
 	sk_extent_t fb;
 	sk_adapter_t adapter;
@@ -645,19 +647,19 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	g->dxc = (const sk_dxc_compiler_api_t*)app_api->get_api(app_ctx, SK_DXC_COMPILER_API_TYPE_ID);
 	if (g->api == NULL || g->api->create_swapchain == NULL || g->api->present == NULL) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "render device API missing swapchain/present (need sk-vulkan-render-device)");
+			sk_log_warn(st->logger_api, st->log, "render device API missing swapchain/present (need sk-vulkan-render-device)");
 		}
 		return -1;
 	}
 	if (g->dxc == NULL || g->dxc->init == NULL) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "dxc API missing (need sk-dxc-compiler)");
+			sk_log_warn(st->logger_api, st->log, "dxc API missing (need sk-dxc-compiler)");
 		}
 		return -1;
 	}
 	if (g->dxc->init() != 0) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "dxc init failed");
+			sk_log_warn(st->logger_api, st->log, "dxc init failed");
 		}
 		return -1;
 	}
@@ -665,7 +667,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	g->device = g->api->init(app_ctx, NULL);
 	if (!sk_render_device_t_is_valid(g->device)) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "render device init failed (no GPU/ICD?)");
+			sk_log_warn(st->logger_api, st->log, "render device init failed (no GPU/ICD?)");
 		}
 		g->dxc->shutdown();
 		g->dxc = NULL;
@@ -675,7 +677,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	adapter = player_select_adapter(g->api, g->device);
 	if (!sk_adapter_t_is_valid(adapter) || g->api->select_adapter(g->device, adapter) != 0) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "no suitable GPU adapter");
+			sk_log_warn(st->logger_api, st->log, "no suitable GPU adapter");
 		}
 		player_gpu_shutdown(st);
 		return -1;
@@ -700,7 +702,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	g->swapchain = g->api->create_swapchain(g->device, &sc_desc);
 	if (!sk_swapchain_t_is_valid(g->swapchain)) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "create_swapchain failed");
+			sk_log_warn(st->logger_api, st->log, "create_swapchain failed");
 		}
 		player_gpu_shutdown(st);
 		return -1;
@@ -708,7 +710,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 
 	if (player_gpu_build_frame_targets(g) != 0) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "swapchain frame targets failed");
+			sk_log_warn(st->logger_api, st->log, "swapchain frame targets failed");
 		}
 		player_gpu_shutdown(st);
 		return -1;
@@ -748,7 +750,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	g->ui_renderer = st->ui->renderer_create(&r_desc);
 	if (g->ui_renderer == NULL) {
 		if (st->log != NULL) {
-			sk_log_warn(sk_logger_api(), st->log, "ui renderer_create failed (DXC/HLSL?)");
+			sk_log_warn(st->logger_api, st->log, "ui renderer_create failed (DXC/HLSL?)");
 		}
 		player_gpu_shutdown(st);
 		return -1;
@@ -756,7 +758,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 
 	g->ready = 1;
 	if (st->log != NULL) {
-		sk_log_info(sk_logger_api(), st->log, "GPU present ready (%ux%u, %u images)", g->fb_w, g->fb_h, g->image_count);
+		sk_log_info(st->logger_api, st->log, "GPU present ready (%ux%u, %u images)", g->fb_w, g->fb_h, g->image_count);
 	}
 	return 0;
 }
@@ -787,7 +789,7 @@ static void player_gpu_present(player_ui_state_t* st, const sk_platform_window_a
 	if (fb.width != g->fb_w || fb.height != g->fb_h) {
 		if (player_gpu_recreate_swapchain(st, window, fb.width, fb.height) != 0) {
 			if (st->log != NULL && (st->frame % 120u) == 0u) {
-				sk_log_warn(sk_logger_api(), st->log, "swapchain recreate failed");
+				sk_log_warn(st->logger_api, st->log, "swapchain recreate failed");
 			}
 			return;
 		}
@@ -885,12 +887,66 @@ static void player_on_content_scale(sk_window_t window, sk_content_scale_t scale
 	st->last_scale_y = scale.y;
 }
 
-static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st) {
-	const sk_app_api_t* app_api = sk_app_api();
+static i32 player_has_arg(int argc, char* argv[], const_chr_t flag) {
+	i32 i;
+	for (i = 1; i < argc; ++i) {
+		if (argv[i] != NULL && strcmp(argv[i], flag) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static i32 player_dump_dock_layout(player_ui_state_t* st) {
+	const sk_ui_api_t* ui = st->ui;
+	sk_ui_context_t* ctx = st->ctx;
+	sk_ui_rect_t space;
+	sk_ui_rect_t left;
+	sk_ui_rect_t center;
+	sk_ui_rect_t right_top;
+	sk_ui_rect_t right_bottom;
+	f32 w = 0.0f;
+	f32 h = 0.0f;
+
+	ui->sample_dock_demo_logical_size(&w, &h);
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = w;
+	space.height = h;
+	if (ui->dockspace_layout(ctx, ui->dockspace_find(ctx, "dock-demo"), &space) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-hierarchy"), &left) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-scene"), &center) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-inspector"), &right_top) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-console"), &right_bottom) != 0) {
+		return -1;
+	}
+	/* One tagged line so two runs can be compared after stripping logs. */
+	printf("dock-demo-layout: "
+		   "{\"space\":[%.9g,%.9g,%.9g,%.9g],\"left\":[%.9g,%.9g,%.9g,%.9g],\"center\":[%.9g,%.9g,%.9g,%.9g],\"right_top\":[%.9g,%.9g,%.9g,%.9g],\"right_bottom\":[%.9g,%.9g,%.9g,%"
+		   ".9g]}\n",
+		   (double)space.x, (double)space.y, (double)space.width, (double)space.height, (double)left.x, (double)left.y, (double)left.width, (double)left.height, (double)center.x,
+		   (double)center.y, (double)center.width, (double)center.height, (double)right_top.x, (double)right_top.y, (double)right_top.width, (double)right_top.height,
+		   (double)right_bottom.x, (double)right_bottom.y, (double)right_bottom.width, (double)right_bottom.height);
+	return 0;
+}
+
+static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_app_api_t* app_api) {
 	sk_logger_t* log = st->log;
+	const sk_logger_api_t* logger_api = st->logger_api;
+	i32 dock_demo = st->dock_demo;
 
 	memset(st, 0, sizeof(*st));
 	st->log = log;
+	st->logger_api = logger_api;
+	st->dock_demo = dock_demo;
 	st->last_scale_x = 1.0f;
 	st->last_scale_y = 1.0f;
 
@@ -907,11 +963,14 @@ static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st) {
 		return -1;
 	}
 
-	st->fonts = st->ui->font_system_create(NULL, 512u, 512u);
+	st->fonts = st->ui->font_system_create(NULL);
 	if (st->fonts != NULL) {
 		st->font = st->ui->font_load_memory(st->fonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
 	}
 
+	if (st->dock_demo != 0) {
+		return sk_ui_node_is_valid(st->ui->sample_dock_demo_build(st->ctx, SK_UI_NODE_INVALID)) ? 0 : -1;
+	}
 	return player_ui_build(st);
 }
 
@@ -1136,7 +1195,7 @@ static void player_ui_frame(player_ui_state_t* st, const sk_platform_window_api_
 	st->frame += 1u;
 	if (st->log != NULL && (st->frame % 120u) == 0u) {
 		dl = st->ui->get_draw_list(st->ctx);
-		sk_log_info(sk_logger_api(), st->log, "ui frame %u: verts=%u cmds=%u reused=%d clicks=%u gpu=%d", st->frame, dl != NULL ? dl->vertex_count : 0u,
+		sk_log_info(st->logger_api, st->log, "ui frame %u: verts=%u cmds=%u reused=%d clicks=%u gpu=%d", st->frame, dl != NULL ? dl->vertex_count : 0u,
 					dl != NULL ? dl->command_count : 0u, dl != NULL ? dl->reused : 0, st->click_count, st->gpu.ready);
 	}
 }
@@ -1145,8 +1204,7 @@ static void player_ui_frame(player_ui_state_t* st, const sk_platform_window_api_
  * Attach a rotating file sink under {app_folder}/logs/player.log.
  * Parent dir is created if missing. Returns NULL if setup fails (stdout still works).
  */
-static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_api) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx, const sk_filesystem_api_t* fs) {
 	char app_dir[SK_FS_PATH_MAX];
 	char logs_dir[SK_FS_PATH_MAX];
 	char log_path[SK_FS_PATH_MAX];
@@ -1165,11 +1223,11 @@ static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_
 		return NULL;
 	}
 
-	file_sink = sk_log_file_sink_create(log_path, (u64)SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES, (u32)SK_LOG_FILE_SINK_DEFAULT_MAX_FILES);
+	file_sink = sk_log_file_sink_create(log_path, (u64)SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES, (u32)SK_LOG_FILE_SINK_DEFAULT_MAX_FILES, sk_logger_context_allocator(log_ctx));
 	if (file_sink == NULL) {
 		return NULL;
 	}
-	if (logger_api->add_sink(sk_log_file_sink_sink(file_sink)) != 0) {
+	if (logger_api->add_sink(log_ctx, sk_log_file_sink_sink(file_sink)) != 0) {
 		sk_log_file_sink_destroy(file_sink);
 		return NULL;
 	}
@@ -1177,15 +1235,23 @@ static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_
 }
 
 int main(int argc, char* argv[]) {
-	sk_app_context_t* ctx = sk_app_init(argc, argv);
+	sk_app_boot_t boot = sk_app_init(argc, argv);
+	sk_app_context_t* ctx = boot.context;
 	const sk_app_api_t* app_api;
 	const sk_platform_window_api_t* win_api;
 	const sk_render_graph_api_t* rg_api;
 	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* log_ctx;
 	const sk_profiler_api_t* prof_api;
 	sk_window_t window;
 	player_ui_state_t ui_state;
 	sk_log_file_sink_t* file_sink = NULL;
+	i32 dock_demo = player_has_arg(argc, argv, "--dock-demo");
+	i32 dump_layout = player_has_arg(argc, argv, "--dump-layout");
+	u32 win_w = dock_demo != 0 ? 1280u : 960u;
+	u32 win_h = dock_demo != 0 ? 720u : 640u;
+	u32 win_flags = dock_demo != 0 ? (u32)SK_WINDOW_FLAG_NONE : (u32)SK_WINDOW_FLAG_RESIZABLE;
+	const_chr_t win_title = dock_demo != 0 ? "Skore — Docking Demo" : "Skore — UI Widget Playground";
 
 	if (ctx == NULL) {
 		return 1;
@@ -1193,56 +1259,75 @@ int main(int argc, char* argv[]) {
 
 	/* Plugins auto-loaded from {app_folder}/plugins (window, ui, render_graph, …).
 	 * The profiler table is optional: lifecycle (init/begin_frame/end_frame)
-	 * is host-driven by sk-app when the plugin is present, and the zone macro
+	 * is host-driven by sk-foundation when the plugin is present, and the zone macro
 	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
-	app_api = sk_app_api();
-	logger_api = sk_logger_api();
-	file_sink = player_attach_file_log(logger_api);
+	app_api = boot.api;
+	logger_api = app_api->logger_api(ctx);
+	log_ctx = app_api->logger_context(ctx);
+
+	if (dock_demo != 0 && dump_layout != 0) {
+		i32 rc;
+		(void)logger_api->remove_sink(log_ctx, sk_logger_stdout_sink());
+		memset(&ui_state, 0, sizeof(ui_state));
+		ui_state.dock_demo = 1;
+		ui_state.logger_api = logger_api;
+		rc = player_ui_init(ctx, &ui_state, boot.api);
+		if (rc == 0) {
+			rc = player_dump_dock_layout(&ui_state);
+		}
+		player_ui_shutdown(&ui_state);
+		sk_app_shutdown(ctx);
+		return rc == 0 ? 0 : 1;
+	}
+
+	file_sink = player_attach_file_log(logger_api, log_ctx, app_api->filesystem_api(ctx));
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	rg_api = sk_render_graph_api_from_app(ctx, app_api);
 	prof_api = app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
 
 	if (win_api == NULL || win_api->init() != 0) {
 		if (file_sink != NULL) {
-			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			(void)logger_api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
 	if (rg_api == NULL || rg_api->create == NULL || rg_api->begin == NULL || rg_api->execute == NULL) {
 		if (file_sink != NULL) {
-			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			(void)logger_api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 	if (rg_api->init() != 0) {
 		if (file_sink != NULL) {
-			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			(void)logger_api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
-	window = win_api->create_window("Skore — UI Widget Playground", 960u, 640u, (u32)SK_WINDOW_FLAG_RESIZABLE);
+	window = win_api->create_window(win_title, win_w, win_h, win_flags);
 	if (window == NULL) {
 		rg_api->shutdown();
 		if (file_sink != NULL) {
-			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			(void)logger_api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
 	memset(&ui_state, 0, sizeof(ui_state));
-	ui_state.log = logger_api->create_logger("player-ui");
+	ui_state.dock_demo = dock_demo;
+	ui_state.logger_api = logger_api;
+	ui_state.log = logger_api->create_logger(log_ctx, "player-ui");
 
-	if (player_ui_init(ctx, &ui_state) == 0) {
+	if (player_ui_init(ctx, &ui_state, boot.api) == 0) {
 		sk_content_scale_t sc = win_api->get_window_content_scale(window);
 		ui_state.last_scale_x = sc.x > 0.0f ? sc.x : 1.0f;
 		ui_state.last_scale_y = sc.y > 0.0f ? sc.y : 1.0f;
@@ -1250,13 +1335,14 @@ int main(int argc, char* argv[]) {
 		win_api->set_window_key_callback(window, player_on_key, &ui_state);
 		win_api->set_window_char_callback(window, player_on_char, &ui_state);
 		win_api->set_window_scroll_callback(window, player_on_scroll, &ui_state);
-		if (player_gpu_init(ctx, &ui_state, win_api, window) != 0 && ui_state.log != NULL) {
+		if (player_gpu_init(ctx, &ui_state, win_api, window, boot.api) != 0 && ui_state.log != NULL) {
 			sk_log_warn(logger_api, ui_state.log, "GPU present unavailable — CPU UI still runs (window stays blank)");
 		}
 		if (ui_state.log != NULL) {
 			sk_extent_t logical = win_api->get_window_size(window);
 			sk_extent_t physical = win_api->get_framebuffer_size(window);
-			sk_log_info(logger_api, ui_state.log, "widget playground ready (mouse/keyboard/wheel → sk-ui)");
+			sk_log_info(logger_api, ui_state.log,
+						dock_demo != 0 ? "docking demo ready (fixed 1280x720 layout, no persist)" : "widget playground ready (mouse/keyboard/wheel → sk-ui)");
 			/* logical × scale must equal physical, or layout misses the window. */
 			sk_log_info(logger_api, ui_state.log, "window: logical=%ux%u physical=%ux%u scale=%.2fx%.2f", logical.width, logical.height, physical.width, physical.height,
 						(double)ui_state.last_scale_x, (double)ui_state.last_scale_y);
@@ -1281,15 +1367,15 @@ int main(int argc, char* argv[]) {
 
 	player_ui_shutdown(&ui_state);
 	if (ui_state.log != NULL) {
-		logger_api->destroy_logger(ui_state.log);
+		logger_api->destroy_logger(log_ctx, ui_state.log);
 		ui_state.log = NULL;
 	}
 	if (file_sink != NULL) {
-		(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+		(void)logger_api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink));
 		sk_log_file_sink_destroy(file_sink);
 		file_sink = NULL;
 	}
 	rg_api->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 	return 0;
 }

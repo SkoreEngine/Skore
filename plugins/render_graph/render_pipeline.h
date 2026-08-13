@@ -48,8 +48,8 @@ typedef struct sk_render_pipeline_context_t {
  * @p api must be the table from `app_api->get_api(..., SK_RENDER_GRAPH_API_TYPE_ID)`.
  * @return 0 on success, non-zero if create failed.
  */
-static inline i32 sk_render_pipeline_context_create(sk_render_pipeline_context_t* ctx, const sk_render_graph_api_t* api, sk_render_device_t device, sk_rg_build_fn build,
-													void_ptr_t build_user) {
+SK_FINLINE i32 sk_render_pipeline_context_create(sk_render_pipeline_context_t* ctx, const sk_render_graph_api_t* api, sk_render_device_t device, sk_rg_build_fn build,
+												 void_ptr_t build_user) {
 	sk_render_graph_t* graph;
 
 	ctx->api = api;
@@ -68,8 +68,8 @@ static inline i32 sk_render_pipeline_context_create(sk_render_pipeline_context_t
 /**
  * Same as create, with explicit memory capacities (tests / warm capacity).
  */
-static inline i32 sk_render_pipeline_context_create_with_config(sk_render_pipeline_context_t* ctx, const sk_render_graph_api_t* api, sk_render_device_t device,
-																const sk_rg_memory_config_t* config, sk_rg_build_fn build, void_ptr_t build_user) {
+SK_FINLINE i32 sk_render_pipeline_context_create_with_config(sk_render_pipeline_context_t* ctx, const sk_render_graph_api_t* api, sk_render_device_t device,
+															 const sk_rg_memory_config_t* config, sk_rg_build_fn build, void_ptr_t build_user) {
 	sk_render_graph_t* graph;
 
 	ctx->api = api;
@@ -88,7 +88,7 @@ static inline i32 sk_render_pipeline_context_create_with_config(sk_render_pipeli
 /**
  * Destroy the graph and clear the context. Safe if create never succeeded.
  */
-static inline void sk_render_pipeline_context_destroy(sk_render_pipeline_context_t* ctx) {
+SK_FINLINE void sk_render_pipeline_context_destroy(sk_render_pipeline_context_t* ctx) {
 	if (ctx->graph != NULL && ctx->api != NULL) {
 		ctx->api->destroy(ctx->graph);
 	}
@@ -103,7 +103,7 @@ static inline void sk_render_pipeline_context_destroy(sk_render_pipeline_context
  * @p scene is the optional opaque scene pointer passed to begin/record.
  * @p cmd is the RHI command buffer for this frame.
  */
-static inline void sk_render_pipeline_context_execute(sk_render_pipeline_context_t* ctx, sk_command_buffer_t cmd, void_ptr_t scene) {
+SK_FINLINE void sk_render_pipeline_context_execute(sk_render_pipeline_context_t* ctx, sk_command_buffer_t cmd, void_ptr_t scene) {
 	const sk_render_graph_api_t* api = ctx->api;
 	sk_render_graph_t* graph = ctx->graph;
 
@@ -118,7 +118,7 @@ static inline void sk_render_pipeline_context_execute(sk_render_pipeline_context
  * Look up the process-global render_graph table on the app registry.
  * Hosts must not link the plugin binary; only get_api after load.
  */
-static inline const sk_render_graph_api_t* sk_render_graph_api_from_app(sk_app_context_t* context, const sk_app_api_t* host_api) {
+SK_FINLINE const sk_render_graph_api_t* sk_render_graph_api_from_app(sk_app_context_t* context, const sk_app_api_t* host_api) {
 	return (const sk_render_graph_api_t*)host_api->get_api(context, SK_RENDER_GRAPH_API_TYPE_ID);
 }
 

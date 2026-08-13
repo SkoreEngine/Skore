@@ -45,16 +45,6 @@ typedef struct sk_vulkan_render_device_api_t {
 	u32 (*vma_allocator_size)(void);
 } sk_vulkan_render_device_api_t;
 
-/**
- * Register this plugin's API tables on the app context.
- * Called from sk_plugin_entry_point. Registers:
- *   - sk_render_device_api_t (full Vulkan backend) under SK_RENDER_DEVICE_API_TYPE_ID
- *   - sk_vulkan_render_device_api_t (loader surface) under SK_VULKAN_RENDER_DEVICE_API_TYPE_ID
- * @param context App context (must not be NULL).
- * @param app_api App module table (must not be NULL).
- */
-void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
-
 #ifdef __cplusplus
 }
 #endif

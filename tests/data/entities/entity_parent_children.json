@@ -1,0 +1,185 @@
+{
+  "format": "sk.resource_package",
+  "format_version": 1,
+  "root_uuid": "0000000000006101-0000000000006101",
+  "resources": [
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006101-0000000000006101",
+      "fields": {
+        "Name": "Parent",
+        "Components": [
+          "0000000000006111-0000000000006111",
+          "0000000000006112-0000000000006112"
+        ],
+        "Children": [
+          "0000000000006102-0000000000006102",
+          "0000000000006103-0000000000006103"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006102-0000000000006102",
+      "fields": {
+        "Name": "ChildA",
+        "Components": [
+          "0000000000006113-0000000000006113",
+          "0000000000006114-0000000000006114"
+        ],
+        "Children": [
+          "0000000000006104-0000000000006104",
+          "0000000000006105-0000000000006105"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006103-0000000000006103",
+      "fields": {
+        "Name": "ChildB",
+        "Components": [
+          "0000000000006119-0000000000006119",
+          "000000000000611a-000000000000611a"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006104-0000000000006104",
+      "fields": {
+        "Name": "GrandChildA1",
+        "Components": [
+          "0000000000006115-0000000000006115",
+          "0000000000006116-0000000000006116"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006105-0000000000006105",
+      "fields": {
+        "Name": "GrandChildA2",
+        "Components": [
+          "0000000000006117-0000000000006117",
+          "0000000000006118-0000000000006118"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006111-0000000000006111",
+      "fields": {
+        "Position": [1.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [2.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "CameraResource",
+      "uuid": "0000000000006112-0000000000006112",
+      "fields": {
+        "Projection": 0,
+        "FovY": 1.2,
+        "Near": 0.05,
+        "Far": 500.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006113-0000000000006113",
+      "fields": {
+        "Position": [10.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "LightResource",
+      "uuid": "0000000000006114-0000000000006114",
+      "fields": {
+        "Type": 0,
+        "Color": [1.0, 1.0, 1.0, 1.0],
+        "Intensity": 1.0,
+        "Range": 100.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006115-0000000000006115",
+      "fields": {
+        "Position": [10.0, 0.0, 5.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [0.5, 0.5, 0.5]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "StaticTagResource",
+      "uuid": "0000000000006116-0000000000006116",
+      "fields": {}
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006117-0000000000006117",
+      "fields": {
+        "Position": [10.0, 0.0, -5.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "CameraResource",
+      "uuid": "0000000000006118-0000000000006118",
+      "fields": {
+        "Projection": 1,
+        "FovY": 0.8,
+        "Near": 1.0,
+        "Far": 200.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006119-0000000000006119",
+      "fields": {
+        "Position": [20.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "StaticTagResource",
+      "uuid": "000000000000611a-000000000000611a",
+      "fields": {}
+    }
+  ]
+}

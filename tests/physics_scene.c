@@ -670,8 +670,9 @@ static void scene_report(const sk_jolt_api_t* jolt, const scene_observations_t* 
 /* ---- entry ---- */
 
 int main(int argc, char* argv[]) {
-	sk_app_context_t* ctx = sk_app_init(argc, argv);
-	const sk_app_api_t* app_api = sk_app_api();
+	sk_app_boot_t boot = sk_app_init(argc, argv);
+	sk_app_context_t* ctx = boot.context;
+	const sk_app_api_t* app_api = boot.api;
 	const sk_entities_api_t* ecs;
 	const sk_jolt_api_t* jolt;
 	sk_world_t* world;
@@ -692,7 +693,7 @@ int main(int argc, char* argv[]) {
 	world = app_api->scene_world(ctx);
 	if (ecs == NULL || jolt == NULL || world == NULL || jolt->step_world == NULL) {
 		fprintf(stderr, "sk-physics-scene: jolt/entities plugins not loaded (run from the build bin dir so {exe}/plugins is found)\n");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
@@ -703,7 +704,7 @@ int main(int argc, char* argv[]) {
 	if (!scene_validate(&scene_a)) {
 		fprintf(stderr, "sk-physics-scene: entity spawn failed (physics components not registered?)\n");
 		scene_teardown(ecs, world, &scene_a);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 	scene_run(ecs, jolt, world, &scene_a, &obs_a);
@@ -716,7 +717,7 @@ int main(int argc, char* argv[]) {
 	jolt->shutdown();
 	if (jolt->init(NULL) != 0) {
 		fprintf(stderr, "sk-physics-scene: jolt re-init for the repeat run failed\n");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
@@ -725,7 +726,7 @@ int main(int argc, char* argv[]) {
 	if (!scene_validate(&scene_b)) {
 		fprintf(stderr, "sk-physics-scene: entity spawn failed on repeat run\n");
 		scene_teardown(ecs, world, &scene_b);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 	scene_run(ecs, jolt, world, &scene_b, &obs_b);
@@ -737,6 +738,6 @@ int main(int argc, char* argv[]) {
 	printf("RESULT: %s\n", pass ? "PASS" : "FAIL");
 
 	scene_teardown(ecs, world, &scene_b);
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 	return pass ? 0 : 1;
 }

@@ -45,9 +45,9 @@ add_subdirectory(vma)
 # the plugins output dir via sk_copy_dxc_shared_library().
 add_subdirectory(dxc)
 
-# FreeType (font rasterization) + stb_rect_pack (glyph atlas packing) for ui.
+# FreeType (face load / cmap / metrics for ui; outline import for msdfgen).
+# The UI R8 raster + stb_rect_pack atlas path was retired (APX-271).
 add_subdirectory(freetype)
-add_subdirectory(stb_rect_pack)
 
 # Clay v0.14 (immediate-mode layout, single header) for ui (APX-213).
 add_subdirectory(clay)

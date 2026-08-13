@@ -69,9 +69,31 @@ export SK_TEST_FILTER='ui_author_ix_*'
 | **Interaction (behaviour)** | `plugins/ui/ui_interaction_tests.c` | `sk-tests` (plugin) | soft-render engine only |
 | **Interaction + vision** | `tests/integration/ui_interaction_suite.c` | `sk-integration-tests` | soft-render; API key for post-click vision |
 | **Vision helper** | `tests/integration/ui_vision_assert.c` | `sk-integration-tests` | mock always; live optional |
+| **Text screenshot (APX-268)** | `tests/integration/ui_text_screenshot.c` | `sk-integration-tests` + `sk-text-screenshot` | Vulkan ICD; no vision needed |
 
 Structural pixel/geometry asserts always run. Live grok-vision grades are
 **optional** unless credentials (or `SK_UI_VISION_REQUIRED=1`) say otherwise.
+
+### Deterministic text rendering screenshots (APX-268)
+
+`sk-text-screenshot` renders a fixed text-sample suite (pangram, font sizes
+8–96px, colored/alpha-blended text, 2x content-scale text, printable-ASCII
+glyph grid + raw atlas dump) through the headless offscreen renderer and
+writes PNG captures into `{SK_TEST_ARTIFACT_DIR}/text-screenshot/msdf/` (all
+UI text renders through the MSDF pipeline since APX-271):
+
+```bash
+cmake --build build --target sk-text-screenshot
+build/bin/sk-text-screenshot --verify
+# repeat + diff the trees to prove byte-identical determinism
+```
+
+`--verify` re-captures every sample and byte-compares (raw readback + PNG
+bytes). The same suite runs from CTest as `sk-text-screenshot`, and inside
+`sk-integration-tests` as `ui_text_screenshot_determinism` /
+`ui_text_screenshot_suite_completeness` (`SUITES=text-screenshot` via
+`run-ui-integration-tests.sh`). Rotation is not supported by the UI (no
+transform API), so the suite covers scaling only.
 
 ---
 

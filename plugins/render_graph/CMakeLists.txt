@@ -1,4 +1,6 @@
 file(GLOB_RECURSE SKORE_RENDER_GRAPH_SOURCES *.h *.c)
+# APX-275: exclude the internal-only extension (*.internal.h) — pattern rule, never exported/installed.
+list(FILTER SKORE_RENDER_GRAPH_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(render-graph SOURCES ${SKORE_RENDER_GRAPH_SOURCES})
 

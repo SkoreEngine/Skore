@@ -5,7 +5,7 @@
  * @brief Render graph module API (fn-table).
  *
  * Implemented by the sk-render-graph plugin (SHARED, statically linked
- * sk-core). The plugin registers a static sk_render_graph_api_t on the app
+ * sk-foundation). The plugin registers a static sk_render_graph_api_t on the app
  * context; hosts obtain it **only** via the app registry:
  *
  *   const sk_render_graph_api_t* graph =
@@ -546,14 +546,6 @@ typedef struct sk_render_graph_api_t {
 	/** Barrier at @p index from the last execute (0..get_barrier_count-1). */
 	i32 (*get_barrier_info)(const sk_render_graph_t* g, u32 index, sk_rg_barrier_info_t* out);
 } sk_render_graph_api_t;
-
-/**
- * Register the static sk_render_graph_api_t on the app context.
- * Called from sk_plugin_entry_point.
- * @param context App context (must not be NULL).
- * @param app_api App module table (must not be NULL).
- */
-void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 #ifdef __cplusplus
 }

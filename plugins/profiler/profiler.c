@@ -528,8 +528,26 @@ static void report_emit_to_file(void* user, const_chr_t line) {
 	fputc('\n', (FILE*)user);
 }
 
+static const sk_logger_api_t* profiler_host_logger_api(void) {
+	if (app_api_table == NULL || app_context == NULL) {
+		return NULL;
+	}
+	return app_api_table->logger_api(app_context);
+}
+
+static sk_logger_context_t* profiler_host_logger_ctx(void) {
+	if (app_api_table == NULL || app_context == NULL) {
+		return NULL;
+	}
+	return app_api_table->logger_context(app_context);
+}
+
 static void report_emit_to_log(void* user, const_chr_t line) {
-	sk_log_info(sk_logger_api(), (sk_logger_t*)user, "%s", line);
+	const sk_logger_api_t* logger_api = profiler_host_logger_api();
+	if (logger_api == NULL) {
+		return;
+	}
+	sk_log_info(logger_api, (sk_logger_t*)user, "%s", line);
 }
 
 static f64 report_pct_of(f64 part, f64 total) {
@@ -812,16 +830,18 @@ static i32 profiler_dump_report_json(const_chr_t path) {
 }
 
 static i32 profiler_log_report(void) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
-	if (logger_api == NULL) {
+	const sk_logger_api_t* logger_api = profiler_host_logger_api();
+	sk_logger_context_t* log_ctx = profiler_host_logger_ctx();
+	sk_logger_t* log;
+	if (logger_api == NULL || log_ctx == NULL) {
 		return -1;
 	}
-	sk_logger_t* log = logger_api->create_logger("profiler");
+	log = logger_api->create_logger(log_ctx, "profiler");
 	if (log == NULL) {
 		return -1;
 	}
 	profiler_render_text(report_emit_to_log, log);
-	logger_api->destroy_logger(log);
+	logger_api->destroy_logger(log_ctx, log);
 	return 0;
 }
 
@@ -882,6 +902,12 @@ static const sk_profiler_api_t profiler_api = {
 };
 
 /* ---- registration (called from sk_plugin_entry_point) ---- */
+
+/**
+ * Register the profiler API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	app_context = context;
@@ -1458,18 +1484,20 @@ SK_TEST(profiler_log_report_emits_console_form) {
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0 */
 
-	const sk_logger_api_t* logger_api = sk_logger_api();
+	const sk_logger_api_t* logger_api = profiler_host_logger_api();
+	sk_logger_context_t* log_ctx = profiler_host_logger_ctx();
 	TEST_ASSERT_NOT_NULL(logger_api);
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	sk_profiler_capture_sink_t cap;
 	memset(&cap, 0, sizeof(cap));
 	sk_log_sink_t sink;
 	memset(&sink, 0, sizeof(sink));
 	sink.user_data = &cap;
 	sink.print = profiler_capture_print;
-	TEST_ASSERT_EQUAL_INT(0, logger_api->add_sink(&sink));
+	TEST_ASSERT_EQUAL_INT(0, logger_api->add_sink(log_ctx, &sink));
 
 	TEST_ASSERT_EQUAL_INT(0, api->log_report());
-	TEST_ASSERT_EQUAL_INT(0, logger_api->remove_sink(&sink));
+	TEST_ASSERT_EQUAL_INT(0, logger_api->remove_sink(log_ctx, &sink));
 
 	TEST_ASSERT_TRUE(cap.count > 0u);
 	bool found_header = false;

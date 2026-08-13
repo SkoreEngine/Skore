@@ -3,7 +3,11 @@
 Task: **APX-126**. Branch target: `feature/design-and-implement-basic-ui-system`.
 Scope of this document: audit of what v2 already provides, how main-branch Dear ImGui is driven (migration reference), and a design for a **retained, flexbox-based UI plugin** that reuses engine abstractions without papering over their gaps.
 
-**v1 is not a full ImGui replacement** and **does not use msdfgen**. Goals are: a usable element tree + layout + draw list for tools/player HUD, a known migration path off main's ImGui, and a testable surface for a future UI tester.
+**v1 is a retained, flexbox-based UI plugin; text renders through the MSDF
+pipeline (vendored msdf-atlas-c + median/smoothstep decode) since APX-271.**
+Goals are: a usable element tree + layout + draw list for tools/player HUD, a
+known migration path off main's ImGui, and a testable surface for a future UI
+tester.
 
 ---
 
@@ -85,9 +89,9 @@ Host platform shared libs/clocks live in `core/platform.h` (`sk_platform_api_t`:
 | Serialization | `core/serialization.h` — binary + JSON archives | Persist styles, layouts, cooked font metadata. |
 | Filesystem | `core/filesystem.h` (impl in `app/`) | Raw read of `.ttf`/`.png`/shader source during v1 bootstrap and tests. |
 | Asset handlers / importers | **Not on HEAD.** Commit `afd212e` added `core/resource_assets.h` (handler/importer table shapes, ingest/cook contexts, `add_impl` registration) on other lines of work; **this tree has no `resource_assets.h`**. | Font/texture cook pipeline is designed but not landed. v1 must not invent a parallel asset system inside UI. |
-| main font path | main `FontImporter` (msdfgen) + `FontHandler` (`.font`) | **Out of v1** (no msdfgen). Reference only. |
+| main font path | main `FontImporter` (msdfgen) + `FontHandler` (`.font`) | **Not used by v1** — runtime MSDF bake via msdf-atlas-c replaces it. Reference only. |
 
-**v1 font/texture loading strategy:** load bytes via filesystem (or test fixtures), bake a simple bitmap atlas inside the UI plugin or a thin **font bake helper that later becomes a proper resource handler**. When `resource_assets` lands, Font/Texture handlers own disk formats; UI only consumes `sk_rid_t` + GPU handles resolved by the host/asset layer.
+**v1 font/texture loading strategy:** load bytes via filesystem (or test fixtures), bake an MSDF atlas with vendored msdf-atlas-c (see `docs/ui-plugin.md` §5). When `resource_assets` lands, Font/Texture handlers own disk formats; UI only consumes `sk_rid_t` + GPU handles resolved by the host/asset layer.
 
 ### 1.5 Core containers, math, strings
 
@@ -201,7 +205,7 @@ v1 UI **owns its own retained tree** but the **draw-list + GPU flush model shoul
 | --- | --- |
 | Context + frame bracketing | `sk-ui` (`begin_frame` / `end_frame`) |
 | SDL event feed | `platform_window` input events → `sk-ui` input queue (and future engine Input module) |
-| Font atlas at DPI | `sk-ui` text pipeline (bitmap atlas v1) |
+| Font atlas at DPI | `sk-ui` MSDF text pipeline (msdf-atlas-c) |
 | Vulkan render draw data | `sk-ui` draw list → `render_device` command encoding (host or UI encode helper) |
 | Docking / editor windows | **Out of v1** — editor keeps temporary ImGui or minimal custom chrome until a later milestone |
 | Field reflection widgets | Later editor layer on top of sk-ui primitives |
@@ -265,16 +269,31 @@ Backed by the **vendored Clay engine** (`thirdparty/clay`, v0.14) through the ad
 
 Style resolve runs when `Style` dirty; produces computed style cached on the node until next invalidation.
 
-### 3.4 Text pipeline (v1 — no msdfgen)
+### 3.4 Text pipeline (MSDF, since APX-271)
 
-1. **Font face:** TTF/OTF bytes loaded (filesystem or fixture). Rasterize glyphs with a **small self-contained rasterizer** (implementation choice at code time: stb_truetype-style single-file or FreeType **only if** vendored later by explicit request — default is no new thirdparty unless approved).
-2. **Atlas:** single R8 (or RGBA8) texture, pack glyphs on demand (skyline or shelf packer). Grow atlas texture via recreate + re-upload when full (invalidate glyph UVs).
-3. **Glyph cache:** codepoint + font size (px, logical) + face id → atlas UV, advance, bearings.
-4. **Shaping (v1):** left-to-right, Unicode scalar iteration with basic UTF-8 decode; **no** HarfBuzz, no complex scripts, no kerning required (optional simple kerning if free). Newline + soft wrap at spaces to max width.
-5. **Metrics:** ascent/descent/line gap from face; `measure_text` returns width/height for layout.
-6. **Paint:** emit textured quads tinted by style color into font pipeline batch.
+1. **Font face:** TTF/OTF bytes loaded (filesystem or fixture). FreeType is used
+   **only** for face loading (`FT_New_Memory_Face`), cmap queries
+   (`FT_Get_Char_Index`), and face metrics; glyph rasterization and the R8
+   bitmap atlas were retired (APX-271).
+2. **MSDF atlas:** `font_msdf_bake` drives msdf-atlas-c (ASCII charset,
+   INKTRAP edge coloring, tight power-of-two-square pack, Y_TOP_DOWN) and
+   quantizes the RGB32F result to **RGB8** with a **symmetric distance range
+   of 2 px** (`{-1,+1}` endpoints, edge at 0.5). One scale-independent atlas
+   per face serves every pixel size (see `docs/ui-plugin.md` §5).
+3. **Glyph records:** em-normalized advance, plane bounds, and UVs; kerning
+   table from a `MSDF_ATLAS_LOAD_KERNING` pass. Missing glyphs resolve to a
+   defined .notdef box.
+4. **Shaping (v1):** left-to-right UTF-8 walk; **no** HarfBuzz, no complex
+   scripts. Newline + soft wrap at spaces to max width.
+5. **Metrics:** atlas ascender/descender/line-height (em) × pixel size;
+   `measure_text` returns width/height for layout (same path as paint).
+6. **Paint:** per-glyph quads sampled as `median(r,g,b)`, converted to a
+   signed screen-space distance (`pxRange`/atlas size × `fwidth`), covered
+   with `smoothstep(-0.5, 0.5)` and clamped to 1 px minimum range.
+   Headless captures evaluate the same formula on the CPU.
 
-**Not in v1:** MSDF/multi-channel signed distance fields, runtime msdf-atlas-gen, font effects (outline/glow as separate geometry), rich text spans beyond single style per text node (optional later: simple runs).
+**Out of v1:** cooked `.font` atlas assets, MTSDF outlines/glow, rich text
+spans beyond a single style per text node.
 
 ### 3.5 Draw list and renderer
 
@@ -339,8 +358,10 @@ Rules:
 
 - **Invariant: `logical × content_scale == physical`.** The host lays out at `get_window_size`, then `layout_apply_scale(content_scale)`; if the window API returned pixels as "logical", the scale is applied twice and the UI is drawn `content_scale×` too large (clipped by the window) while hit-testing — which uses unscaled layout rects — lands `content_scale×` off the drawn widget.
 - All layout units are logical px.
-- Font raster size = `round(style.font_size * content_scale)` (with hysteresis to avoid thrashing).
-- On scale change: rebuild font atlas for used sizes, mark all layout dirty, recreate pipelines only if needed.
+- Font size for layout is the **logical** `font_size`; the MSDF atlas is
+  scale-independent, so paint scales em metrics by `font_size × content_scale`
+  (unrounded, min 1 px) without any re-raster. On scale change: mark all
+  layout dirty, recreate pipelines only if needed.
 - Prefer the content-scale callback; polling `get_window_content_scale` each frame remains valid.
 
 ### 3.8 Automation / testability (UI tester foundation)
@@ -406,7 +427,6 @@ Host owns: window, swapchain, command buffer lifetime, plugin load order.
 
 **Out:**
 
-- msdfgen / MSDF atlases
 - Full Dear ImGui replacement (docking, multi-viewport, demos, property grids, ImGuizmo)
 - RmlUi / HTML/CSS compatibility
 - Complex text (HarfBuzz, BiDi)
@@ -442,7 +462,7 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 | G6 | No process-wide frame phase / event bus (`OnBeginFrame`, `OnRecordRenderCommands`, …) | Main ImGui hooked these; host currently hard-codes order. UI can be called explicitly in v1, but editor scale wants a bus. | **`sk-app` / core events module** (new small core or app API — **not** ui) | P1 |
 | G7 | No engine `Input` module on v2 | Capture routing, text input active, cursor modes shared with gameplay. | **New `input` plugin or `platform_window` input facade** (prefer dedicated **input** plugin later; platform_window remains OS source) | P1 |
 | G8 | `resource_assets.h` + manager not on HEAD | Shared Font/Texture load/cook/reload; avoid UI-private file formats long term. | **core `resource_assets` + assets manager (app or plugin)** — land the designed header and runtime | P1 |
-| G9 | No Font resource type / importer without msdfgen | Cooked glyph metrics + atlas or source TTF reference for UI and scene text. | **resource assets Font handler/importer** (bitmap atlas cooker; **not** msdfgen for v1) | P1 |
+| G9 | No Font resource type / importer | Cooked glyph metrics + atlas or source TTF reference for UI and scene text. | **resource assets Font handler/importer** (MSDF atlas cooker; runtime bake via msdf-atlas-c is in) | P1 |
 | G10 | No Texture image loader (PNG/etc.) | Image widgets and icons. | **resource assets Texture handler/importer** | P1 |
 | G11 | No shared growable string type | Node labels, text input buffers, class name tables. | **`core`** (string module) if multiple systems need it; until then UI-local buffers only | P2 |
 | G12 | No `sk_color_t` / UI-friendly rect in core (repo has COLOR field category only) | Consistent color in styles and serialization. | **`core` (`math3d` or small `color` fields in math module)** | P2 |
@@ -464,7 +484,7 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 
 - [ ] G6 app/core: frame phase events (or documented host call order only)  
 - [ ] G7 input module (or platform_window input facade)  
-- [ ] G8–G10 resource assets + Font/Texture without msdfgen  
+- [ ] G8–G10 resource assets + Font/Texture cooker (MSDF runtime bake is in; no cooked assets yet)  
 - [ ] G16–G17 editor host + migration off ImGui_Impl*  
 
 **P2 — quality**
@@ -484,4 +504,4 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 
 v2 already has a **credible GPU and plugin foundation** for a basic UI system: registry lifecycle, a full render-device surface (buffers, textures, pipelines, render passes, scissor, indexed draws), GLFW windowing with DPI query, repository/serialization/filesystem, and DXC HLSL→SPIR-V from a memory string. **What it lacks** is input and HiDPI completeness on the window plugin, an asset handler pipeline on HEAD, frame events, and any UI/ImGui code.
 
-main's editor drives Dear ImGui through **SDL event dual-feed**, **DPI-scaled fonts/styles**, **begin-frame / record-commands event hooks**, and **ImGui_ImplVulkan draw-data** into a dedicated swapchain pass. v1 UI replaces that stack with a **retained flex tree + draw list** encoded via **`sk_render_device_api_t`**, keeps scope small (no msdfgen, no full ImGui), and **pushes every abstraction gap to its proper owner** instead of working around it inside the UI plugin.
+main's editor drives Dear ImGui through **SDL event dual-feed**, **DPI-scaled fonts/styles**, **begin-frame / record-commands event hooks**, and **ImGui_ImplVulkan draw-data** into a dedicated swapchain pass. v1 UI replaces that stack with a **retained flex tree + draw list** encoded via **`sk_render_device_api_t`**, keeps scope small (MSDF text, no full ImGui), and **pushes every abstraction gap to its proper owner** instead of working around it inside the UI plugin.

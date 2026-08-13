@@ -1,0 +1,192 @@
+
+=== 01 initial ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,280.3,720.0] tab=[0.0,0.0,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[643.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[695.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1042.9,0.0,237.1,357.0] tab=[643.0,1440.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[1042.9,363.0,237.1,357.0] tab=[643.0,1803.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 01_initial_layout 1280x720
+abs dock-demo-inspector: [643.0,1469.0,637.0,328.0] hidden_query=1
+abs dock-demo-inspector-title: [644.0,1470.0,0.0,0.0] hidden_query=0
+abs dock-demo-inspector-content: [644.0,1470.0,635.0,326.0] hidden_query=1
+abs dock-demo-inspector-dock-tab: [643.0,1440.0,84.0,29.0] hidden_query=1
+abs dock-demo-console: [643.0,1832.0,637.0,328.0] hidden_query=1
+abs dock-demo-console-title: [644.0,1833.0,0.0,0.0] hidden_query=0
+abs dock-demo-console-content: [644.0,1833.0,635.0,326.0] hidden_query=1
+abs dock-demo-console-dock-tab: [643.0,1803.0,68.0,29.0] hidden_query=1
+abs dock-demo-drop: [0.0,0.0,1280.0,720.0] hidden_query=0
+abs dock-demo-drop-preview: [0.0,0.0,0.0,0.0] hidden_query=0
+  scene before drag: x=286.28 y=0.00 w=750.67 h=720.00
+
+=== 02 drag in progress (hierarchy over scene) ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=0 node_valid=0 tab=missing
+dock-demo-scene docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[0.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[52.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[974.2,0.0,305.8,357.0] tab=[643.0,0.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[974.2,363.0,305.8,357.0] tab=[643.0,363.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+hierarchy docked after tear=0
+  drop overlay: x=0.00 y=0.00 w=1280.00 h=720.00
+  drop preview: x=0.00 y=0.00 w=320.00 h=720.00
+frame 02_drag_in_progress 1280x720
+
+=== 03 after edge dock Hierarchy->Scene DOWN ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[974.2,632.2,305.8,87.8] tab=[643.0,544.5,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[0.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[52.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[974.2,0.0,305.8,357.0] tab=[643.0,0.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[974.2,363.0,305.8,263.2] tab=[643.0,363.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 03_edge_dock_split 1280x720
+
+=== 04 after center dock Hierarchy->Scene CENTER ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=0 node_valid=0 tab=missing
+dock-demo-scene docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[0.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[52.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[974.2,0.0,305.8,357.0] tab=[643.0,0.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[974.2,363.0,305.8,357.0] tab=[643.0,363.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 04_center_dock_tab 1280x720
+  game tab: x=695.00 y=0.00 w=44.00 h=29.00
+
+=== 05 after clicking Game tab ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,280.3,720.0] tab=[0.0,0.0,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[643.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[695.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1042.9,0.0,237.1,357.0] tab=[643.0,1440.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[1042.9,363.0,237.1,357.0] tab=[643.0,1803.0,68.0,29.0]
+scene-leaf tabs=2 active=1: dock-demo-scene dock-demo-game
+frame 05_tab_switch_game 1280x720
+  root splitter before: x=637.00 y=0.00 w=6.00 h=720.00
+root split ratio before=0.2200
+frame 06a_splitter_before 1280x720
+root split ratio after=0.6227
+
+=== 06 after splitter drag ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,793.3,720.0] tab=[0.0,0.0,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[799.3,0.0,360.8,720.0] tab=[643.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[799.3,0.0,360.8,720.0] tab=[695.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1166.1,0.0,113.9,357.0] tab=[643.0,1440.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[1166.1,363.0,113.9,357.0] tab=[643.0,1803.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 06b_splitter_after 1280x720
+after undock: hierarchy_node_valid=1 overlay_valid=1 docked=0
+  hierarchy window after undock: x=1360.00 y=188.00 w=637.00 h=691.00
+hierarchy float style pos=1 left=1360.0 top=188.0 w=637.0 h=691.0
+
+=== 07 floating Hierarchy ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=0 node_valid=0 tab=missing
+dock-demo-scene docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[0.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[0.0,0.0,968.2,720.0] tab=[52.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[974.2,0.0,305.8,357.0] tab=[643.0,0.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[974.2,363.0,305.8,357.0] tab=[643.0,363.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 07_floating_window 1280x720
+
+=== rearranged persist JSON (1874 bytes) ===
+{
+    "version": 1,
+    "id": "dock-demo",
+    "flags": 17,
+    "root": {
+        "kind": "split",
+        "axis": 0,
+        "ratio": 0.6382812261581421,
+        "id": "root",
+        "flags": 0,
+        "a": {
+            "kind": "leaf",
+            "id": "dock-demo-left",
+            "flags": 0,
+            "tabs": [
+                "dock-demo-hierarchy"
+            ],
+            "active_index": 0,
+            "active": "dock-demo-hierarchy"
+        },
+        "b": {
+            "kind": "split",
+            "axis": 0,
+            "ratio": 0.7599999904632568,
+            "id": "root/1",
+            "flags": 0,
+            "a": {
+                "kind": "leaf",
+                "id": "dock-demo-center",
+                "flags": 1,
+                "tabs": [
+                    "dock-demo-scene",
+                    "dock-demo-game"
+                ],
+                "active_index": 1,
+                "active": "dock-demo-game"
+            },
+            "b": {
+                "kind": "split",
+                "axis": 1,
+                "ratio": 0.5,
+                "id": "root/1/1",
+                "flags": 0,
+                "a": {
+                    "kind": "leaf",
+                    "id": "dock-demo-right-top",
+                    "flags": 0,
+                    "tabs": [
+                        "dock-demo-inspector"
+                    ],
+                    "active_index": 0,
+                    "active": "dock-demo-inspector"
+                },
+                "b": {
+                    "kind": "leaf",
+                    "id": "dock-demo-right-bottom",
+                    "flags": 0,
+                    "tabs": [
+                        "dock-demo-console"
+                    ],
+                    "active_index": 0,
+                    "active": "dock-demo-console"
+                }
+            }
+        }
+    },
+    "floating": []
+}
+
+=== 08a rearranged before restart ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,813.2,720.0] tab=[0.0,0.0,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[819.2,0.0,345.7,720.0] tab=[643.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[819.2,0.0,345.7,720.0] tab=[695.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1170.8,0.0,109.2,357.0] tab=[643.0,1440.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[1170.8,363.0,109.2,357.0] tab=[643.0,1803.0,68.0,29.0]
+scene-leaf tabs=2 active=1: dock-demo-scene dock-demo-game
+frame 08a_rearranged_before_restart 1280x720
+
+=== 08b after demo restart (sample_dock_demo_build) ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,280.3,720.0] tab=[0.0,0.0,84.0,29.0]
+dock-demo-scene docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[643.0,0.0,52.0,29.0]
+dock-demo-game docked=1 node_valid=1 rect=[286.3,0.0,750.7,720.0] tab=[695.0,0.0,44.0,29.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1042.9,0.0,237.1,357.0] tab=[643.0,1440.0,84.0,29.0]
+dock-demo-console docked=1 node_valid=1 rect=[1042.9,363.0,237.1,357.0] tab=[643.0,1803.0,68.0,29.0]
+scene-leaf tabs=2 active=0: dock-demo-scene dock-demo-game
+frame 08b_after_demo_restart 1280x720
+
+=== 08c after dock_layout_load_json onto restarted demo ===
+dockspace valid split=1 leaf=0
+dock-demo-hierarchy docked=1 node_valid=1 rect=[0.0,0.0,813.2,720.0] tab=[0.0,0.0,0.0,0.0]
+dock-demo-scene docked=1 node_valid=1 rect=[819.2,0.0,345.7,720.0] tab=[0.0,0.0,0.0,0.0]
+dock-demo-game docked=1 node_valid=1 rect=[819.2,0.0,345.7,720.0] tab=[0.0,0.0,0.0,0.0]
+dock-demo-inspector docked=1 node_valid=1 rect=[1170.8,0.0,109.2,357.0] tab=[0.0,0.0,0.0,0.0]
+dock-demo-console docked=1 node_valid=1 rect=[1170.8,363.0,109.2,357.0] tab=[0.0,0.0,0.0,0.0]
+scene-leaf tabs=2 active=1: dock-demo-scene dock-demo-game
+frame 08c_after_json_load 1280x720

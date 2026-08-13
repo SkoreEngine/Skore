@@ -40,35 +40,46 @@
 i32 sk_jolt_components_register(const sk_entities_api_t* ecs) {
 	i32 rc = 0;
 
-	rc = ecs->register_component(SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, (u32)sizeof(sk_rigid_body_config_t), SK_JOLT_COMPONENT_ALIGN(sk_rigid_body_config_t), "rigid_body_config");
+/* v2 entities API: register_component takes one sk_component_desc_t. */
+#define SK_JOLT_REGISTER_COMPONENT(_type_id, _struct, _name) \
+	do {                                                     \
+		sk_component_desc_t _desc = {0};                     \
+		_desc.type_id = (_type_id);                          \
+		_desc.size = (u32)sizeof(_struct);                   \
+		_desc.align = SK_JOLT_COMPONENT_ALIGN(_struct);      \
+		_desc.name = (_name);                                \
+		rc = ecs->register_component(&_desc);                \
+	} while (0)
+
+	SK_JOLT_REGISTER_COMPONENT(SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, sk_rigid_body_config_t, "rigid_body_config");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, (u32)sizeof(sk_rigid_body_state_t), SK_JOLT_COMPONENT_ALIGN(sk_rigid_body_state_t), "rigid_body_state");
+	SK_JOLT_REGISTER_COMPONENT(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, sk_rigid_body_state_t, "rigid_body_state");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_TRANSFORM_COMPONENT_TYPE_ID, (u32)sizeof(sk_transform_t), SK_JOLT_COMPONENT_ALIGN(sk_transform_t), "transform");
+	SK_JOLT_REGISTER_COMPONENT(SK_TRANSFORM_COMPONENT_TYPE_ID, sk_transform_t, "transform");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, (u32)sizeof(sk_box_collider_t), SK_JOLT_COMPONENT_ALIGN(sk_box_collider_t), "box_collider");
+	SK_JOLT_REGISTER_COMPONENT(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, sk_box_collider_t, "box_collider");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, (u32)sizeof(sk_sphere_collider_t), SK_JOLT_COMPONENT_ALIGN(sk_sphere_collider_t), "sphere_collider");
+	SK_JOLT_REGISTER_COMPONENT(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, sk_sphere_collider_t, "sphere_collider");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, (u32)sizeof(sk_capsule_collider_t), SK_JOLT_COMPONENT_ALIGN(sk_capsule_collider_t), "capsule_collider");
+	SK_JOLT_REGISTER_COMPONENT(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, sk_capsule_collider_t, "capsule_collider");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, (u32)sizeof(sk_character_config_t), SK_JOLT_COMPONENT_ALIGN(sk_character_config_t), "character_config");
+	SK_JOLT_REGISTER_COMPONENT(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, sk_character_config_t, "character_config");
 	if (rc != 0) {
 		return rc;
 	}
-	rc = ecs->register_component(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, (u32)sizeof(sk_character_state_t), SK_JOLT_COMPONENT_ALIGN(sk_character_state_t), "character_state");
+	SK_JOLT_REGISTER_COMPONENT(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, sk_character_state_t, "character_state");
 	if (rc != 0) {
 		return rc;
 	}
@@ -101,16 +112,16 @@ void sk_jolt_components_register_all(sk_app_context_t* context, const sk_app_api
 #include "test.h"
 
 static sk_repository_t* jolt_components_test_repo(void) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
-	TEST_ASSERT_EQUAL_INT(0, sk_jolt_component_types_register(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_jolt_component_types_register(repo, api));
 	return repo;
 }
 
 /* Read a config resource and assert every field matches the snapshot below. */
 static void jolt_components_assert_config_fields(sk_repository_t* repo, sk_rid_t rid) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_resource_object_t r = api->read(repo, rid);
 	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(r));
 	TEST_ASSERT_EQUAL_UINT64(SK_JOLT_MOTION_TYPE_DYNAMIC, api->get_enum(r, SK_RIGID_BODY_CONFIG_FIELD_MOTION_TYPE));
@@ -125,7 +136,7 @@ static void jolt_components_assert_config_fields(sk_repository_t* repo, sk_rid_t
 }
 
 SK_TEST(jolt_components_repository_types_registered) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_repository_t* repo = jolt_components_test_repo();
 
 	/* Every physics component payload type is registered with the type id the
@@ -183,7 +194,7 @@ SK_TEST(jolt_components_repository_types_registered) {
 }
 
 SK_TEST(jolt_components_rigid_body_config_roundtrip) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_repository_t* repo = jolt_components_test_repo();
 
 	const sk_resource_type_t* type = api->find_type_by_name(repo, "RigidBodyConfigResource");
@@ -219,7 +230,7 @@ SK_TEST(jolt_components_rigid_body_config_roundtrip) {
 }
 
 SK_TEST(jolt_components_state_and_colliders_roundtrip) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_repository_t* repo = jolt_components_test_repo();
 
 	/* Rigid body state: hot per-frame velocities stored via vec3 accessors. */
@@ -283,7 +294,7 @@ SK_TEST(jolt_components_state_and_colliders_roundtrip) {
 }
 
 SK_TEST(jolt_components_character_config_and_state_roundtrip) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = sk_test_repository_table();
 	sk_repository_t* repo = jolt_components_test_repo();
 
 	{

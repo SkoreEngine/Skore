@@ -7,8 +7,8 @@
  * resolved from their typed handles (callers resolved RIDs outside the RHI).
  */
 
-#include "vulkan_render_device_internal.h"
-#include "vulkan_utils.h"
+#include "vulkan_render_device.internal.h"
+#include "vulkan_utils.internal.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -839,7 +839,8 @@ void sk_vkrd_resolve_texture(sk_render_device_t dev, sk_command_buffer_t cmd_han
 /* vkCmdUpdateBuffer: dataSize must be > 0, a multiple of 4, and <= 65536. */
 enum { SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES = 65536u };
 
-#ifdef SK_TESTS
+/* Chunk planner shared by sk_vkrd_update_buffer and the SK_TESTS chunk-plan
+ * tests below; compiled unconditionally because the production path calls it. */
 static u32 sk_vkrd_update_buffer_chunk_plan(u64 size, u64* out_sizes, u32 max_chunks) {
 	u32 count = 0u;
 	u64 remaining = size;
@@ -851,7 +852,6 @@ static u32 sk_vkrd_update_buffer_chunk_plan(u64 size, u64* out_sizes, u32 max_ch
 	}
 	return count;
 }
-#endif /* SK_TESTS */
 
 void sk_vkrd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handle, sk_buffer_t buf_handle, u64 offset, u64 size, const void* data) {
 	(void)dev;
@@ -863,7 +863,12 @@ void sk_vkrd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handl
 		return;
 	}
 	while (remaining > 0u) {
-		u64 chunk = remaining > (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES ? (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES : remaining;
+		u64 planned = 0ull;
+		u64 chunk;
+		if (sk_vkrd_update_buffer_chunk_plan(remaining, &planned, 1u) == 0u) {
+			break;
+		}
+		chunk = planned;
 		if ((chunk & 3ull) != 0ull) {
 			u8 pad[4] = {0u, 0u, 0u, 0u};
 			memcpy(pad, bytes, chunk);

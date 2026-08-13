@@ -7,8 +7,8 @@
  *
  *  - the Clay arena is allocated through the engine allocator (sk_allocator_t)
  *  - Clay_Initialize is fed the current viewport dimensions
- *  - Clay_SetMeasureTextFunction is backed by the engine's font metrics
- *    (sk_ui_font_metrics_t line height + per-glyph advances)
+ *  - Clay_SetMeasureTextFunction is backed by engine text layout
+ *    (MSDF atlas em metrics × size when that renderer is on, else FreeType)
  *  - Clay errors route to the engine logger (sk_logger_api_t)
  *
  * The smoke test declares a parent container with two children
@@ -16,7 +16,7 @@
  * array count and bounding boxes.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "clay.h"
 
@@ -75,7 +75,9 @@ static void ui_clay_error_handler(Clay_ErrorData error) {
 
 	logger = ui_clay_state.logger;
 	if (logger != NULL) {
-		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_ERROR, logger, "clay layout error (type %d): %s", (int)error.errorType, buf);
+		if (ui_logger_api() != NULL) {
+			sk_log_message(ui_logger_api(), SK_LOGGER_TYPE_ERROR, logger, "clay layout error (type %d): %s", (int)error.errorType, buf);
+		}
 	}
 }
 
@@ -84,60 +86,10 @@ static void ui_clay_error_handler(Clay_ErrorData error) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Decode one UTF-8 codepoint from @p s (length @p len), advancing @p index.
- * Returns the codepoint, or 0 when the byte at @p index is not a valid
- * lead/continuation byte (index still advances past the invalid byte).
- */
-static u32 ui_clay_utf8_next(const char* s, size_t len, size_t* index) {
-	u32 cp;
-	u32 need;
-	u32 k;
-	size_t i;
-	u8 c0;
-
-	i = *index;
-	if (i >= len) {
-		return 0u;
-	}
-	c0 = (u8)s[i];
-	if (c0 < 0x80u) {
-		*index = i + 1u;
-		return (u32)c0;
-	}
-	if (c0 < 0xc2u || c0 > 0xf4u) {
-		*index = i + 1u; /* invalid lead byte; skip one */
-		return 0u;
-	}
-	if (c0 < 0xe0u) {
-		cp = (u32)(c0 & 0x1fu);
-		need = 1u;
-	} else if (c0 < 0xf0u) {
-		cp = (u32)(c0 & 0x0fu);
-		need = 2u;
-	} else {
-		cp = (u32)(c0 & 0x07u);
-		need = 3u;
-	}
-	if (i + 1u + need > len) {
-		*index = len;
-		return 0u;
-	}
-	for (k = 0u; k < need; ++k) {
-		u8 cc = (u8)s[i + 1u + k];
-		if ((cc & 0xc0u) != 0x80u) {
-			*index = i + 1u + k;
-			return 0u;
-		}
-		cp = (cp << 6) | (u32)(cc & 0x3fu);
-	}
-	*index = i + 1u + need;
-	return cp;
-}
-
-/**
  * Clay measure callback. Width is the sum of engine glyph advances at the
- * requested pixel size; height is the engine font line height (fallbacks when
- * no font is bound). Signature is fixed by Clay (config must stay non-const).
+ * requested pixel size (MSDF atlas em metrics × size); height is the engine
+ * font line height. Missing glyphs use a defined .notdef advance instead of
+ * a space substitute.
  */
 // NOLINTNEXTLINE(readability-non-const-parameter)
 static Clay_Dimensions ui_clay_measure_text(Clay_StringSlice text, Clay_TextElementConfig* config, void* user_data) {
@@ -147,29 +99,33 @@ static Clay_Dimensions ui_clay_measure_text(Clay_StringSlice text, Clay_TextElem
 	size_t index;
 	f32 width;
 	f32 height;
-	u32 pixel_size;
+	f32 px;
+	u32 prev;
 
-	/* Clay text configs use physical pixel sizes, like the engine font system. */
-	pixel_size = (config != NULL && config->fontSize > 0u) ? (u32)config->fontSize : 16u;
+	/* Clay text configs use logical/physical pixel sizes, like the engine. */
+	px = (config != NULL && config->fontSize > 0u) ? (f32)config->fontSize : 16.0f;
 
 	width = 0.0f;
 	height = UI_CLAY_FALLBACK_FONT_SIZE;
 	if (state->font != NULL && state->font_system != NULL) {
-		if (ui_font_get_metrics_impl(state->font, pixel_size, &metrics) == 0) {
+		if (ui_text_layout_metrics(state->font, px, &metrics) == 0) {
 			height = metrics.line_height;
 		}
 		index = 0u;
+		prev = 0u;
 		while (index < (size_t)text.length) {
-			u32 cp = ui_clay_utf8_next(text.chars, (size_t)text.length, &index);
-			u32 glyph_index = ui_font_glyph_index_impl(state->font, cp);
-			sk_ui_glyph_t glyph;
-			if (glyph_index == 0u) {
-				glyph_index = ui_font_glyph_index_impl(state->font, 0x20u); /* space fallback */
+			u32 cp = 0u;
+			ui_text_layout_glyph_t glyph;
+			if (!ui_text_utf8_next((const u8*)text.chars, (size_t)text.length, &index, &cp)) {
+				prev = 0u;
+				continue;
 			}
-			if (ui_font_get_glyph_impl(state->font_system, state->font, pixel_size, glyph_index, &glyph) == 0) {
+			if (ui_text_layout_shape(state->font_system, state->font, px, prev, cp, &glyph) == 0) {
 				width += glyph.advance_x;
+				prev = glyph.is_fallback != 0 ? 0u : cp;
 			} else {
 				width += UI_CLAY_FALLBACK_GLYPH_ADVANCE;
+				prev = 0u;
 			}
 		}
 	} else {
@@ -225,7 +181,11 @@ i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewpo
 	ui_clay_state.viewport_height = viewport_height;
 	ui_clay_state.font_system = font_system;
 	ui_clay_state.font = font;
-	ui_clay_state.logger = sk_logger_api()->create_logger("clay");
+	if (ui_logger_api() != NULL && ui_logger_context() != NULL) {
+		ui_clay_state.logger = ui_logger_api()->create_logger(ui_logger_context(), "clay");
+	} else {
+		ui_clay_state.logger = NULL;
+	}
 
 	Clay_Initialize(arena, dims, handler);
 	Clay_SetMeasureTextFunction(ui_clay_measure_text, &ui_clay_state);
@@ -245,8 +205,8 @@ void ui_clay_shutdown(void) {
 	if (ui_clay_state.allocator != NULL && ui_clay_state.arena_memory != NULL) {
 		ui_clay_state.allocator->free(ui_clay_state.allocator->instance, ui_clay_state.arena_memory);
 	}
-	if (ui_clay_state.logger != NULL) {
-		sk_logger_api()->destroy_logger(ui_clay_state.logger);
+	if (ui_clay_state.logger != NULL && ui_logger_api() != NULL && ui_logger_context() != NULL) {
+		ui_logger_api()->destroy_logger(ui_logger_context(), ui_clay_state.logger);
 	}
 	memset(&ui_clay_state, 0, sizeof(ui_clay_state));
 }
@@ -343,7 +303,7 @@ SK_TEST(ui_clay_smoke_parent_two_children_grow_fixed) {
 
 	/* Bind the engine's test font so the measure callback runs against real
 	 * engine font metrics (not exercised by this layout, but proves wiring). */
-	sys = ui_font_system_create_impl(allocator, 256u, 256u);
+	sys = ui_font_system_create_impl(allocator);
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui_font_load_memory_impl(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);

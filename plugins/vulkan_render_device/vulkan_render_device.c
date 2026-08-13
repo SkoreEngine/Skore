@@ -21,9 +21,9 @@
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
-#include "vulkan_render_device_internal.h"
+#include "vulkan_render_device.internal.h"
 #include "vulkan_render_device.h"
-#include "vulkan_utils.h"
+#include "vulkan_utils.internal.h"
 
 #include "logger.h"
 #include "platform_window.h"
@@ -37,9 +37,19 @@
  * platform window surface via the app registry. */
 static sk_app_context_t* plugin_context = NULL;
 static const sk_app_api_t* plugin_app_api = NULL;
+static const sk_logger_api_t* plugin_logger_api = NULL;
+static sk_logger_context_t* plugin_log_ctx = NULL;
+static sk_logger_t* plugin_logger = NULL;
 
 static const sk_logger_api_t* vulkan_logger_api(void) {
-	return sk_logger_api();
+	return plugin_logger_api;
+}
+
+static sk_logger_t* vulkan_logger(void) {
+	if (plugin_logger == NULL && plugin_logger_api != NULL && plugin_log_ctx != NULL) {
+		plugin_logger = plugin_logger_api->create_logger(plugin_log_ctx, "Skore::Vulkan");
+	}
+	return plugin_logger;
 }
 
 /* ------------------------------------------------------------------ */
@@ -51,8 +61,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sk_vkrd_debug_callback(VkDebugUtilsMessage
 	(void)message_type;
 	(void)user_data;
 	const sk_logger_api_t* api = vulkan_logger_api();
-	sk_logger_t* log = api->create_logger("Skore::Vulkan");
-	if (log == NULL) {
+	sk_logger_t* log = vulkan_logger();
+	if (api == NULL || log == NULL) {
 		return VK_FALSE;
 	}
 	switch (message_severity) {
@@ -68,18 +78,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sk_vkrd_debug_callback(VkDebugUtilsMessage
 		sk_log_info(api, log, "%s", callback_data->pMessage != NULL ? callback_data->pMessage : "");
 		break;
 	}
-	api->destroy_logger(log);
 	return VK_FALSE;
 }
 
 static void sk_vkrd_log_error(const_chr_t message) {
 	const sk_logger_api_t* api = vulkan_logger_api();
-	sk_logger_t* log = api->create_logger("Skore::Vulkan");
-	if (log == NULL) {
+	sk_logger_t* log = vulkan_logger();
+	if (api == NULL || log == NULL) {
 		return;
 	}
 	sk_log_error(api, log, "%s", message);
-	api->destroy_logger(log);
 }
 
 /* ------------------------------------------------------------------ */
@@ -390,9 +398,20 @@ static const sk_vulkan_render_device_api_t vulkan_loader_api = {
 	.vma_allocator_size = sk_vkrd_loader_vma_allocator_size,
 };
 
+/**
+ * Register this plugin's API tables on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	plugin_context = context;
 	plugin_app_api = app_api;
+	plugin_logger_api = app_api->logger_api(context);
+	plugin_log_ctx = app_api->logger_context(context);
+	if (plugin_logger_api != NULL && plugin_log_ctx != NULL) {
+		plugin_logger = plugin_logger_api->create_logger(plugin_log_ctx, "Skore::Vulkan");
+	}
 	app_api->set_api(context, SK_RENDER_DEVICE_API_TYPE_ID, &vulkan_render_device_api);
 	app_api->set_api(context, SK_VULKAN_RENDER_DEVICE_API_TYPE_ID, &vulkan_loader_api);
 }

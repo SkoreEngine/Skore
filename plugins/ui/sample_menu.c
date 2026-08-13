@@ -11,23 +11,21 @@
  *     host loop (player) and the headless harness (tests share the same tree)
  *
  * HiDPI: logical layout is scale-independent; physical paint multiplies by
- * content scale once; glyphs re-rasterize at round(font_size * scale).
+ * content scale once. Text uses one scale-independent MSDF atlas per face.
  *
  * Performance notes (observed, not silently optimized):
  *   - paint rebuilds the full draw list when content scale changes
  *     (expected; scale is not a free transform on cached verts)
- *   - font glyph cache keys include physical pixel size, so 1x→2x causes
- *     cache misses and new FreeType raster + atlas packs (not thrash on
- *     steady scale; thrash only if scale oscillates every frame)
+ *   - MSDF glyphs scale in em space; 1x→2x does not rebake or re-rasterize
  *   - soft-render path (tests) walks all mesh triangles per frame into an
  *     RGBA buffer — O(pixels * coverage); fine for 320x240 / 640x480 goldens
  *   - draw batches break on texture/clip changes; a full menu typically
- *     issues several solid + font mesh commands (not a single mega-batch)
+ *     issues several solid + text mesh commands (not a single mega-batch)
  *   - no per-frame heap for layout when the tree is stable; paint may grow
  *     draw-list arrays once then reuse capacity
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 
@@ -750,7 +748,7 @@ static sk_ui_harness_t* sample_build_harness(const sk_ui_api_t* ui, f32 scale, s
 	TEST_ASSERT_NOT_NULL(h);
 	ctx = ui->harness_context(h);
 
-	fs = ui->font_system_create(NULL, 256u, 256u);
+	fs = ui->font_system_create(NULL);
 	TEST_ASSERT_NOT_NULL(fs);
 	font = ui->font_load_memory(fs, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
 	TEST_ASSERT_NOT_NULL(font);
@@ -840,10 +838,6 @@ SK_TEST(ui_sample_menu_layout_scale_independent_and_runtime_scale) {
 	const sk_ui_draw_list_t* dl1;
 	const sk_ui_draw_list_t* dl2;
 	u32 gen1, gen2;
-	u32 cache_before, cache_after;
-	u32 hits0, misses0, hits1, misses1;
-	u32 font_meshes_1x = 0u, font_meshes_2x = 0u;
-	u32 c;
 	f32 max_x_1 = 0.0f, max_x_2 = 0.0f;
 	u32 i;
 
@@ -861,21 +855,12 @@ SK_TEST(ui_sample_menu_layout_scale_independent_and_runtime_scale) {
 	dl1 = ui->harness_draw_list(h);
 	TEST_ASSERT_NOT_NULL(dl1);
 	gen1 = dl1->generation;
-	for (c = 0u; c < dl1->command_count; ++c) {
-		if (dl1->commands[c].kind == SK_UI_DRAW_CMD_MESH && dl1->commands[c].texture_kind == SK_UI_DRAW_TEX_FONT) {
-			font_meshes_1x += 1u;
-		}
-	}
 	for (i = 0u; i < dl1->vertex_count; ++i) {
 		if (dl1->vertices[i].x > max_x_1) {
 			max_x_1 = dl1->vertices[i].x;
 		}
 	}
-	ui->font_cache_stats(fs, &hits0, &misses0);
-	cache_before = ui->font_cache_count(fs);
-	TEST_ASSERT_TRUE(cache_before > 0u);
-	/* Glyphs may be solid coverage quads (no TEX_FONT mesh); require geometry. */
-	(void)font_meshes_1x;
+	/* Text emits MSDF coverage solids from one baked atlas; require geometry. */
 	TEST_ASSERT_TRUE(dl1->vertex_count > 32u);
 
 	/* Runtime scale change without recreating the tree (host path). */
@@ -903,11 +888,6 @@ SK_TEST(ui_sample_menu_layout_scale_independent_and_runtime_scale) {
 	TEST_ASSERT_TRUE(gen2 != gen1); /* paint rebuilt after scale change */
 	TEST_ASSERT_EQUAL_INT(0, dl2->reused);
 
-	for (c = 0u; c < dl2->command_count; ++c) {
-		if (dl2->commands[c].kind == SK_UI_DRAW_CMD_MESH && dl2->commands[c].texture_kind == SK_UI_DRAW_TEX_FONT) {
-			font_meshes_2x += 1u;
-		}
-	}
 	for (i = 0u; i < dl2->vertex_count; ++i) {
 		if (dl2->vertices[i].x > max_x_2) {
 			max_x_2 = dl2->vertices[i].x;
@@ -916,12 +896,6 @@ SK_TEST(ui_sample_menu_layout_scale_independent_and_runtime_scale) {
 	/* Geometry roughly 2x in physical space. */
 	TEST_ASSERT_TRUE(max_x_2 > max_x_1 * 1.5f);
 
-	ui->font_cache_stats(fs, &hits1, &misses1);
-	cache_after = ui->font_cache_count(fs);
-	/* Glyphs re-rasterize at the new physical size → additional cache entries. */
-	TEST_ASSERT_TRUE(cache_after > cache_before);
-	TEST_ASSERT_TRUE(misses1 > misses0);
-	(void)font_meshes_2x;
 	TEST_ASSERT_TRUE(dl2->vertex_count > 32u);
 
 	/* Soft-render buffer grew with scale. */

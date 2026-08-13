@@ -366,7 +366,7 @@ struct sk_render_graph_t {
 };
 
 /** App registry from plugin init — used to resolve sk_render_device_api_t
- *  and the sk-profiler table (sk-app loads plugins in sorted filename order,
+ *  and the sk-profiler table (the host loads plugins in sorted filename order,
  *  so sk-render-graph registers after sk-profiler). */
 static sk_app_context_t* g_rg_app_context = NULL;
 static const sk_app_api_t* g_rg_app_api = NULL;
@@ -3677,6 +3677,12 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_get_barrier_info_impl,
 };
 
+/**
+ * Register the render-graph API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_rg_app_context = context;
 	g_rg_app_api = app_api;
@@ -5320,7 +5326,7 @@ SK_TEST(render_graph_execute_imported_restores_state) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Minimal in-plugin RHI mock for execute end-to-end (no sk-app link). */
+/* Minimal in-plugin RHI mock for execute end-to-end (no host link). */
 /* ------------------------------------------------------------------ */
 
 typedef struct rg_mock_texture_t {

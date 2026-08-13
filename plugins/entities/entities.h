@@ -6,7 +6,7 @@
  *        queries, systems with a dependency-graph scheduler, and deferred
  *        entity commands.
  *
- * Implemented by the sk-entities plugin (SHARED, statically linked sk-core).
+ * Implemented by the sk-entities plugin (SHARED, statically linked sk-foundation).
  * The plugin registers a static sk_entities_api_t on the app context; hosts
  * obtain it **only** via the app registry (no free-function mirrors):
  *
@@ -14,7 +14,8 @@
  *       (const sk_entities_api_t*)app_api->get_api(ctx, SK_ENTITIES_API_TYPE_ID);
  *
  * Component types are identified by sk_type_id_t (see common.h): each
- * component's compile-time type id maps to its layout (size/align).
+ * component's compile-time type id maps to its layout (size/align) and
+ * optional asset-load hook.
  *
  * # Storage model
  *
@@ -40,7 +41,9 @@
  * { archetype, chunk, row } location. Destroyed slots are recycled through a
  * free list with a bumped generation, so stale handles fail the generation
  * check. The immediate structural APIs (world_spawn / world_despawn /
- * world_add_component / world_remove_component) mutate storage right away and
+ * world_add_component / world_remove_component /
+ * world_add_component_from_asset / world_spawn_from_asset /
+ * world_spawn_scene_from_asset) mutate storage right away and
  * are intentionally separate from the deferred sk_entitycommands_t surface.
  *
  * # Deferred entity commands
@@ -57,6 +60,7 @@
  */
 
 #include "common.h"
+#include "repository.h"
 
 #include <stddef.h>
 
@@ -143,6 +147,39 @@ typedef struct sk_component_info_t {
 	u32 align;
 	const_chr_t name;
 } sk_component_info_t;
+
+/**
+ * Optional hook invoked when a component instance is populated from a
+ * repository sub-object (world_spawn_from_asset). May be NULL.
+ *
+ * @param world               World that just spawned / added the component.
+ * @param entity              Live handle of that entity.
+ * @param repository          Repository that owns @p component_resource.
+ * @param instance            Already zero-initialized component slot.
+ * @param component_resource  RID of the component sub-object.
+ * @return 0 on success, non-zero on failure (does not roll back the entity).
+ */
+typedef i32 (*sk_component_on_load_asset_fn)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource);
+
+/**
+ * Caller-owned registration descriptor. Zero-init, then fill fields
+ * (`sk_component_desc_t desc = {0}`). The registry copies retained fields
+ * (type_id, size, align, name, hook pointers); the desc may be transient.
+ *
+ * Reserved hook slots are stored but not invoked until a later revision
+ * defines them. Non-NULL reserved pointers are accepted so a later
+ * revision can honor them without a second ABI break.
+ */
+typedef struct sk_component_desc_t {
+	sk_type_id_t type_id;						 /* must not be SK_TYPE_ID_ZERO */
+	u32 size;									 /* byte size; must be > 0 */
+	u32 align;									 /* byte align; must be > 0 */
+	const_chr_t name;							 /* optional; may be NULL */
+	sk_component_on_load_asset_fn on_load_asset; /* optional; may be NULL */
+	void (*on_unload_asset)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource);
+	i32 (*on_save_asset)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource);
+	void_ptr_t reserved[2];
+} sk_component_desc_t;
 
 /**
  * Location of an entity inside an archetype's chunk storage.
@@ -346,15 +383,16 @@ SK_FINLINE sk_query_iter_t sk_query_iter_make(const sk_query_t* query) {
  */
 typedef struct sk_entities_api_t {
 	/**
-	 * Register a component type (idempotent when the layout matches).
-	 * @param type_id Component identity (must not be SK_TYPE_ID_ZERO).
-	 * @param size    Component byte size (must be > 0).
-	 * @param align   Component byte alignment (must be > 0).
-	 * @param name    Optional component name (may be NULL).
+	 * Register a component type from a descriptor (idempotent when the
+	 * layout matches). On an idempotent re-register the first name and
+	 * hooks win; hook-pointer mismatches are not a conflict.
+	 * @param desc Caller-owned descriptor (must not be NULL). type_id must
+	 *             not be SK_TYPE_ID_ZERO; size and align must be > 0.
+	 *             name and on_load_asset may be NULL.
 	 * @return 0 on success, -1 on conflicting re-registration, -2 when the
-	 *         registry is full, -3 on invalid arguments.
+	 *         registry is full, -3 on invalid arguments (including NULL desc).
 	 */
-	i32 (*register_component)(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name);
+	i32 (*register_component)(const sk_component_desc_t* desc);
 
 	/**
 	 * Look up a registered component's layout.
@@ -363,6 +401,14 @@ typedef struct sk_entities_api_t {
 	 * @return 0 on success, non-zero if @p type_id is not registered.
 	 */
 	i32 (*component_info)(sk_type_id_t type_id, sk_component_info_t* out);
+
+	/**
+	 * Look up a registered component's descriptor (layout plus hooks).
+	 * @param type_id Component identity.
+	 * @param out     Receives the stored descriptor on success (may be NULL).
+	 * @return 0 on success, non-zero if @p type_id is not registered.
+	 */
+	i32 (*component_desc)(sk_type_id_t type_id, sk_component_desc_t* out);
 
 	/**
 	 * Create an archetype from a component signature.
@@ -832,6 +878,60 @@ typedef struct sk_entities_api_t {
 	 *         the component.
 	 */
 	void_ptr_t (*world_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Instantiate one component onto a live entity from a component resource.
+	 *
+	 * Resolves the resource's repository type id (that id IS the ECS
+	 * component type id), adds the component (zero-initialized), and invokes
+	 * the registered on_load_asset hook with the live instance so it can
+	 * pull authored data from @p repository. A NULL hook is valid: the
+	 * component stays zeroed (tag components).
+	 *
+	 * On hook failure the newly added component is removed so the entity
+	 * is not left with a half-initialized slot.
+	 *
+	 * @param world               World (must not be NULL).
+	 * @param entity              Live entity handle.
+	 * @param repository          Repository that owns @p component_resource
+	 *                            (must not be NULL).
+	 * @param component_resource  RID of the component sub-object.
+	 * @return 0 on success, -1 when the type id cannot be resolved or is
+	 *         not a registered component (or add fails), or the hook's
+	 *         non-zero code when on_load_asset fails.
+	 */
+	i32 (*world_add_component_from_asset)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, sk_rid_t component_resource);
+
+	/**
+	 * Spawn an entity tree from an entity_resource (or a scene_resource).
+	 *
+	 * @p rid may be an entity_resource / scene_resource payload, or a
+	 * ResourceAsset wrapper whose OBJECT field is one of those payloads
+	 * (unwrapped once). Components are instantiated through
+	 * world_add_component_from_asset. Child entity_resources are spawned
+	 * after the parent (resource Children tree; no Parent ECS component).
+	 * A child RID already on the ancestor chain is skipped (cycle guard).
+	 *
+	 * A failed entity is despawned (partial component adds are not left
+	 * behind). Failed siblings / later scene roots are not rolled back.
+	 *
+	 * @param world      World (must not be NULL).
+	 * @param repository Repository that owns @p rid (must not be NULL).
+	 * @param rid        Entity, scene, or ResourceAsset wrapper RID.
+	 * @return The spawned entity (first successful scene root), or
+	 *         SK_ENTITY_INVALID on failure / empty scene / unknown type.
+	 */
+	sk_entity_t (*world_spawn_from_asset)(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Spawn every Roots item of a scene_resource (and each item's children)
+	 * as sibling trees. @p rid may be a scene_resource payload or a
+	 * ResourceAsset wrapper whose OBJECT is one (unwrapped once).
+	 *
+	 * @return The first successfully spawned root, or SK_ENTITY_INVALID if
+	 *         the list is empty / every root failed / @p rid is not a scene.
+	 */
+	sk_entity_t (*world_spawn_scene_from_asset)(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid);
 
 	/**
 	 * Create a world-managed query. The query observes every archetype the

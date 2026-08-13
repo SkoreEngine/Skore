@@ -11,7 +11,7 @@
  * ImGui parity — no tables, trees, or multi-viewport docking.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 
@@ -1750,10 +1750,14 @@ static void ui_window_title_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk
 		}
 		(void)ui->pointer_capture_set(ctx, node);
 		(void)ui->node_set_state(ctx, node, ui->node_get_state(ctx, node) | (u32)SK_UI_STATE_ACTIVE);
+		window = ui->node_parent(ctx, node);
+		ui_dock_on_float_pointer(ctx, window, event);
 		event->consumed = 1;
 		return;
 	}
 	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		window = ui->node_parent(ctx, node);
+		ui_dock_on_float_pointer(ctx, window, event);
 		if (wd != NULL) {
 			wd->dragging = 0;
 		}
@@ -1794,6 +1798,7 @@ static void ui_window_title_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk
 	(void)ui->node_set_layout_style(ctx, window, &ls);
 	(void)ui->node_set_prop_f32(ctx, node, "drag_x", ls.left.value);
 	(void)ui->node_set_prop_f32(ctx, node, "drag_y", ls.top.value);
+	ui_dock_on_float_pointer(ctx, window, event);
 	event->consumed = 1;
 }
 
@@ -2706,7 +2711,7 @@ static void soft_raster_draw_list(const sk_ui_draw_list_t* dl, u8* px, u32 w, u3
 			continue;
 		}
 		/* Solid + image (treat image as solid using vertex color). Skip pure font AA for goldens. */
-		if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT) {
+		if (cmd->texture_kind == SK_UI_DRAW_TEX_MSDF) {
 			continue;
 		}
 		for (i = 0u; i + 2u < cmd->index_count; i += 3u) {
