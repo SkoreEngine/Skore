@@ -1,4 +1,8 @@
 file(GLOB_RECURSE SKORE_CORE_SOURCES CONFIGURE_DEPENDS *.h *.c)
+# APX-275: internal-only extension (*.internal.h) is compile-time-only and
+# never part of the exported header set — exclude it from the header glob
+# (pattern rule, not a filename list).
+list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 # test.c / test.h are the registry harness — production sk-core excludes test.c.
 # sk-test (see below) owns the registry implementation when BUILD_TESTING.
@@ -9,6 +13,9 @@ list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "test\\.c$")
 find_package(Threads REQUIRED)
 
 add_library(sk-core STATIC ${SKORE_CORE_SOURCES})
+# APX-275: exported header surface is public-only; *.internal.h headers are
+# never installed/exported (excluded from the header globs and the root
+# install rule), they only exist for in-tree TUs that need them.
 target_include_directories(sk-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Core is statically linked into shared plugins; objects must be PIC.

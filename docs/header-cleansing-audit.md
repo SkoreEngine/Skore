@@ -132,18 +132,25 @@ downstream consumers. Evidence: `grep -rln <name> --include='*.c' --include='*.h
 
 ## 3. Current header install / export / glob mechanism
 
-**There is no `install()` rule anywhere in first-party CMake** (verified:
-`grep -rn 'install(' --include='*.cmake' --include='CMakeLists.txt' . | grep -v thirdparty`
-→ empty; the only `install` strings are `CMAKE_INSTALL_RPATH`). Headers are
-distributed exclusively through **include directories + INTERFACE targets**,
-and every plugin dir is globbed wholesale:
+**APX-275 (landed): the engine now has one public-only header install rule** in
+the root `CMakeLists.txt`: `install(DIRECTORY core plugins … FILES_MATCHING
+PATTERN "*.h" PATTERN "*.internal.h" EXCLUDE)` — a pattern that installs every
+`*.h` under `core/` and `plugins/` except the internal-only `*.internal.h`
+extension (never a filename list). Every header glob that feeds an exported
+set applies the same `*.internal.h` exclusion (per-plugin and
+`core/CMakeLists.txt` `list(FILTER …)` lines, plus the central filter in
+`sk_add_plugin`), so internal headers stay compile-time-only and are never
+installed, packaged, or exported. In-tree consumers still get headers through
+**include directories + INTERFACE targets**, and every plugin dir is globbed
+wholesale:
 
 | Rule (file) | What it does to headers |
 |---|---|
 | `CMakeLists.txt` — `sk_embed_type_ids_in_dir(core app player editor plugins tests)` | **Rewrites headers in place** at configure time: replaces `SK_TYPE_ID("name")` with the MD5-hashed 3-arg form in every `*.h/*.c/*.hpp/*.cpp` under those dirs (`cmake/cmake_functions.cmake: sk_embed_type_ids_in_file`) |
 | `CMakeLists.txt` — `sk_check_header_isolation(core app player editor plugins tests)` | Configure-time scan of every `*.h`; `FATAL_ERROR` if a header includes `<pthread.h>`, `<windows.h>`, `<semaphore.h>`, `<sched.h>`, `<mtx.h>`, `<thread.h>`, `<threads.h>` |
-| `cmake/cmake_functions.cmake` — `sk_add_plugin(<name> SOURCES <globbed *.h *.c>)` | Per plugin: `file(GLOB_RECURSE *.h *.c)` → SHARED target; creates `sk-<name>-lib` INTERFACE with `target_include_directories(... INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})` — **the whole plugin dir (including `*_internal.h`, `vulkan_utils.h`, `testdata/*.h`) lands on every consumer's include path**; `sk_target_enable_tests` adds `SK_TESTS` |
-| `core/CMakeLists.txt` | `file(GLOB_RECURSE SKORE_CORE_SOURCES CONFIGURE_DEPENDS *.h *.c)`; `sk-core` PUBLIC include dir = whole `core/`; `sk-core-lib` INTERFACE (headers only); `sk-test`/`sk-core-tests` same glob |
+| `cmake/cmake_functions.cmake` — `sk_add_plugin(<name> SOURCES <globbed *.h *.c>)` | Per plugin: `file(GLOB_RECURSE *.h *.c)` → SHARED target; **APX-275: `list(FILTER … EXCLUDE REGEX "\\.internal\\.h$")` drops `*.internal.h` from the exported header set (compile-time-only via the plugin's PRIVATE include dir)**; creates `sk-<name>-lib` INTERFACE with `target_include_directories(... INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})` — the whole plugin dir physically sits on every consumer's include path, but internal headers are excluded from every header glob and from the install rule; `sk_target_enable_tests` adds `SK_TESTS` |
+| `CMakeLists.txt` — APX-275 header install rule | `install(DIRECTORY core plugins DESTINATION include/skore FILES_MATCHING PATTERN "*.h" PATTERN "*.internal.h" EXCLUDE)` — **installs only public headers**; any new `*.internal.h` is excluded automatically (pattern, not a list) |
+| `core/CMakeLists.txt` | `file(GLOB_RECURSE SKORE_CORE_SOURCES CONFIGURE_DEPENDS *.h *.c)` + APX-275 `list(FILTER … EXCLUDE REGEX "\\.internal\\.h$")`; `sk-core` PUBLIC include dir = whole `core/`; `sk-core-lib` INTERFACE (headers only); `sk-test`/`sk-core-tests` same glob |
 | `app/CMakeLists.txt`, `editor/CMakeLists.txt` | `GLOB_RECURSE *.h *.c`; `target_include_directories(... PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})` (editor also adds 4 plugin dirs); `sk-app-tests`/`sk-editor-tests` add plugin dirs privately (platform_window, entities, dxc_compiler, render_graph, render_device, profiler) |
 | `player/CMakeLists.txt` | `GLOB_RECURSE *.h *.c` into `sk-player`; PRIVATE include dirs for `plugins/platform_window`, `plugins/ui`, `plugins/ui/testdata`, `plugins/render_graph`, `plugins/render_device`, `plugins/dxc_compiler`, `plugins/profiler` |
 | `plugins/*/CMakeLists.txt` | Each `file(GLOB_RECURSE *.h *.c)` + `sk_add_plugin`; extra deps (e.g. ui links `sk-render-device-lib`, `sk-dxc-compiler-lib`; vulkan links `sk-render-device-lib`, `sk-platform-window-lib`) |
@@ -151,10 +158,11 @@ and every plugin dir is globbed wholesale:
 | `scripts/check-windows-abi.sh` | clang-tidy `-I` for every `plugins/*` dir + every `plugins/*/testdata` dir (so header renames stay found); `plugins/ui/testdata` mirrored for the font header |
 | `cmake/cmake_functions.cmake` — `sk_copy_dxc_shared_library` | Copies DXC **binaries** (`.dll/.so/.dylib`), not headers |
 
-**Consequence:** "internal" is convention only (name + non-use). Nothing in the
-build system curates a public header set; any file dropped in a plugin dir is
-globbed into the plugin target and re-exported through `sk-<name>-lib`. This is
-the root cause the cleansing addresses.
+**Consequence (APX-275 landed):** the install rule + the `*.internal.h`
+exclusion on every header glob now curate the public header set by pattern:
+any file dropped in a plugin dir is still globbed into the plugin target for
+the build, but headers named `*.internal.h` are compile-time-only and never
+installed/packaged/exported, and public headers are picked up automatically.
 
 ---
 
@@ -295,9 +303,11 @@ cmake --build build && ctest --test-dir build --output-on-failure
 2. **Internal-only headers:** 5 plugin-internal (vulkan_utils.h,
    vulkan_render_device_internal.h, ui_internal.h, profiler/core/profiler_core.h,
    testdata font) + 7 host/tests-internal.
-3. **Export mechanism:** no install rules; wholesale per-dir glob +
-   INTERFACE-target include paths mean "internal" is convention, not
-   enforcement.
+3. **Export mechanism:** one public-only header install rule
+   (APX-275, root `CMakeLists.txt`): `FILES_MATCHING PATTERN "*.h" PATTERN
+   "*.internal.h" EXCLUDE`; every header glob feeding an exported set applies
+   the same `*.internal.h` exclusion. Include paths still expose the plugin
+   dir physically, but internal headers are never installed/packaged/exported.
 4. **Convention:** `<name>.internal.h` for plugin-internal headers; `static`
    helpers live in the owning `.c`.
 5. **Follow-ups:** 3 renames with 21 in-plugin include-site edits total; 10

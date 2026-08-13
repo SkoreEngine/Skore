@@ -1,4 +1,6 @@
 file(GLOB_RECURSE SKORE_UI_SOURCES *.h *.c)
+# APX-275: exclude the internal-only extension (*.internal.h) — pattern rule, never exported/installed.
+list(FILTER SKORE_UI_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(ui SOURCES ${SKORE_UI_SOURCES})
 
