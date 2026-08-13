@@ -456,6 +456,32 @@ SK_TEST(ui_dock_save_then_restore_structurally_equal) {
 	uidock_make_workspace_windows(ui, dst, NULL, NULL);
 	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(dst, "editor-main", json, len));
 	uidock_assert_trees_equal(ui, src, ui->dockspace_find(src, "editor-main"), dst, ui->dockspace_find(dst, "editor-main"));
+	{
+		sk_ui_rect_t space;
+		sk_ui_rect_t src_left;
+		sk_ui_rect_t dst_left;
+		sk_ui_rect_t src_center;
+		sk_ui_rect_t dst_center;
+		sk_ui_rect_t src_split;
+		sk_ui_rect_t dst_split;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 1280.0f;
+		space.height = 720.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(src, ui->dockspace_find(src, "editor-main"), &space));
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(dst, ui->dockspace_find(dst, "editor-main"), &space));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(src, ui->dock_find_node_for_window(src, "hierarchy"), &src_left));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(dst, ui->dock_find_node_for_window(dst, "hierarchy"), &dst_left));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(src, ui->dock_find_node_for_window(src, "scene"), &src_center));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(dst, ui->dock_find_node_for_window(dst, "scene"), &dst_center));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_split_get_splitter_rect(src, ui->dockspace_find(src, "editor-main"), &src_split));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_split_get_splitter_rect(dst, ui->dockspace_find(dst, "editor-main"), &dst_split));
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, src_left.x, dst_left.x);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, src_left.width, dst_left.width);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, src_center.y, dst_center.y);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, src_center.height, dst_center.height);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, src_split.width, dst_split.width);
+	}
 	uidock_assert_workspace(ui, src);
 	uidock_assert_workspace(ui, dst);
 

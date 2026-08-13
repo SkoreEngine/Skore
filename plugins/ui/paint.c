@@ -997,26 +997,34 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		return 0;
 	}
 
-	/* Background */
-	if (ui_paint_color_visible(slot->computed.background_color)) {
-		bg_color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
-		radius_px = slot->computed.corner_radius * ((em->scale_x + em->scale_y) * 0.5f);
-		if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, radius_px, bg_color) != 0) {
-			return -1;
-		}
-	}
+	{
+		/* Toggle paints its own pill track (see widget marks). Axis-aligned
+		 * border strips square-off the rounded fill and make hover-off look
+		 * like a lone scalloped circle to vision (D2). */
+		const_chr_t box_wtype = ui_paint_prop_str(slot, "widget");
+		i32 skip_box_chrome = (box_wtype != NULL && strcmp(box_wtype, "toggle") == 0) ? 1 : 0;
 
-	/* Border (layout border widths × scale). */
-	if (ui_paint_color_visible(slot->computed.border_color)) {
-		const sk_ui_edges_t* b = &slot->layout_style.border;
-		f32 bl = b->left * em->scale_x;
-		f32 bt = b->top * em->scale_y;
-		f32 br = b->right * em->scale_x;
-		f32 bb = b->bottom * em->scale_y;
-		if (bl > 0.0f || bt > 0.0f || br > 0.0f || bb > 0.0f) {
-			bd_color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.border_color, opacity));
-			if (ui_paint_add_border(em, bx, by, bw, bh, bl, bt, br, bb, bd_color) != 0) {
+		/* Background */
+		if (skip_box_chrome == 0 && ui_paint_color_visible(slot->computed.background_color)) {
+			bg_color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
+			radius_px = slot->computed.corner_radius * ((em->scale_x + em->scale_y) * 0.5f);
+			if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, radius_px, bg_color) != 0) {
 				return -1;
+			}
+		}
+
+		/* Border (layout border widths × scale). */
+		if (skip_box_chrome == 0 && ui_paint_color_visible(slot->computed.border_color)) {
+			const sk_ui_edges_t* b = &slot->layout_style.border;
+			f32 bl = b->left * em->scale_x;
+			f32 bt = b->top * em->scale_y;
+			f32 br = b->right * em->scale_x;
+			f32 bb = b->bottom * em->scale_y;
+			if (bl > 0.0f || bt > 0.0f || br > 0.0f || bb > 0.0f) {
+				bd_color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.border_color, opacity));
+				if (ui_paint_add_border(em, bx, by, bw, bh, bl, bt, br, bb, bd_color) != 0) {
+					return -1;
+				}
 			}
 		}
 	}
@@ -1091,14 +1099,15 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			}
 		}
 		if (wtype != NULL && strcmp(wtype, "toggle") == 0) {
-			/* Pill track is the node background; draw a distinct thumb/knob. */
+			/* True pill track in every state (half-min-side radius), then thumb. */
 			i32 has_on = (ui_paint_prop_i32(slot, "on", &on) == 0) ? 1 : 0;
 			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
 			f32 pad = (bh < bw ? bh : bw) * 0.12f;
 			f32 thumb = bh - pad * 2.0f;
 			f32 thumb_x;
+			f32 pill_r = (bh < bw ? bh : bw) * 0.5f;
 			u32 thumb_col;
-			u32 track_on_col;
+			u32 track_col;
 			sk_ui_color_t accent;
 			sk_ui_color_t thumb_c;
 			if (has_on == 0) {
@@ -1108,12 +1117,17 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				thumb = 4.0f;
 			}
 			if (on != 0) {
-				/* Stronger track fill when ON so ON/OFF are distinguishable. */
-				accent = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
-				track_on_col = sk_ui_pack_color(ui_paint_mul_opacity(accent, opacity));
-				if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, (bh < bw ? bh : bw) * 0.5f, track_on_col) != 0) {
-					return -1;
-				}
+				/* Stronger track fill when ON so ON/OFF are distinguishable.
+				 * Disabled ON must read as washed-out slate in isolation (not a
+				 * still-vibrant blue pill) so vision grades "dimmed". */
+				accent = disabled != 0 ? sk_ui_rgba(0.18f, 0.22f, 0.30f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+			} else {
+				/* OFF/hover: state-styled fill, but forced to a stadium silhouette. */
+				accent = slot->computed.background_color;
+			}
+			track_col = sk_ui_pack_color(ui_paint_mul_opacity(accent, opacity));
+			if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, pill_r, track_col) != 0) {
+				return -1;
 			}
 			/* Place thumb using border-box so it sits fully on the pill track. */
 			thumb_x = (on != 0) ? (bx + bw - pad - thumb) : (bx + pad);
@@ -1124,7 +1138,7 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				thumb_x = bx + bw - thumb;
 			}
 			/* Bright thumb on dark track so the knob is separable from the pill. */
-			thumb_c = disabled != 0 ? sk_ui_rgba(0.62f, 0.64f, 0.68f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+			thumb_c = disabled != 0 ? sk_ui_rgba(0.48f, 0.50f, 0.54f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
 			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
 			{
 				f32 ty = by + (bh - thumb) * 0.5f;
