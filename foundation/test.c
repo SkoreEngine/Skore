@@ -26,6 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef SKORE_SOURCE_DIR
+#define SKORE_SOURCE_DIR ""
+#endif
+
+enum { SK_TEST_PATH_CLIMB_MAX = 8 };
+
 enum { SK_TEST_MAX = 1024 };
 
 typedef struct sk_test_entry_t {
@@ -192,6 +198,157 @@ void sk_test_apply_cli(const sk_test_cli_t* cli) {
 	if (cli->list_only != 0) {
 		(void)sk_test_set_env("SK_TEST_LIST", "1");
 	}
+}
+
+static i32 sk_test_join2(char* out, u32 cap, const char* a, const char* b) {
+	int n;
+	if (out == NULL || cap == 0u || a == NULL || b == NULL) {
+		return -1;
+	}
+	n = snprintf(out, cap, "%s/%s", a, b);
+	if (n < 0 || (u32)n >= cap) {
+		return -1;
+	}
+	return 0;
+}
+
+static i32 sk_test_path_readable(const char* path) {
+	FILE* f;
+	if (path == NULL || path[0] == '\0') {
+		return 0;
+	}
+	f = fopen(path, "rb");
+	if (f == NULL) {
+		return 0;
+	}
+	fclose(f);
+	return 1;
+}
+
+static i32 sk_test_dirname(char* out, u32 cap, const char* path) {
+	u32 i;
+	u32 slash = 0u;
+	u32 have = 0u;
+	if (out == NULL || cap == 0u || path == NULL || path[0] == '\0') {
+		return -1;
+	}
+	for (i = 0u; path[i] != '\0'; ++i) {
+		if (path[i] == '/' || path[i] == '\\') {
+			slash = i;
+			have = 1u;
+		}
+	}
+	if (have == 0u) {
+		if (cap < 2u) {
+			return -1;
+		}
+		out[0] = '.';
+		out[1] = '\0';
+		return 0;
+	}
+	if (slash == 0u) {
+		if (cap < 2u) {
+			return -1;
+		}
+		out[0] = path[0];
+		out[1] = '\0';
+		return 0;
+	}
+	if (slash >= cap) {
+		return -1;
+	}
+	memcpy(out, path, (size_t)slash);
+	out[slash] = '\0';
+	return 0;
+}
+
+static i32 sk_test_try_rel(char* out, u32 cap, const char* base, const char* rel) {
+	if (base == NULL || base[0] == '\0') {
+		return -1;
+	}
+	if (sk_test_join2(out, cap, base, rel) != 0) {
+		return -1;
+	}
+	return sk_test_path_readable(out) ? 0 : -1;
+}
+
+i32 sk_test_locate(char* out, u32 cap, const_chr_t rel, const_chr_t from_file) {
+	char dir[1024];
+	u32 climb;
+	static const char* bases[] = {
+		".",
+		"..",
+		"../..",
+		"../../..",
+		"skore",
+		"../skore",
+		"../../skore",
+		"thirdparty/skore",
+		"../thirdparty/skore",
+		"../../thirdparty/skore",
+	};
+	u32 i;
+
+	if (out == NULL || cap == 0u || rel == NULL || rel[0] == '\0') {
+		return -1;
+	}
+
+	if (sk_test_try_rel(out, cap, SKORE_SOURCE_DIR, rel) == 0) {
+		return 0;
+	}
+
+	if (from_file != NULL && from_file[0] != '\0' && sk_test_dirname(dir, (u32)sizeof(dir), from_file) == 0) {
+		for (climb = 0u; climb < (u32)SK_TEST_PATH_CLIMB_MAX; ++climb) {
+			if (sk_test_try_rel(out, cap, dir, rel) == 0) {
+				return 0;
+			}
+			if (sk_test_dirname(dir, (u32)sizeof(dir), dir) != 0) {
+				break;
+			}
+			if (dir[0] == '\0' || (dir[0] == '.' && dir[1] == '\0')) {
+				break;
+			}
+		}
+	}
+
+	for (i = 0u; i < sizeof(bases) / sizeof(bases[0]); ++i) {
+		if (sk_test_try_rel(out, cap, bases[i], rel) == 0) {
+			return 0;
+		}
+	}
+
+	if (SKORE_SOURCE_DIR[0] != '\0') {
+		(void)sk_test_join2(out, cap, SKORE_SOURCE_DIR, rel);
+	} else {
+		(void)sk_test_join2(out, cap, ".", rel);
+	}
+	return -1;
+}
+
+i32 sk_test_source_path(char* out, u32 cap, const_chr_t rel, const_chr_t from_file) {
+	char dir[1024];
+	u32 climb;
+
+	if (sk_test_locate(out, cap, rel, from_file) == 0) {
+		return 0;
+	}
+	if (out == NULL || cap == 0u || rel == NULL || rel[0] == '\0') {
+		return -1;
+	}
+	if (SKORE_SOURCE_DIR[0] != '\0' && sk_test_join2(out, cap, SKORE_SOURCE_DIR, rel) == 0) {
+		return 0;
+	}
+	if (from_file != NULL && from_file[0] != '\0' && sk_test_dirname(dir, (u32)sizeof(dir), from_file) == 0) {
+		for (climb = 0u; climb < (u32)SK_TEST_PATH_CLIMB_MAX; ++climb) {
+			if (sk_test_join2(out, cap, dir, rel) == 0) {
+				return 0;
+			}
+			if (sk_test_dirname(dir, (u32)sizeof(dir), dir) != 0) {
+				break;
+			}
+		}
+	}
+	return sk_test_join2(out, cap, ".", rel);
 }
 
 i32 sk_test_should_skip_integration(void) {

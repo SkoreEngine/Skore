@@ -127,6 +127,24 @@ i32 sk_test_set_env(const_chr_t key, const_chr_t value);
 i32 sk_test_name_matches_filter(const_chr_t name, const_chr_t filter);
 
 /**
+ * Find a committed engine source file regardless of cwd, build dir, or
+ * which repo is the CMake root (skore vs skore-test-suite).
+ *
+ * @p rel is from the engine source root, e.g. "plugins/ui/testdata/dock/v1_workspace.json".
+ * Search order: compile-time SKORE_SOURCE_DIR, climb from @p from_file (pass __FILE__),
+ * then well-known cwd layouts (sibling / submodule).
+ * @return 0 if a readable file was found and written to @p out.
+ */
+i32 sk_test_locate(char* out, u32 cap, const_chr_t rel, const_chr_t from_file);
+
+/**
+ * Path to read or write a committed engine source file.
+ * Uses an existing file when sk_test_locate succeeds; otherwise SKORE_SOURCE_DIR/@p rel.
+ * @return 0 if @p out was filled, non-zero on bad arguments.
+ */
+i32 sk_test_source_path(char* out, u32 cap, const_chr_t rel, const_chr_t from_file);
+
+/**
  * Whether a CTest-gated integration binary should skip.
  * True only when SK_CTEST_GATE is set and SK_RUN_INTEGRATION is explicitly 0.
  * Unset or any other value runs. Direct invocation (no SK_CTEST_GATE) always runs.

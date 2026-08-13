@@ -19,6 +19,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 
 /* ---- common.h / type-id tests (header-only module) ---- */
 
@@ -371,6 +376,40 @@ SK_TEST(test_integration_gate_direct_run_never_skips) {
 	} else {
 		(void)sk_test_set_env("SK_RUN_INTEGRATION", NULL);
 	}
+}
+
+#if defined(_WIN32)
+#define SK_TEST_GETCWD(buf, cap) _getcwd((buf), (int)(cap))
+#define SK_TEST_CHDIR(path) _chdir(path)
+#define SK_TEST_ROOT_DIR "C:\\"
+#else
+#define SK_TEST_GETCWD(buf, cap) getcwd((buf), (cap))
+#define SK_TEST_CHDIR(path) chdir(path)
+#define SK_TEST_ROOT_DIR "/"
+#endif
+
+SK_TEST(test_locate_engine_source_independent_of_cwd) {
+	char prev[1024];
+	char path[1024];
+	char missing[1024];
+	i32 loc;
+	i32 golden;
+	FILE* f;
+
+	TEST_ASSERT_NOT_NULL(SK_TEST_GETCWD(prev, sizeof(prev)));
+	TEST_ASSERT_EQUAL_INT(0, SK_TEST_CHDIR(SK_TEST_ROOT_DIR));
+	loc = sk_test_locate(path, (u32)sizeof(path), "foundation/test.h", __FILE__);
+	golden = sk_test_locate(missing, (u32)sizeof(missing), "plugins/ui/testdata/dock/v1_workspace.json", __FILE__);
+	TEST_ASSERT_EQUAL_INT(0, SK_TEST_CHDIR(prev));
+	TEST_ASSERT_EQUAL_INT(0, loc);
+	TEST_ASSERT_EQUAL_INT(0, golden);
+	f = fopen(path, "rb");
+	TEST_ASSERT_NOT_NULL(f);
+	if (f != NULL) {
+		fclose(f);
+	}
+	TEST_ASSERT_NOT_NULL(strstr(path, "foundation/test.h"));
+	TEST_ASSERT_NOT_EQUAL_INT(0, sk_test_locate(missing, (u32)sizeof(missing), "no/such/sk_test_locate_file.xyz", __FILE__));
 }
 
 #endif /* SK_TESTS */

@@ -4927,26 +4927,17 @@ SK_TEST(ui_dock_tab_drag_reorder_and_title_redock) {
 	ui->context_destroy(ctx);
 }
 
-#ifndef SK_UI_DOCK_LAYOUT_GOLDEN_DIR
-#define SK_UI_DOCK_LAYOUT_GOLDEN_DIR "../../plugins/ui/testdata/dock"
-#endif
+static i32 ui_dock_layout_golden_rel(char* rel, u32 cap, const char* name) {
+	int n = snprintf(rel, cap, "plugins/ui/testdata/dock/%s.json", name);
+	return (n < 0 || (u32)n >= cap) ? -1 : 0;
+}
 
 static i32 ui_dock_layout_golden_path(char* out, u32 cap, const char* name) {
-	static const char* bases[] = {
-		SK_UI_DOCK_LAYOUT_GOLDEN_DIR, "../../plugins/ui/testdata/dock", "../plugins/ui/testdata/dock", "plugins/ui/testdata/dock", "skore/plugins/ui/testdata/dock", ".",
-	};
-	u32 i;
-	for (i = 0u; i < sizeof(bases) / sizeof(bases[0]); ++i) {
-		FILE* f;
-		(void)snprintf(out, cap, "%s/%s.json", bases[i], name);
-		f = fopen(out, "rb");
-		if (f != NULL) {
-			fclose(f);
-			return 0;
-		}
+	char rel[256];
+	if (ui_dock_layout_golden_rel(rel, (u32)sizeof(rel), name) != 0) {
+		return -1;
 	}
-	(void)snprintf(out, cap, "%s/%s.json", SK_UI_DOCK_LAYOUT_GOLDEN_DIR, name);
-	return -1;
+	return sk_test_locate(out, cap, rel, __FILE__);
 }
 
 static i32 ui_dock_layout_env_regen(void) {
@@ -4963,9 +4954,11 @@ static void ui_dock_layout_assert_golden(const char* name, const char* json, u32
 	i32 regen = ui_dock_layout_env_regen();
 	i32 found = ui_dock_layout_golden_path(path, (u32)sizeof(path), name);
 	FILE* f;
+	char rel[256];
 
 	if (regen != 0 || found != 0) {
-		(void)snprintf(path, sizeof(path), "%s/%s.json", SK_UI_DOCK_LAYOUT_GOLDEN_DIR, name);
+		TEST_ASSERT_EQUAL_INT(0, ui_dock_layout_golden_rel(rel, (u32)sizeof(rel), name));
+		TEST_ASSERT_EQUAL_INT(0, sk_test_source_path(path, (u32)sizeof(path), rel, __FILE__));
 		f = fopen(path, "wb");
 		TEST_ASSERT_NOT_NULL_MESSAGE(f, "could not write dock layout golden");
 		TEST_ASSERT_EQUAL_UINT((unsigned)len, (unsigned)fwrite(json, 1u, len, f));

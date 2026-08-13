@@ -359,10 +359,6 @@ sk_ui_node_t ui_sample_menu_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef SK_UI_SAMPLE_GOLDEN_DIR
-#define SK_UI_SAMPLE_GOLDEN_DIR "../../plugins/ui/testdata/sample"
-#endif
-
 /* Minimal store-only PNG (same approach as widgets.c goldens). */
 static u32 sample_crc32_table[256];
 static i32 sample_crc32_ready;
@@ -673,22 +669,17 @@ static i32 sample_env_regen(void) {
 	return (e != NULL && e[0] == '1' && e[1] == '\0') ? 1 : 0;
 }
 
+static i32 sample_golden_rel(char* rel, u32 cap, const char* name) {
+	int n = snprintf(rel, cap, "plugins/ui/testdata/sample/%s.png", name);
+	return (n < 0 || (u32)n >= cap) ? -1 : 0;
+}
+
 static i32 sample_golden_path(char* out, u32 cap, const char* name) {
-	static const char* bases[] = {
-		SK_UI_SAMPLE_GOLDEN_DIR, "../../plugins/ui/testdata/sample", "../plugins/ui/testdata/sample", "plugins/ui/testdata/sample", ".",
-	};
-	u32 i;
-	for (i = 0u; i < sizeof(bases) / sizeof(bases[0]); ++i) {
-		FILE* f;
-		snprintf(out, cap, "%s/%s.png", bases[i], name);
-		f = fopen(out, "rb");
-		if (f != NULL) {
-			fclose(f);
-			return 0;
-		}
+	char rel[256];
+	if (sample_golden_rel(rel, (u32)sizeof(rel), name) != 0) {
+		return -1;
 	}
-	snprintf(out, cap, "%s/%s.png", SK_UI_SAMPLE_GOLDEN_DIR, name);
-	return -1;
+	return sk_test_locate(out, cap, rel, __FILE__);
 }
 
 static void sample_golden_compare(const char* name, const u8* actual, u32 w, u32 h) {
@@ -703,7 +694,9 @@ static void sample_golden_compare(const char* name, const u8* actual, u32 w, u32
 	u32 i;
 
 	if (regen || found != 0) {
-		snprintf(path, sizeof(path), "%s/%s.png", SK_UI_SAMPLE_GOLDEN_DIR, name);
+		char rel[256];
+		TEST_ASSERT_EQUAL_INT(0, sample_golden_rel(rel, (u32)sizeof(rel), name));
+		TEST_ASSERT_EQUAL_INT(0, sk_test_source_path(path, (u32)sizeof(path), rel, __FILE__));
 		TEST_ASSERT_EQUAL_INT(0, sample_png_write_rgba(path, actual, w, h));
 		if (regen) {
 			return;

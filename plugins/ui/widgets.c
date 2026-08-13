@@ -3010,32 +3010,20 @@ static i32 env_regen_goldens(void) {
 	return (e != NULL && e[0] == '1') ? 1 : 0;
 }
 
-#ifndef SK_UI_WIDGET_GOLDEN_DIR
-/* Relative to sk-tests cwd (build/bin): climb to source plugins/ui/testdata/widgets. */
-#define SK_UI_WIDGET_GOLDEN_DIR "../../plugins/ui/testdata/widgets"
-#endif
-
 #define W_GOLDEN_W 64u
 #define W_GOLDEN_H 40u
 
-/** Resolve a checked-in golden path (several cwd layouts used by the test host). */
+static i32 widget_golden_rel(char* rel, u32 cap, const char* name) {
+	int n = snprintf(rel, cap, "plugins/ui/testdata/widgets/%s.png", name);
+	return (n < 0 || (u32)n >= cap) ? -1 : 0;
+}
+
 static i32 widget_golden_path(char* out, u32 cap, const char* name) {
-	static const char* bases[] = {
-		SK_UI_WIDGET_GOLDEN_DIR, "../../plugins/ui/testdata/widgets", "../plugins/ui/testdata/widgets", "plugins/ui/testdata/widgets", ".",
-	};
-	u32 i;
-	for (i = 0u; i < sizeof(bases) / sizeof(bases[0]); ++i) {
-		FILE* f;
-		snprintf(out, cap, "%s/%s.png", bases[i], name);
-		f = fopen(out, "rb");
-		if (f != NULL) {
-			fclose(f);
-			return 0;
-		}
+	char rel[256];
+	if (widget_golden_rel(rel, (u32)sizeof(rel), name) != 0) {
+		return -1;
 	}
-	/* Prefer source-tree relative path for regeneration. */
-	snprintf(out, cap, "%s/%s.png", SK_UI_WIDGET_GOLDEN_DIR, name);
-	return -1;
+	return sk_test_locate(out, cap, rel, __FILE__);
 }
 
 static void widget_golden_compare(const char* name, const u8* actual) {
@@ -3045,8 +3033,9 @@ static void widget_golden_compare(const char* name, const u8* actual) {
 	i32 regen = env_regen_goldens();
 	i32 found = widget_golden_path(path, (u32)sizeof(path), name);
 	if (regen || found != 0) {
-		/* Write/regenerate at preferred path (dir must exist in the tree). */
-		snprintf(path, sizeof(path), "%s/%s.png", SK_UI_WIDGET_GOLDEN_DIR, name);
+		char rel[256];
+		TEST_ASSERT_EQUAL_INT(0, widget_golden_rel(rel, (u32)sizeof(rel), name));
+		TEST_ASSERT_EQUAL_INT(0, sk_test_source_path(path, (u32)sizeof(path), rel, __FILE__));
 		TEST_ASSERT_EQUAL_INT(0, png_write_rgba(path, actual, W_GOLDEN_W, W_GOLDEN_H));
 		if (regen) {
 			return;

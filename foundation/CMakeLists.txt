@@ -108,7 +108,14 @@ target_include_directories(sk-foundation-lib INTERFACE ${CMAKE_CURRENT_SOURCE_DI
 if(BUILD_TESTING)
     add_library(sk-test STATIC ${SKORE_FOUNDATION_TEST_C})
     target_include_directories(sk-test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_definitions(sk-test PUBLIC SK_TESTS)
+    # Absolute engine root so fixture/golden lookup does not depend on cwd or
+    # which repo is CMAKE_SOURCE_DIR (skore vs skore-test-suite).
+    file(TO_CMAKE_PATH "${SKORE_SOURCE_DIR}" _skore_src_norm)
+    target_compile_definitions(sk-test PUBLIC
+        SK_TESTS
+        SKORE_SOURCE_DIR="${_skore_src_norm}"
+    )
+    unset(_skore_src_norm)
     target_link_libraries(sk-test PUBLIC unity)
     set_target_properties(sk-test PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
