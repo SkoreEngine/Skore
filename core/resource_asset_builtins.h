@@ -107,6 +107,16 @@ enum sk_named_resource_field_t {
 	SK_NAMED_RESOURCE_FIELD_BYTES = 1,
 };
 
+/* EntityResource fields (APX-296, resource-to-ECS mapping contract §3.1).
+ * Name stays at index 0 so existing JSON envelopes stay valid; Components and
+ * Children are owned SubObjectLists (component resources and recursive child
+ * entity_resource payloads respectively). */
+enum sk_entity_resource_field_t {
+	SK_ENTITY_RESOURCE_FIELD_NAME = 0,
+	SK_ENTITY_RESOURCE_FIELD_COMPONENTS = 1,
+	SK_ENTITY_RESOURCE_FIELD_CHILDREN = 2,
+};
+
 /**
  * Register minimal payload resource types (Name [+ Content/Bytes]) used by the
  * built-in handlers/importers into @p repository.
@@ -125,6 +135,22 @@ void sk_resource_asset_builtins_bind_repository(sk_repository_t* repository);
  * Safe to call once per app context after plugins/app bootstrap.
  */
 void sk_resource_asset_builtins_register_impls(sk_app_context_t* context, const sk_app_api_t* app_api);
+
+/**
+ * Resolve an EntityResource component sub-object to its component type id
+ * (resource-to-ECS mapping contract §3): the component resource's registered
+ * repository type id IS the ECS component type id, so no extra TypeID field
+ * is stored on the component sub-object. Identity is recovered from the live
+ * resource's registered type, so prototype-scoped lookups and loaded graphs
+ * resolve the same way.
+ *
+ * @param repository    Repository owning @p component_rid (must not be NULL).
+ * @param component_rid RID of a component sub-object from an EntityResource's
+ *                      Components list.
+ * @return The component's type id, or SK_TYPE_ID_ZERO when @p component_rid
+ *         is not a live resource (or has no registered type).
+ */
+sk_type_id_t sk_resource_entity_component_type_id(const sk_repository_t* repository, sk_rid_t component_rid);
 
 #ifdef __cplusplus
 }

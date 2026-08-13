@@ -16,6 +16,7 @@
 #include "path.h"
 #include "resource_assets.h"
 #include "resource_assets_types.h"
+#include "resource_serialize.h"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -131,7 +132,43 @@ static const sk_resource_type_desc_t audio_resource_type_desc = {
 };
 SK_BUILTIN_NAMED_TYPE(SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID_LO, SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID_HI, "CSharpScriptResource", csharp_script);
 SK_BUILTIN_NAMED_TYPE(SK_DCC_ASSET_TYPE_ID_LO, SK_DCC_ASSET_TYPE_ID_HI, "DCCAsset", dcc_asset);
-SK_BUILTIN_NAMED_TYPE(SK_ENTITY_RESOURCE_TYPE_ID_LO, SK_ENTITY_RESOURCE_TYPE_ID_HI, "EntityResource", entity_resource);
+
+/* EntityResource (APX-296): Name stays at index 0 (existing JSON envelopes
+ * stay valid); Components / Children are owned SubObjectLists — component
+ * resources and recursively nested child entity_resource payloads. Type id
+ * and name are unchanged, so existing handlers / serialized documents keep
+ * working (see docs/resource-to-ecs-mapping-contract.md §3.1). */
+typedef struct sk_entity_resource_t {
+	sk_field_string_t name;				  /* SK_ENTITY_RESOURCE_FIELD_NAME */
+	sk_field_subobject_list_t components; /* SK_ENTITY_RESOURCE_FIELD_COMPONENTS */
+	sk_field_subobject_list_t children;	  /* SK_ENTITY_RESOURCE_FIELD_CHILDREN */
+} sk_entity_resource_t;
+
+static const sk_resource_field_t entity_resource_fields[] = {
+	{"Name", SK_ENTITY_RESOURCE_FIELD_NAME, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(sk_entity_resource_t, name), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+	{"Components",
+	 SK_ENTITY_RESOURCE_FIELD_COMPONENTS,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(sk_entity_resource_t, components),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+	{"Children",
+	 SK_ENTITY_RESOURCE_FIELD_CHILDREN,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(sk_entity_resource_t, children),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+};
+
+static const sk_resource_type_desc_t entity_resource_type_desc = {
+	{SK_ENTITY_RESOURCE_TYPE_ID_LO, SK_ENTITY_RESOURCE_TYPE_ID_HI},
+	"EntityResource",
+	(u32)sizeof(sk_entity_resource_t),
+	entity_resource_fields,
+	(u32)(sizeof(entity_resource_fields) / sizeof(entity_resource_fields[0])),
+	NULL,
+};
+
 SK_BUILTIN_NAMED_TYPE(SK_FONT_RESOURCE_TYPE_ID_LO, SK_FONT_RESOURCE_TYPE_ID_HI, "FontResource", font_resource);
 SK_BUILTIN_NAMED_TYPE(SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID_LO, SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID_HI, "MaterialGraphResource", material_graph);
 SK_BUILTIN_NAMED_TYPE(SK_MESH_RESOURCE_TYPE_ID_LO, SK_MESH_RESOURCE_TYPE_ID_HI, "MeshResource", mesh_resource);
@@ -176,6 +213,15 @@ i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository) {
 		}
 	}
 	return 0;
+}
+
+sk_type_id_t sk_resource_entity_component_type_id(const sk_repository_t* repository, sk_rid_t component_rid) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = api->resource_type(repository, component_rid);
+	if (type == NULL) {
+		return SK_TYPE_ID_ZERO;
+	}
+	return api->type_id(type);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1554,6 +1600,112 @@ SK_TEST(resource_asset_builtins_import_samples_per_importer) {
 	(void)fs->remove(root);
 
 	bi_teardown(repository, app, ctx);
+}
+
+SK_TEST(resource_asset_builtins_entity_resource_nested_roundtrip) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+
+	/* EntityResource carries Name(0) + two owned SubObjectLists: Components(1)
+	 * (component resources; their registered repository type id IS the ECS
+	 * component type id per the mapping contract) and Children(2) (recursive
+	 * child entity_resource payloads). */
+	sk_repository_t* repo = api->create(a);
+	TEST_ASSERT_NOT_NULL(repo);
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_builtins_register_types(repo));
+
+	const sk_resource_type_t* entity_type = api->find_type(repo, SK_ENTITY_RESOURCE_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(entity_type);
+	TEST_ASSERT_EQUAL_STRING("EntityResource", api->type_name(entity_type));
+	TEST_ASSERT_EQUAL_UINT32(3u, api->type_field_count(entity_type));
+	const sk_resource_field_t* f_components = api->type_field_at(entity_type, 1u);
+	const sk_resource_field_t* f_children = api->type_field_at(entity_type, 2u);
+	TEST_ASSERT_NOT_NULL(f_components);
+	TEST_ASSERT_NOT_NULL(f_children);
+	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST, f_components->type);
+	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST, f_children->type);
+
+	/* Parent entity: two components of distinct registered types + two child
+	 * entity_resources (recursive nesting). Package serialization encodes
+	 * cross-resource edges as UUID strings, so every node carries a UUID. */
+	sk_rid_t parent = api->create_resource(repo, entity_type, (sk_uuid_t){0x5101u, 0x5102u}, NULL);
+	sk_rid_t comp_mesh = api->create_resource(repo, api->find_type(repo, SK_MESH_RESOURCE_TYPE_ID), (sk_uuid_t){0x5103u, 0x5104u}, NULL);
+	sk_rid_t comp_mat = api->create_resource(repo, api->find_type(repo, SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID), (sk_uuid_t){0x5105u, 0x5106u}, NULL);
+	sk_rid_t child_a = api->create_resource(repo, entity_type, (sk_uuid_t){0x5107u, 0x5108u}, NULL);
+	sk_rid_t child_b = api->create_resource(repo, entity_type, (sk_uuid_t){0x5109u, 0x510au}, NULL);
+	TEST_ASSERT_TRUE(parent.id != 0u && comp_mesh.id != 0u && comp_mat.id != 0u && child_a.id != 0u && child_b.id != 0u);
+
+	{
+		sk_resource_object_t w = api->write(repo, child_a);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_ENTITY_RESOURCE_FIELD_NAME, "ChildA"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, child_b);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_ENTITY_RESOURCE_FIELD_NAME, "ChildB"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, parent);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_ENTITY_RESOURCE_FIELD_NAME, "Parent"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, &comp_mesh, 1u));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, comp_mat));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_CHILDREN, &child_a, 1u));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_CHILDREN, child_b));
+		api->commit(w, NULL);
+	}
+
+	/* Each component sub-object resolves to its registered repository type id. */
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(repo, comp_mesh), SK_MESH_RESOURCE_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(repo, comp_mat), SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(repo, SK_RID_ZERO), SK_TYPE_ID_ZERO));
+
+	/* Round-trip the nested graph through the repository (package JSON). */
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_package_json_alloc(repo, parent, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_NOT_NULL(strstr(json, "sk.resource_package"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Components\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Children\""));
+	api->destroy(repo);
+
+	repo = api->create(a);
+	TEST_ASSERT_NOT_NULL(repo);
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_builtins_register_types(repo));
+
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	a->free(a->instance, json);
+
+	sk_resource_object_t pr = api->read(repo, loaded);
+	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(pr));
+	TEST_ASSERT_EQUAL_STRING("Parent", api->get_string(pr, SK_ENTITY_RESOURCE_FIELD_NAME));
+	u32 comp_count = 0u;
+	const sk_rid_t* comps = api->get_subobject_list(pr, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, &comp_count);
+	TEST_ASSERT_EQUAL_UINT32(2u, comp_count);
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(repo, comps[0]), SK_MESH_RESOURCE_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(repo, comps[1]), SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID));
+
+	u32 child_count = 0u;
+	const sk_rid_t* children = api->get_subobject_list(pr, SK_ENTITY_RESOURCE_FIELD_CHILDREN, &child_count);
+	TEST_ASSERT_EQUAL_UINT32(2u, child_count);
+	/* Loaded children are EntityResource payloads themselves (recursion). */
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(api->type_id(api->resource_type(repo, children[0])), SK_ENTITY_RESOURCE_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(api->type_id(api->resource_type(repo, children[1])), SK_ENTITY_RESOURCE_TYPE_ID));
+	{
+		sk_resource_object_t ca = api->read(repo, children[0]);
+		sk_resource_object_t cb = api->read(repo, children[1]);
+		TEST_ASSERT_EQUAL_STRING("ChildA", api->get_string(ca, SK_ENTITY_RESOURCE_FIELD_NAME));
+		TEST_ASSERT_EQUAL_STRING("ChildB", api->get_string(cb, SK_ENTITY_RESOURCE_FIELD_NAME));
+	}
+
+	api->destroy(repo);
 }
 
 #endif /* SK_TESTS */
