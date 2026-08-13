@@ -128,8 +128,8 @@ set_tests_properties(sk-ui-integration-suites PROPERTIES
 #
 # Standalone entry point: renders the fixed text-sample suite through the
 # headless offscreen renderer and writes PNG captures into
-# {SK_TEST_ARTIFACT_DIR}/text-screenshot/{freetype,msdf}/ so the legacy
-# FreeType path and the MSDF path can be compared side by side. --verify
+# {SK_TEST_ARTIFACT_DIR}/text-screenshot/msdf/ so the MSDF pipeline can be
+# inspected (all UI text renders through MSDF since APX-271). --verify
 # re-captures every sample and byte-compares (raw readback + PNG bytes);
 # re-running the same command twice must produce byte-identical trees.
 add_executable(sk-text-screenshot
@@ -161,23 +161,16 @@ add_dependencies(sk-text-screenshot
     sk-ui
     sk-render-graph)
 
-# Both path modes captured with the determinism re-check, into the shared
+# MSDF pipeline captured with the determinism re-check, into the shared
 # artifact root. Skips cleanly when no Vulkan ICD is present (exit 2).
 add_test(
-    NAME sk-text-screenshot-freetype
+    NAME sk-text-screenshot
     COMMAND ${CMAKE_COMMAND} -E env
         "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
-        $<TARGET_FILE:sk-text-screenshot> --mode freetype --verify
+        $<TARGET_FILE:sk-text-screenshot> --verify
     WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
-add_test(
-    NAME sk-text-screenshot-msdf
-    COMMAND ${CMAKE_COMMAND} -E env
-        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
-        $<TARGET_FILE:sk-text-screenshot> --mode msdf --verify
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-)
-set_tests_properties(sk-text-screenshot-freetype sk-text-screenshot-msdf PROPERTIES
+set_tests_properties(sk-text-screenshot PROPERTIES
     LABELS "ui;ui-integration;ui-text-screenshot"
     TIMEOUT 1800
 )

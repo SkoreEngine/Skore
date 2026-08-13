@@ -858,7 +858,7 @@ static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st) {
 		return -1;
 	}
 
-	st->fonts = st->ui->font_system_create(NULL, 512u, 512u);
+	st->fonts = st->ui->font_system_create(NULL);
 	if (st->fonts != NULL) {
 		st->font = st->ui->font_load_memory(st->fonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
 	}

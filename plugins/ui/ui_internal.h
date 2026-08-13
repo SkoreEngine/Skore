@@ -115,8 +115,7 @@ typedef struct ui_draw_list_store_t {
 	sk_ui_draw_list_t view; /**< Public snapshot; pointers into the arrays. */
 	f32 last_scale_x;
 	f32 last_scale_y;
-	sk_ui_text_renderer_t last_text_renderer; /**< Resolved path used for the live list. */
-	i32 valid;								  /**< Non-zero after at least one successful paint rebuild. */
+	i32 valid; /**< Non-zero after at least one successful paint rebuild. */
 } ui_draw_list_store_t;
 
 /** Opaque Clay adapter frame state (clay_adapter.c). NULL until first layout. */
@@ -268,18 +267,13 @@ const sk_ui_draw_list_t* ui_get_draw_list_impl(const sk_ui_context_t* ctx);
 /* Font system (font.c)                                                       */
 /* -------------------------------------------------------------------------- */
 
-sk_ui_font_system_t* ui_font_system_create_impl(const sk_allocator_t* allocator, u32 page_width, u32 page_height);
+sk_ui_font_system_t* ui_font_system_create_impl(const sk_allocator_t* allocator);
 void ui_font_system_destroy_impl(sk_ui_font_system_t* system);
 sk_ui_font_t* ui_font_load_path_impl(sk_ui_font_system_t* system, const sk_filesystem_api_t* fs, const_chr_t path);
 sk_ui_font_t* ui_font_load_memory_impl(sk_ui_font_system_t* system, const u8* data, u32 size);
 void ui_font_destroy_impl(sk_ui_font_t* font);
 i32 ui_font_get_metrics_impl(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
 u32 ui_font_glyph_index_impl(const sk_ui_font_t* font, u32 codepoint);
-i32 ui_font_get_glyph_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, u32 glyph_index, sk_ui_glyph_t* out);
-u32 ui_font_atlas_page_count_impl(const sk_ui_font_system_t* system);
-i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
-u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
-void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
 
 /* MSDF atlas (font_msdf.c / font.c) — bake, query, dump; layout scales one atlas. */
 typedef struct ui_msdf_atlas_live_t ui_msdf_atlas_live_t;
@@ -317,14 +311,13 @@ typedef struct ui_text_layout_glyph_t {
 } ui_text_layout_glyph_t;
 
 i32 ui_text_utf8_next(const u8* s, size_t len, size_t* index, u32* out_cp);
-i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, i32 use_msdf, sk_ui_font_metrics_t* out);
-i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, i32 use_msdf, ui_text_layout_glyph_t* out);
-f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end, i32 use_msdf);
-i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_width, f32* out_height);
-i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_advance, f32* out_min_x, f32* out_max_x,
-								  f32* out_height);
+i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, sk_ui_font_metrics_t* out);
+i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, ui_text_layout_glyph_t* out);
+f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end);
+i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_width, f32* out_height);
+i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_advance, f32* out_min_x, f32* out_max_x, f32* out_height);
 
-/* CPU-side MSDF decode matching the fragment shader (mode 2). */
+/* CPU-side MSDF decode matching the fragment shader (MSDF mode). */
 f32 ui_msdf_median3(f32 r, f32 g, f32 b);
 f32 ui_msdf_screen_px_range(f32 px_range, f32 atlas_w, f32 atlas_h, f32 fwidth_u, f32 fwidth_v);
 f32 ui_msdf_coverage(f32 median, f32 screen_px_range);
@@ -341,10 +334,6 @@ u32 ui_font_system_font_count(const sk_ui_font_system_t* system);
 sk_ui_font_t* ui_font_system_font_at(sk_ui_font_system_t* system, u32 index);
 ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font);
 void ui_font_msdf_set(sk_ui_font_t* font, ui_msdf_atlas_live_t* atlas);
-
-void ui_set_text_renderer_impl(sk_ui_text_renderer_t renderer);
-sk_ui_text_renderer_t ui_get_text_renderer_impl(void);
-sk_ui_text_renderer_t ui_paint_resolve_text_renderer(const sk_ui_paint_params_t* params);
 
 /* -------------------------------------------------------------------------- */
 /* GPU renderer (render.c)                                                    */

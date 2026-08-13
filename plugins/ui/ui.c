@@ -437,53 +437,6 @@ static i32 ui_init_impl(void) {
 
 static void ui_shutdown_impl(void) {}
 
-/* -------------------------------------------------------------------------- */
-/* Text renderer switch (process-wide; env SK_UI_TEXT_RENDERER)               */
-/* -------------------------------------------------------------------------- */
-
-static i32 g_text_renderer_inited;
-static sk_ui_text_renderer_t g_text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
-
-static sk_ui_text_renderer_t ui_text_renderer_from_env(void) {
-	const char* e = getenv("SK_UI_TEXT_RENDERER");
-	if (e == NULL || e[0] == '\0') {
-		return SK_UI_TEXT_RENDERER_FREETYPE;
-	}
-	if (e[0] == 'm' || e[0] == 'M' || e[0] == '1') {
-		/* msdf / MSDF / 1 */
-		if (e[0] == '1' && e[1] != '\0') {
-			return SK_UI_TEXT_RENDERER_FREETYPE;
-		}
-		return SK_UI_TEXT_RENDERER_MSDF;
-	}
-	return SK_UI_TEXT_RENDERER_FREETYPE;
-}
-
-void ui_set_text_renderer_impl(sk_ui_text_renderer_t renderer) {
-	if (renderer == SK_UI_TEXT_RENDERER_DEFAULT) {
-		g_text_renderer_inited = 0;
-		g_text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
-		return;
-	}
-	g_text_renderer_inited = 1;
-	g_text_renderer = renderer;
-}
-
-sk_ui_text_renderer_t ui_get_text_renderer_impl(void) {
-	if (g_text_renderer_inited == 0) {
-		g_text_renderer = ui_text_renderer_from_env();
-		g_text_renderer_inited = 1;
-	}
-	return g_text_renderer;
-}
-
-sk_ui_text_renderer_t ui_paint_resolve_text_renderer(const sk_ui_paint_params_t* params) {
-	if (params != NULL && params->text_renderer != SK_UI_TEXT_RENDERER_DEFAULT) {
-		return params->text_renderer;
-	}
-	return ui_get_text_renderer_impl();
-}
-
 static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_ui_context_t* ctx;
 	const sk_allocator_t* a = allocator != NULL ? allocator : sk_allocator_default();
@@ -1496,18 +1449,11 @@ static const sk_ui_api_t ui_api = {
 	ui_font_destroy_impl,
 	ui_font_get_metrics_impl,
 	ui_font_glyph_index_impl,
-	ui_font_get_glyph_impl,
-	ui_font_atlas_page_count_impl,
-	ui_font_atlas_get_page_impl,
-	ui_font_cache_count_impl,
-	ui_font_cache_stats_impl,
 	ui_font_msdf_bake_impl,
 	ui_font_msdf_get_atlas_impl,
 	ui_font_msdf_get_glyph_impl,
 	ui_font_msdf_dump_impl,
 	ui_font_measure_text_impl,
-	ui_set_text_renderer_impl,
-	ui_get_text_renderer_impl,
 	ui_renderer_create_impl,
 	ui_renderer_destroy_impl,
 	ui_renderer_set_render_pass_impl,
@@ -1685,7 +1631,7 @@ const sk_ui_api_t* ui_get_api_table(void) {
 #ifdef SK_TESTS
 #include "test.h"
 
-/* Vendored deps: prove FreeType and stb_rect_pack still link.
+/* Vendored deps: prove FreeType (face load) still links.
  * Unity (via test.h) may include <stdnoreturn.h>, which defines
  * `noreturn` as `_Noreturn`. FreeType's ftstdlib.h then includes
  * <stdlib.h>; on Windows UCRT that uses `__declspec(noreturn)`, which
@@ -1695,7 +1641,6 @@ const sk_ui_api_t* ui_get_api_table(void) {
 #endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
-#include "stb_rect_pack.h"
 
 static const sk_ui_api_t* ui_test_api(void) {
 	return ui_get_api_table();
@@ -1710,23 +1655,10 @@ SK_TEST(ui_stub_init) {
 SK_TEST(ui_thirdparty_deps_link) {
 	FT_Library library = NULL;
 	const FT_Error ft_err = FT_Init_FreeType(&library);
-	stbrp_context pack_ctx;
-	stbrp_node nodes[8];
-	stbrp_rect rects[1];
 
 	TEST_ASSERT_EQUAL_INT(0, (int)ft_err);
 	TEST_ASSERT_NOT_NULL(library);
 	FT_Done_FreeType(library);
-
-	stbrp_init_target(&pack_ctx, 64, 64, nodes, 8);
-	rects[0].id = 0;
-	rects[0].w = 16;
-	rects[0].h = 16;
-	rects[0].x = 0;
-	rects[0].y = 0;
-	rects[0].was_packed = 0;
-	stbrp_pack_rects(&pack_ctx, rects, 1);
-	TEST_ASSERT_TRUE(rects[0].was_packed != 0);
 }
 
 SK_TEST(ui_tree_hierarchy_mutation) {

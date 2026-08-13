@@ -135,8 +135,7 @@ static sk_adapter_t uich_select_adapter(const sk_render_device_api_t* api, sk_re
  * from params (0 → SK_UI_CAPTURE_HARNESS_CONTENT_SCALE, the 1x / 96 DPI
  * reference), optional pinned font via load_test_font, full-surface viewport.
  * Never queries host DPI/scale. */
-static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, u32 height, f32 content_scale, sk_ui_text_renderer_t renderer, sk_ui_font_system_t* fonts,
-						sk_ui_font_t* font) {
+static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, u32 height, f32 content_scale, sk_ui_font_system_t* fonts, sk_ui_font_t* font) {
 	sk_ui_paint_params_t paint_params;
 	const f32 scale = content_scale > 0.0f ? content_scale : SK_UI_CAPTURE_HARNESS_CONTENT_SCALE;
 	/* layout() takes logical units; the framebuffer is physical (logical * scale). */
@@ -155,7 +154,6 @@ static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, 
 	memset(&paint_params, 0, sizeof(paint_params));
 	paint_params.font_system = fonts;
 	paint_params.font = font;
-	paint_params.text_renderer = renderer;
 	if (ui->paint(ctx, &paint_params) != 0) {
 		return -1;
 	}
@@ -258,7 +256,7 @@ i32 sk_ui_capture_harness_load_test_font(const sk_ui_api_t* ui, sk_ui_font_syste
 		return -1;
 	}
 
-	sys = ui->font_system_create(NULL, SK_UI_CAPTURE_HARNESS_FONT_ATLAS_W, SK_UI_CAPTURE_HARNESS_FONT_ATLAS_H);
+	sys = ui->font_system_create(NULL);
 	if (sys == NULL) {
 		fprintf(stderr, "ui_capture_harness: font_system_create failed\n");
 		return -1;
@@ -313,7 +311,6 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 	size_t bytes;
 	i32 rc = SK_UI_CAPTURE_HARNESS_RC_ERROR;
 
-	sk_ui_text_renderer_t renderer;
 	f32 content_scale;
 
 	if (out_image != NULL) {
@@ -322,10 +319,9 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 	if (params == NULL || params->scene_name == NULL || params->scene_name[0] == '\0' || params->width == 0u || params->height == 0u || out_image == NULL) {
 		return SK_UI_CAPTURE_HARNESS_RC_ERROR;
 	}
-	/* Explicit renderer per capture: DEFAULT resolves to the harness's
-	 * documented FreeType default so goldens stay comparable and captures
-	 * never inherit the process-wide switch from a previous call. */
-	renderer = params->text_renderer != SK_UI_TEXT_RENDERER_DEFAULT ? params->text_renderer : SK_UI_TEXT_RENDERER_FREETYPE;
+	/* Text always renders through the MSDF pipeline; the pinned font bakes
+	 * lazily on the first shape. Content scale is pinned per call — never
+	 * inherited from a previous capture or the host. */
 	content_scale = params->content_scale > 0.0f ? params->content_scale : SK_UI_CAPTURE_HARNESS_CONTENT_SCALE;
 
 	app = sk_app_init(0, NULL);
@@ -407,21 +403,21 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 		scene_info.font_system = fonts;
 		scene_info.font = font;
 	}
-	/* Text renderer for this capture; MSDF bakes the pinned font so simple
-	 * scenes paint without extra setup (a scene may replace font_system/
-	 * font; then it is responsible for baking its own face). */
-	ui->set_text_renderer(renderer);
-	if (renderer == SK_UI_TEXT_RENDERER_MSDF && font != NULL && ui->font_msdf_bake(font) != 0) {
+	/* Text always paints through the MSDF pipeline. Bake the pinned font
+	 * up front so scenes that dump the atlas (e.g. the text-screenshot
+	 * glyph_grid) see it ready; paint/measure re-bake lazily if needed
+	 * (a scene may replace font_system/font; then it is responsible for
+	 * baking its own face). */
+	if (font != NULL && ui->font_msdf_bake(font) != 0) {
 		goto out;
 	}
-
 	if (scene != NULL && scene(&scene_info, user) != 0) {
 		goto out;
 	}
 	/* Scene may replace the font pair; take ownership of whatever is set. */
 	fonts = scene_info.font_system;
 	font = scene_info.font;
-	if (uich_refresh(ui, ui_ctx, params->width, params->height, content_scale, renderer, fonts, font) != 0) {
+	if (uich_refresh(ui, ui_ctx, params->width, params->height, content_scale, fonts, font) != 0) {
 		goto out;
 	}
 
@@ -485,9 +481,6 @@ out:
 		dxc->shutdown();
 	}
 	if (ui != NULL) {
-		/* Leave the process-wide renderer at the harness default so later
-		 * captures/tests never inherit an MSDF switch from this call. */
-		ui->set_text_renderer(SK_UI_TEXT_RENDERER_FREETYPE);
 		ui->shutdown();
 	}
 	sk_app_destroy(app);

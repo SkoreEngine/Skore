@@ -4,19 +4,18 @@
  *
  * Renders a fixed suite of text samples on the headless offscreen renderer
  * (same pipeline as sk_ui_capture_harness_capture) and writes PNG captures
- * into {artifact-root}/text-screenshot/{mode}/ so the legacy FreeType path
- * and the MSDF path can be compared side by side. See ui_text_screenshot.h
- * for the determinism contract, sample coverage, and verification rules.
+ * into {artifact-root}/text-screenshot/msdf/ so the MSDF pipeline can be
+ * inspected and verified for determinism. See ui_text_screenshot.h for the
+ * determinism contract, sample coverage, and verification rules.
  *
  * Implementation notes:
- *   - Every sample capture goes through sk_ui_capture_harness_capture with
- *     the renderer pinned per call (text_renderer param) so captures never
- *     inherit the process-wide switch, and the harness restores FreeType
- *     before returning.
- *   - The atlas dump must happen inside the scene callback: the FreeType R8
- *     atlas only fills during rasterization, and the harness owns/destroys
- *     the font system after capture. The glyph_grid callback warms the full
- *     printable-ASCII set at a fixed 16px before dumping page 0.
+ *   - Every sample capture goes through sk_ui_capture_harness_capture; all
+ *     text renders through the MSDF pipeline (msdf-atlas-c bake + median /
+ *     smoothstep decode) — the legacy FreeType R8 path was retired (APX-271).
+ *   - The atlas dump happens inside the scene callback: the MSDF atlas is
+ *     baked lazily by the first shape, and the harness owns/destroys the
+ *     font system after capture. The glyph_grid callback bakes explicitly
+ *     before dumping.
  *   - verify mode re-captures every sample and byte-compares raw readback
  *     AND PNG artifact bytes; stb_image_write PNG encoding is deterministic
  *     for identical pixels, so byte equality of the files proves the whole
@@ -36,9 +35,8 @@
 /* Fixed suite content                                                        */
 /* -------------------------------------------------------------------------- */
 
-/* Alphanumeric + punctuation pangram (printable ASCII only; the MSDF bake
- * covers exactly this range plus space, and the FreeType path rasters any
- * codepoint, so both modes must render every character here). */
+/* Alphanumeric + punctuation pangram (printable ASCII only — the MSDF bake
+ * covers exactly this range plus space, so every character here renders). */
 #define TS_PANGRAM                                            \
 	"The quick brown fox jumps over the lazy dog 0123456789 " \
 	"!@#$%^&*()-_=+[]{};:'\",.<>/?\\|`~"
@@ -58,8 +56,7 @@ static const sk_ui_color_t ts_clear = {SK_UI_TEXT_SCREENSHOT_CLEAR_R, SK_UI_TEXT
 /* -------------------------------------------------------------------------- */
 
 typedef struct ts_ctx_t {
-	sk_ui_text_screenshot_mode_t mode;
-	const_chr_t mode_dir; /* "text-screenshot/{mode}" under the artifact root */
+	const_chr_t mode_dir; /* "text-screenshot/msdf" under the artifact root */
 	f32 content_scale;	  /* pinned per sample (1.0, or 2.0 for the scaled sample) */
 } ts_ctx_t;
 
@@ -386,36 +383,7 @@ static i32 ts_write_png(const sk_ui_api_t* ui, const_chr_t path, u32 w, u32 h, u
 	return 0;
 }
 
-/* FreeType: warm printable ASCII at a fixed 16px, then dump page 0 (the
- * fixed warm set packs into the first 256x256 page). */
-static i32 ts_dump_freetype_atlas(const sk_ui_api_t* ui, const ts_ctx_t* ctx, sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size) {
-	sk_ui_atlas_page_t page;
-	char path[SK_FS_PATH_MAX];
-	u32 cp;
-
-	if (ui->font_atlas_page_count(sys) == 0u) {
-		return -1;
-	}
-	for (cp = 0x20u; cp <= 0x7Eu; ++cp) {
-		const u32 gi = ui->font_glyph_index(font, cp);
-		sk_ui_glyph_t g;
-		if (gi == 0u || ui->font_get_glyph(sys, font, pixel_size, gi, &g) != 0) {
-			return -1;
-		}
-	}
-	if (ui->font_atlas_page_count(sys) != 1u) {
-		fprintf(stderr, "ui_text_screenshot: FreeType atlas grew to %u pages at %upx; dump pins page 0\n", ui->font_atlas_page_count(sys), pixel_size);
-	}
-	if (ui->font_atlas_get_page(sys, 0u, &page) != 0 || page.pixels == NULL) {
-		return -1;
-	}
-	if (ts_path_png(ctx->mode_dir, "atlas_freetype", path, (u32)sizeof(path)) != 0) {
-		return -1;
-	}
-	return ts_write_png(ui, path, page.width, page.height, 1u, page.pixels);
-}
-
-/* MSDF: dump the baked RGB8 atlas (bake is done by the harness). */
+/* MSDF: dump the baked RGB8 atlas (bake is done lazily by the harness). */
 static i32 ts_dump_msdf_atlas(const sk_ui_api_t* ui, const ts_ctx_t* ctx, sk_ui_font_t* font) {
 	sk_ui_msdf_atlas_t atlas;
 	char path[SK_FS_PATH_MAX];
@@ -441,11 +409,7 @@ static i32 ts_scene_glyph_grid(sk_ui_capture_scene_t* scene, void* user) {
 	if (scene->font_system == NULL || scene->font == NULL || ctx == NULL) {
 		return -1;
 	}
-	if (ctx->mode == SK_UI_TEXT_SCREENSHOT_MODE_MSDF) {
-		if (ts_dump_msdf_atlas(scene->ui, ctx, scene->font) != 0) {
-			return -1;
-		}
-	} else if (ts_dump_freetype_atlas(scene->ui, ctx, scene->font_system, scene->font, (u32)TS_GRID_FONT_SIZE) != 0) {
+	if (ts_dump_msdf_atlas(scene->ui, ctx, scene->font) != 0) {
 		return -1;
 	}
 	if (ts_root(scene, ctx, ts_clear) != 0) {
@@ -491,20 +455,8 @@ static const ts_sample_t ts_samples[] = {
 /* Mode naming / expected set                                                 */
 /* -------------------------------------------------------------------------- */
 
-const_chr_t sk_ui_text_screenshot_mode_name(sk_ui_text_screenshot_mode_t mode) {
-	switch (mode) {
-	case SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE:
-		return "freetype";
-	case SK_UI_TEXT_SCREENSHOT_MODE_MSDF:
-		return "msdf";
-	case SK_UI_TEXT_SCREENSHOT_MODE_COUNT:
-		break;
-	}
-	return "unknown";
-}
-
-static const_chr_t ts_atlas_base(sk_ui_text_screenshot_mode_t mode) {
-	return mode == SK_UI_TEXT_SCREENSHOT_MODE_MSDF ? "atlas_msdf" : "atlas_freetype";
+static const_chr_t ts_atlas_base(void) {
+	return "atlas_msdf";
 }
 
 u32 sk_ui_text_screenshot_expected_count(void) {
@@ -512,13 +464,13 @@ u32 sk_ui_text_screenshot_expected_count(void) {
 	return TS_SAMPLES_COUNT + 2u;
 }
 
-const_chr_t sk_ui_text_screenshot_expected_name(sk_ui_text_screenshot_mode_t mode, u32 i) {
+const_chr_t sk_ui_text_screenshot_expected_name(u32 i) {
 	if (i < TS_SAMPLES_COUNT) {
 		return ts_samples[i].name;
 	}
 	if (i == TS_SAMPLES_COUNT) {
 		/* ts_path_png appends ".png" — return the base name. */
-		return ts_atlas_base(mode);
+		return ts_atlas_base();
 	}
 	if (i == TS_SAMPLES_COUNT + 1u) {
 		return "manifest.txt";
@@ -527,14 +479,14 @@ const_chr_t sk_ui_text_screenshot_expected_name(sk_ui_text_screenshot_mode_t mod
 }
 
 /* Resolve one expected capture to its absolute path under @p subdir. */
-static i32 ts_expected_path_in(const_chr_t subdir, sk_ui_text_screenshot_mode_t mode, u32 i, char* out, u32 out_cap) {
+static i32 ts_expected_path_in(const_chr_t subdir, u32 i, char* out, u32 out_cap) {
 	char mode_dir[SK_FS_PATH_MAX];
 	const_chr_t name;
 
-	if (sk_path_join(sk_str_view_cstr(subdir), sk_str_view_cstr(sk_ui_text_screenshot_mode_name(mode)), mode_dir, (u32)sizeof(mode_dir)) < 0) {
+	if (sk_path_join(sk_str_view_cstr(subdir), sk_str_view_cstr(SK_UI_TEXT_SCREENSHOT_MODE_DIR), mode_dir, (u32)sizeof(mode_dir)) < 0) {
 		return -1;
 	}
-	name = sk_ui_text_screenshot_expected_name(mode, i);
+	name = sk_ui_text_screenshot_expected_name(i);
 	if (name == NULL) {
 		return -1;
 	}
@@ -546,8 +498,8 @@ static i32 ts_expected_path_in(const_chr_t subdir, sk_ui_text_screenshot_mode_t 
 
 /* Same with the default suite subdirectory (tests only). */
 #ifdef SK_TESTS
-static i32 ts_expected_path(sk_ui_text_screenshot_mode_t mode, u32 i, char* out, u32 out_cap) {
-	return ts_expected_path_in(SK_UI_TEXT_SCREENSHOT_SUBDIR, mode, i, out, out_cap);
+static i32 ts_expected_path(u32 i, char* out, u32 out_cap) {
+	return ts_expected_path_in(SK_UI_TEXT_SCREENSHOT_SUBDIR, i, out, out_cap);
 }
 #endif
 
@@ -610,11 +562,11 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 	memset(&img_a, 0, sizeof(img_a));
 	memset(&img_b, 0, sizeof(img_b));
 
-	if (params == NULL || params->mode >= SK_UI_TEXT_SCREENSHOT_MODE_COUNT) {
+	if (params == NULL) {
 		return SK_UI_TEXT_SCREENSHOT_RC_ERROR;
 	}
 	subdir = (params->subdir != NULL && params->subdir[0] != '\0') ? params->subdir : SK_UI_TEXT_SCREENSHOT_SUBDIR;
-	if (sk_path_join(sk_str_view_cstr(subdir), sk_str_view_cstr(sk_ui_text_screenshot_mode_name(params->mode)), mode_dir, (u32)sizeof(mode_dir)) < 0) {
+	if (sk_path_join(sk_str_view_cstr(subdir), sk_str_view_cstr(SK_UI_TEXT_SCREENSHOT_MODE_DIR), mode_dir, (u32)sizeof(mode_dir)) < 0) {
 		return SK_UI_TEXT_SCREENSHOT_RC_ERROR;
 	}
 	fs = ts_fs();
@@ -638,11 +590,9 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 		cp.time_seconds = 0.0;
 		cp.load_test_font = 1;
 		cp.content_scale = ts_samples[i].content_scale;
-		cp.text_renderer = params->mode == SK_UI_TEXT_SCREENSHOT_MODE_MSDF ? SK_UI_TEXT_RENDERER_MSDF : SK_UI_TEXT_RENDERER_FREETYPE;
 		cp.output_subdir = mode_dir;
 
 		memset(&ctx, 0, sizeof(ctx));
-		ctx.mode = params->mode;
 		ctx.mode_dir = mode_dir;
 		ctx.content_scale = ts_samples[i].content_scale;
 
@@ -651,7 +601,7 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			return SK_UI_TEXT_SCREENSHOT_RC_SKIPPED;
 		}
 		if (rc != SK_UI_CAPTURE_HARNESS_RC_OK || img_a.pixels == NULL) {
-			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' capture failed (rc=%d)", sk_ui_text_screenshot_mode_name(params->mode), ts_samples[i].name, rc);
+			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' capture failed (rc=%d)", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name, rc);
 			ts_log(params, line);
 			goto fail;
 		}
@@ -679,15 +629,15 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			}
 			/* Run 1 artifact bytes. */
 			if (ts_read_file(path, &file_a, &size_a) != 0) {
-				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify could not read artifact '%s'", sk_ui_text_screenshot_mode_name(params->mode),
-							   ts_samples[i].name, path);
+				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify could not read artifact '%s'", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name,
+							   path);
 				ts_log(params, line);
 				free(file_a);
 				goto fail;
 			}
 			if (is_grid != 0) {
-				if (ts_path_png(mode_dir, ts_atlas_base(params->mode), atlas_path, (u32)sizeof(atlas_path)) != 0 || ts_read_file(atlas_path, &atlas_a, &atlas_size_a) != 0) {
-					(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: glyph_grid verify could not read atlas dump", sk_ui_text_screenshot_mode_name(params->mode));
+				if (ts_path_png(mode_dir, ts_atlas_base(), atlas_path, (u32)sizeof(atlas_path)) != 0 || ts_read_file(atlas_path, &atlas_a, &atlas_size_a) != 0) {
+					(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: glyph_grid verify could not read atlas dump", SK_UI_TEXT_SCREENSHOT_MODE_DIR);
 					ts_log(params, line);
 					free(file_a);
 					free(atlas_a);
@@ -698,15 +648,14 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			if (rc != SK_UI_CAPTURE_HARNESS_RC_OK || img_b.pixels == NULL) {
 				free(file_a);
 				free(atlas_a);
-				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify re-capture failed (rc=%d)", sk_ui_text_screenshot_mode_name(params->mode),
-							   ts_samples[i].name, rc);
+				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify re-capture failed (rc=%d)", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name, rc);
 				ts_log(params, line);
 				goto fail;
 			}
 			/* Run 2 artifact bytes (file was overwritten by capture 2). */
 			if (ts_read_file(path, &file_b, &size_b) != 0) {
-				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify could not re-read artifact '%s'", sk_ui_text_screenshot_mode_name(params->mode),
-							   ts_samples[i].name, path);
+				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' verify could not re-read artifact '%s'", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name,
+							   path);
 				ts_log(params, line);
 				free(file_a);
 				free(file_b);
@@ -715,7 +664,7 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			}
 			if (is_grid != 0) {
 				if (ts_read_file(atlas_path, &atlas_b, &atlas_size_b) != 0) {
-					(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: glyph_grid verify could not re-read atlas dump", sk_ui_text_screenshot_mode_name(params->mode));
+					(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: glyph_grid verify could not re-read atlas dump", SK_UI_TEXT_SCREENSHOT_MODE_DIR);
 					ts_log(params, line);
 					free(file_a);
 					free(file_b);
@@ -733,17 +682,15 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			free(atlas_a);
 			free(atlas_b);
 			if (!same_pixels || !same_png || !same_atlas) {
-				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' NOT deterministic (pixels %s, png %s, atlas %s)",
-							   sk_ui_text_screenshot_mode_name(params->mode), ts_samples[i].name, same_pixels ? "same" : "DIFF", same_png ? "same" : "DIFF",
-							   same_atlas ? "same" : "DIFF");
+				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' NOT deterministic (pixels %s, png %s, atlas %s)", SK_UI_TEXT_SCREENSHOT_MODE_DIR,
+							   ts_samples[i].name, same_pixels ? "same" : "DIFF", same_png ? "same" : "DIFF", same_atlas ? "same" : "DIFF");
 				ts_log(params, line);
 				goto fail;
 			}
-			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' deterministic (%u bytes png)", sk_ui_text_screenshot_mode_name(params->mode),
-						   ts_samples[i].name, size_a);
+			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: sample '%s' deterministic (%u bytes png)", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name, size_a);
 			ts_log(params, line);
 		} else {
-			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: captured '%s'", sk_ui_text_screenshot_mode_name(params->mode), ts_samples[i].name);
+			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: captured '%s'", SK_UI_TEXT_SCREENSHOT_MODE_DIR, ts_samples[i].name);
 			ts_log(params, line);
 		}
 		sk_ui_capture_harness_image_free(&img_a);
@@ -760,12 +707,12 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 			goto fail;
 		}
 		for (i = 0u; i < sk_ui_text_screenshot_expected_count(); ++i) {
-			const_chr_t name = sk_ui_text_screenshot_expected_name(params->mode, i);
+			const_chr_t name = sk_ui_text_screenshot_expected_name(i);
 			char entry[SK_FS_PATH_MAX];
 			u64 size = 0u;
 			i32 n;
 
-			if (name == NULL || ts_expected_path_in(subdir, params->mode, i, entry, (u32)sizeof(entry)) != 0) {
+			if (name == NULL || ts_expected_path_in(subdir, i, entry, (u32)sizeof(entry)) != 0) {
 				continue;
 			}
 			size = fs->get_path_size(entry);
@@ -781,25 +728,25 @@ i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params) {
 	{
 		u32 missing = 0u;
 		for (i = 0u; i < sk_ui_text_screenshot_expected_count(); ++i) {
-			if (ts_expected_path_in(subdir, params->mode, i, path, (u32)sizeof(path)) != 0) {
+			if (ts_expected_path_in(subdir, i, path, (u32)sizeof(path)) != 0) {
 				++missing;
 				continue;
 			}
 			if (fs->get_file_status(path) != SK_FILE_STATUS_FILE || fs->get_path_size(path) == 0u) {
-				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: missing/empty expected capture '%s'", sk_ui_text_screenshot_mode_name(params->mode),
-							   sk_ui_text_screenshot_expected_name(params->mode, i));
+				(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: missing/empty expected capture '%s'", SK_UI_TEXT_SCREENSHOT_MODE_DIR,
+							   sk_ui_text_screenshot_expected_name(i));
 				ts_log(params, line);
 				++missing;
 			}
 		}
 		if (missing != 0u) {
-			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: completeness check failed (%u missing)", sk_ui_text_screenshot_mode_name(params->mode), missing);
+			(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: completeness check failed (%u missing)", SK_UI_TEXT_SCREENSHOT_MODE_DIR, missing);
 			ts_log(params, line);
 			goto fail;
 		}
 	}
 
-	(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: complete set written under {artifact-root}/%s/", sk_ui_text_screenshot_mode_name(params->mode), mode_dir);
+	(void)snprintf(line, sizeof(line), "ui_text_screenshot[%s]: complete set written under {artifact-root}/%s/", SK_UI_TEXT_SCREENSHOT_MODE_DIR, mode_dir);
 	ts_log(params, line);
 	return SK_UI_TEXT_SCREENSHOT_RC_OK;
 
@@ -817,104 +764,75 @@ fail:
 
 #include "test.h"
 
-/* One sample captured twice through the harness must be byte-identical in
- * both modes — the determinism core of the screenshot suite. */
+/* One sample captured twice through the harness must be byte-identical —
+ * the determinism core of the screenshot suite (MSDF pipeline only). */
 SK_TEST(ui_text_screenshot_determinism) {
-	static const struct {
-		const_chr_t name;
-		sk_ui_text_renderer_t renderer;
-	} modes[] = {
-		{"freetype", SK_UI_TEXT_RENDERER_FREETYPE},
-		{"msdf", SK_UI_TEXT_RENDERER_MSDF},
-	};
-	u32 m;
+	sk_ui_capture_harness_params_t p1;
+	sk_ui_capture_harness_params_t p2;
+	sk_ui_cpu_image_t a;
+	sk_ui_cpu_image_t b;
+	ts_ctx_t ctx;
+	i32 rc;
 
-	for (m = 0u; m < (u32)(sizeof(modes) / sizeof(modes[0])); ++m) {
-		sk_ui_capture_harness_params_t p1;
-		sk_ui_capture_harness_params_t p2;
-		sk_ui_cpu_image_t a;
-		sk_ui_cpu_image_t b;
-		ts_ctx_t ctx;
-		i32 rc;
+	memset(&p1, 0, sizeof(p1));
+	memset(&p2, 0, sizeof(p2));
+	memset(&a, 0, sizeof(a));
+	memset(&b, 0, sizeof(b));
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.mode_dir = SK_UI_TEXT_SCREENSHOT_SUBDIR;
+	ctx.content_scale = 1.0f;
 
-		memset(&p1, 0, sizeof(p1));
-		memset(&p2, 0, sizeof(p2));
-		memset(&a, 0, sizeof(a));
-		memset(&b, 0, sizeof(b));
-		memset(&ctx, 0, sizeof(ctx));
-		ctx.mode = m == 0u ? SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE : SK_UI_TEXT_SCREENSHOT_MODE_MSDF;
-		ctx.mode_dir = SK_UI_TEXT_SCREENSHOT_SUBDIR;
-		ctx.content_scale = 1.0f;
+	p1.scene_name = "ui_text_screenshot_determinism_a";
+	p1.width = 320u;
+	p1.height = 96u;
+	p1.clear_color_set = 1;
+	p1.clear_color = ts_clear;
+	p1.time_seconds = 0.0;
+	p1.load_test_font = 1;
+	p2 = p1;
+	p2.scene_name = "ui_text_screenshot_determinism_b";
 
-		p1.scene_name = "ui_text_screenshot_determinism_a";
-		p1.width = 320u;
-		p1.height = 96u;
-		p1.clear_color_set = 1;
-		p1.clear_color = ts_clear;
-		p1.time_seconds = 0.0;
-		p1.load_test_font = 1;
-		p1.text_renderer = modes[m].renderer;
-		p2 = p1;
-		p2.scene_name = "ui_text_screenshot_determinism_b";
-
-		rc = sk_ui_capture_harness_capture(&p1, ts_scene_pangram, &ctx, &a);
-		if (rc == SK_UI_CAPTURE_HARNESS_RC_SKIPPED) {
-			TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping text screenshot determinism");
-		}
-		TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
-		TEST_ASSERT_NOT_NULL(a.pixels);
-		rc = sk_ui_capture_harness_capture(&p2, ts_scene_pangram, &ctx, &b);
-		TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
-		TEST_ASSERT_NOT_NULL(b.pixels);
-		TEST_ASSERT_EQUAL_UINT(a.width, b.width);
-		TEST_ASSERT_EQUAL_UINT(a.height, b.height);
-		TEST_ASSERT_EQUAL_UINT(a.channels, b.channels);
-		TEST_ASSERT_EQUAL_INT(0, memcmp(a.pixels, b.pixels, (size_t)a.width * a.height * a.channels));
-		sk_ui_capture_harness_image_free(&a);
-		sk_ui_capture_harness_image_free(&b);
+	rc = sk_ui_capture_harness_capture(&p1, ts_scene_pangram, &ctx, &a);
+	if (rc == SK_UI_CAPTURE_HARNESS_RC_SKIPPED) {
+		TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping text screenshot determinism");
 	}
+	TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
+	TEST_ASSERT_NOT_NULL(a.pixels);
+	rc = sk_ui_capture_harness_capture(&p2, ts_scene_pangram, &ctx, &b);
+	TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
+	TEST_ASSERT_NOT_NULL(b.pixels);
+	TEST_ASSERT_EQUAL_UINT(a.width, b.width);
+	TEST_ASSERT_EQUAL_UINT(a.height, b.height);
+	TEST_ASSERT_EQUAL_UINT(a.channels, b.channels);
+	TEST_ASSERT_EQUAL_INT(0, memcmp(a.pixels, b.pixels, (size_t)a.width * a.height * a.channels));
+	sk_ui_capture_harness_image_free(&a);
+	sk_ui_capture_harness_image_free(&b);
 }
 
-/* Both path modes must produce complete, parallel capture sets. */
+/* The MSDF suite run must produce the complete capture set. */
 SK_TEST(ui_text_screenshot_suite_completeness) {
 	const sk_filesystem_api_t* fs = ts_fs();
 	sk_ui_text_screenshot_params_t p;
-	sk_ui_text_screenshot_mode_t mode;
+	char path[SK_FS_PATH_MAX];
+	i32 rc;
 	u32 i;
 
 	TEST_ASSERT_NOT_NULL(fs);
-	for (mode = SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE; mode < SK_UI_TEXT_SCREENSHOT_MODE_COUNT; mode = (sk_ui_text_screenshot_mode_t)((u32)mode + 1u)) {
-		char path[SK_FS_PATH_MAX];
-		i32 rc;
-
-		memset(&p, 0, sizeof(p));
-		p.mode = mode;
-		rc = sk_ui_text_screenshot_run(&p);
-		if (rc == SK_UI_TEXT_SCREENSHOT_RC_SKIPPED) {
-			TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping text screenshot suite");
-		}
-		TEST_ASSERT_EQUAL_INT(SK_UI_TEXT_SCREENSHOT_RC_OK, rc);
-		if (rc != SK_UI_TEXT_SCREENSHOT_RC_OK) {
-			return;
-		}
-		for (i = 0u; i < sk_ui_text_screenshot_expected_count(); ++i) {
-			if (ts_expected_path(mode, i, path, (u32)sizeof(path)) != 0) {
-				TEST_FAIL_MESSAGE("cannot resolve expected screenshot path");
-			}
-			TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(path));
-			TEST_ASSERT_TRUE(fs->get_path_size(path) > 0u);
-		}
+	memset(&p, 0, sizeof(p));
+	rc = sk_ui_text_screenshot_run(&p);
+	if (rc == SK_UI_TEXT_SCREENSHOT_RC_SKIPPED) {
+		TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping text screenshot suite");
 	}
-
-	/* The sample captures must exist under identical names in both modes
-	 * (parallel sets); only the atlas dump differs by the mode prefix. */
-	for (i = 0u; i < TS_SAMPLES_COUNT; ++i) {
-		char d1[SK_FS_PATH_MAX];
-		char d2[SK_FS_PATH_MAX];
-		TEST_ASSERT_EQUAL_INT(0, ts_expected_path(SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE, i, d1, (u32)sizeof(d1)));
-		TEST_ASSERT_EQUAL_INT(0, ts_expected_path(SK_UI_TEXT_SCREENSHOT_MODE_MSDF, i, d2, (u32)sizeof(d2)));
-		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(d1));
-		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(d2));
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEXT_SCREENSHOT_RC_OK, rc);
+	if (rc != SK_UI_TEXT_SCREENSHOT_RC_OK) {
+		return;
+	}
+	for (i = 0u; i < sk_ui_text_screenshot_expected_count(); ++i) {
+		if (ts_expected_path(i, path, (u32)sizeof(path)) != 0) {
+			TEST_FAIL_MESSAGE("cannot resolve expected screenshot path");
+		}
+		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(path));
+		TEST_ASSERT_TRUE(fs->get_path_size(path) > 0u);
 	}
 }
 

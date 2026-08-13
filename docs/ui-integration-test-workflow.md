@@ -79,21 +79,21 @@ Structural pixel/geometry asserts always run. Live grok-vision grades are
 `sk-text-screenshot` renders a fixed text-sample suite (pangram, font sizes
 8–96px, colored/alpha-blended text, 2x content-scale text, printable-ASCII
 glyph grid + raw atlas dump) through the headless offscreen renderer and
-writes PNG captures into `{SK_TEST_ARTIFACT_DIR}/text-screenshot/{mode}/` for
-both UI text renderers:
+writes PNG captures into `{SK_TEST_ARTIFACT_DIR}/text-screenshot/msdf/` (all
+UI text renders through the MSDF pipeline since APX-271):
 
 ```bash
 cmake --build build --target sk-text-screenshot
-build/bin/sk-text-screenshot --mode both --verify
+build/bin/sk-text-screenshot --verify
 # repeat + diff the trees to prove byte-identical determinism
 ```
 
 `--verify` re-captures every sample and byte-compares (raw readback + PNG
-bytes). The same suites run from CTest as `sk-text-screenshot-freetype` and
-`sk-text-screenshot-msdf`, and inside `sk-integration-tests` as
-`ui_text_screenshot_determinism` / `ui_text_screenshot_suite_completeness`
-(`SUITES=text-screenshot` via `run-ui-integration-tests.sh`). Rotation is not
-supported by the UI (no transform API), so the suite covers scaling only.
+bytes). The same suite runs from CTest as `sk-text-screenshot`, and inside
+`sk-integration-tests` as `ui_text_screenshot_determinism` /
+`ui_text_screenshot_suite_completeness` (`SUITES=text-screenshot` via
+`run-ui-integration-tests.sh`). Rotation is not supported by the UI (no
+transform API), so the suite covers scaling only.
 
 ---
 

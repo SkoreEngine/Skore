@@ -4,10 +4,9 @@
  *
  * One call renders a fixed suite of text samples on the headless offscreen
  * renderer and writes PNG captures into a known, mode-scoped output folder
- * for side-by-side comparison of the two UI text renderers:
+ * (the UI renders all text through the MSDF pipeline since APX-271):
  *
- *     {artifact-root}/text-screenshot/freetype/  (legacy FreeType R8 path)
- *     {artifact-root}/text-screenshot/msdf/      (msdf-atlas-c RGB8 path)
+ *     {artifact-root}/text-screenshot/msdf/  (msdf-atlas-c RGB8 path)
  *
  * Suite coverage (fixed set, byte-stable across runs):
  *   - pangram     — alphanumeric + punctuation pangram (wrapped label);
@@ -20,7 +19,6 @@
  *                   so the suite covers scaling only, see below);
  *   - glyph_grid  — printable ASCII (0x20..0x7E) laid out in a wrapped grid
  *                   plus a raw atlas dump written next to the capture:
- *                   atlas_freetype.png (R8 page expanded to grayscale) or
  *                   atlas_msdf.png (RGB8 multi-channel SDF atlas).
  *
  * Determinism contract (identical to sk_ui_capture_harness_capture, see
@@ -29,9 +27,8 @@
  *     offscreen target, sample_count 1, no MSAA);
  *   - fixed clear color: SK_UI_TEXT_SCREENSHOT_CLEAR (dark, opaque);
  *   - fixed logical time 0.0 for every scene (no wall clock / frame counter);
- *   - fixed font: vendored DejaVuSans.ttf at a fixed atlas size, fixed
- *     FreeType raster flags on the legacy path, fixed MSDF bake parameters
- *     (px_range 2, INKTRAP edge coloring, seed 0) on the MSDF path;
+ *   - fixed font: vendored DejaVuSans.ttf with fixed MSDF bake parameters
+ *     (symmetric px_range 2, INKTRAP edge coloring, seed 0);
  *   - fixed content scale per sample (1.0 everywhere except the "scaled"
  *     sample, which pins 2.0);
  *   - rotation: the UI has no transform/rotation support today, so there is
@@ -40,18 +37,15 @@
  *
  * Verification:
  *   1. Completeness: run() checks that every expected capture exists and is
- *      non-empty in the mode folder, and the SK_TEST suite asserts the
- *      FreeType and MSDF folders carry the identical file set.
+ *      non-empty in the mode folder.
  *   2. Determinism: with verify != 0, run() re-captures every sample and
  *      byte-compares the raw RGBA readback AND the PNG artifact bytes of the
- *      two runs. Re-running the whole harness twice (same mode, same output
- *      folder) must produce byte-identical images.
+ *      two runs. Re-running the whole harness twice (same output folder)
+ *      must produce byte-identical images.
  *
  * GPU requirement: the suite renders through the headless Vulkan offscreen
  * capture (same as sk_ui_capture_harness_capture); without a Vulkan
- * loader/ICD it returns SK_UI_TEXT_SCREENSHOT_RC_SKIPPED. The FreeType mode
- * also paints through the GPU pipeline (CPU coverage quads), so both modes
- * are equally gated.
+ * loader/ICD it returns SK_UI_TEXT_SCREENSHOT_RC_SKIPPED.
  */
 
 #ifndef SK_UI_TEXT_SCREENSHOT_H
@@ -63,15 +57,8 @@
 extern "C" {
 #endif
 
-/** Text renderer path captured by one suite run. */
-typedef enum sk_ui_text_screenshot_mode_t {
-	SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE = 0, /**< Legacy FreeType R8 coverage path. */
-	SK_UI_TEXT_SCREENSHOT_MODE_MSDF = 1,	 /**< msdf-atlas-c RGB8 + MSDF shader path. */
-	SK_UI_TEXT_SCREENSHOT_MODE_COUNT
-} sk_ui_text_screenshot_mode_t;
-
-/** Human-readable mode folder/flag name: "freetype" / "msdf". */
-const_chr_t sk_ui_text_screenshot_mode_name(sk_ui_text_screenshot_mode_t mode);
+/** Fixed mode folder under the subdirectory (MSDF pipeline only). */
+#define SK_UI_TEXT_SCREENSHOT_MODE_DIR "msdf"
 
 /* Return codes from sk_ui_text_screenshot_run. */
 #define SK_UI_TEXT_SCREENSHOT_RC_OK 0		/**< All captures written; verify clean (when requested). */
@@ -92,12 +79,10 @@ const_chr_t sk_ui_text_screenshot_mode_name(sk_ui_text_screenshot_mode_t mode);
 #define SK_UI_TEXT_SCREENSHOT_SUBDIR "text-screenshot"
 
 /**
- * Suite run parameters. Zero-init then set mode; the rest have fixed
- * defaults (captures land in {artifact-root}/text-screenshot/{mode}/).
+ * Suite run parameters. Zero-init; the rest have fixed defaults (captures
+ * land in {artifact-root}/text-screenshot/msdf/).
  */
 typedef struct sk_ui_text_screenshot_params_t {
-	/** Renderer path to capture (required, < SK_UI_TEXT_SCREENSHOT_MODE_COUNT). */
-	sk_ui_text_screenshot_mode_t mode;
 	/**
 	 * Non-zero: re-capture every sample and byte-compare the two runs
 	 * (raw RGBA readback + PNG artifact bytes). Reports per-sample results
@@ -107,8 +92,7 @@ typedef struct sk_ui_text_screenshot_params_t {
 	/**
 	 * Optional override of the subdirectory under the artifact root
 	 * (default SK_UI_TEXT_SCREENSHOT_SUBDIR). The mode folder is appended:
-	 * {subdir}/{mode_name}/. Useful for side-by-side runs into a custom
-	 * output tree.
+	 * {subdir}/msdf/. Useful for custom output trees.
 	 */
 	const_chr_t subdir;
 	/** Optional progress printer; NULL = silent. */
@@ -117,8 +101,8 @@ typedef struct sk_ui_text_screenshot_params_t {
 } sk_ui_text_screenshot_params_t;
 
 /**
- * Render the full fixed text-sample suite for @p params->mode and write the
- * PNG captures into {artifact-root}/{subdir}/{mode_name}/. Also writes a
+ * Render the full fixed text-sample suite (MSDF pipeline) and write the
+ * PNG captures into {artifact-root}/{subdir}/msdf/. Also writes a
  * manifest.txt (file name + byte size per capture) into the same folder and
  * verifies completeness (every expected capture exists and is non-empty).
  *
@@ -133,17 +117,17 @@ typedef struct sk_ui_text_screenshot_params_t {
 i32 sk_ui_text_screenshot_run(const sk_ui_text_screenshot_params_t* params);
 
 /**
- * Number of expected captures per mode (samples + atlas dump + manifest).
- * Used by tests to assert both modes produce the complete set.
+ * Number of expected captures (samples + atlas dump + manifest).
+ * Used by tests to assert the complete set.
  */
 u32 sk_ui_text_screenshot_expected_count(void);
 
 /**
- * Expected capture file name for a mode folder at index @p i
+ * Expected capture file name in the mode folder at index @p i
  * (0 .. expected_count-1; manifest.txt is last; the atlas file name embeds
  * the mode). Returns NULL out of range.
  */
-const_chr_t sk_ui_text_screenshot_expected_name(sk_ui_text_screenshot_mode_t mode, u32 i);
+const_chr_t sk_ui_text_screenshot_expected_name(u32 i);
 
 #ifdef __cplusplus
 }

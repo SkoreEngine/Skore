@@ -36,7 +36,7 @@ extern "C" {
 #define SK_UI_API_TYPE_ID SK_TYPE_ID("sk.ui_api", 0xc9c0d15c0efdbacbULL, 0x2376391989195a63ULL)
 
 /* ------------------------------------------------------------------ */
-/*  Font / glyph atlas (CPU FreeType + stb_rect_pack; no GPU upload)  */
+/*  Font system (FreeType face load + MSDF atlas bake; no GPU upload)  */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -46,9 +46,9 @@ extern "C" {
 typedef struct sk_ui_font_t sk_ui_font_t;
 
 /**
- * Opaque font system: FreeType library, loaded faces, R8 atlas pages, glyph cache,
- * and optional per-font MSDF atlases (APX-265). CPU-side atlas; GPU upload is
- * owned by sk_ui_renderer_t.
+ * Opaque font system: FreeType library (face loading, cmap, metrics), loaded
+ * faces, and optional per-font MSDF atlases (APX-265). CPU-side atlas; GPU
+ * upload is owned by sk_ui_renderer_t.
  */
 typedef struct sk_ui_font_system_t sk_ui_font_system_t;
 
@@ -63,8 +63,7 @@ typedef struct sk_ui_renderer_t sk_ui_renderer_t;
  * Font-level metrics at a specific pixel size (physical pixels).
  * Ascent is typically positive, descent negative (FreeType convention scaled to px).
  * line_height is the recommended baseline-to-baseline distance (positive).
- * When the text renderer is MSDF these come from atlas em metrics × pixel_size
- * (one atlas, any size). FreeType raster metrics are used on the legacy path.
+ * Values come from MSDF atlas em metrics × pixel_size (one atlas, any size).
  */
 typedef struct sk_ui_font_metrics_t {
 	f32 ascent;
@@ -72,37 +71,6 @@ typedef struct sk_ui_font_metrics_t {
 	f32 line_height;
 	f32 pixel_size;
 } sk_ui_font_metrics_t;
-
-/**
- * Per-glyph metrics and atlas placement after rasterization (physical pixels).
- * UV rect is normalized [0,1] within the atlas page bitmap.
- */
-typedef struct sk_ui_glyph_t {
-	u32 glyph_index;
-	f32 advance_x;	/**< Horizontal advance in pixels. */
-	f32 advance_y;	/**< Vertical advance (usually 0 for horizontal layout). */
-	f32 bearing_x;	/**< Left side bearing (bitmap left of pen). */
-	f32 bearing_y;	/**< Top side bearing (bitmap top above baseline). */
-	u32 width;		/**< Bitmap width in pixels (0 for empty/space). */
-	u32 height;		/**< Bitmap height in pixels. */
-	f32 u0;			/**< Atlas UV left. */
-	f32 v0;			/**< Atlas UV top. */
-	f32 u1;			/**< Atlas UV right. */
-	f32 v1;			/**< Atlas UV bottom. */
-	u32 page_index; /**< Index into font_system atlas pages. */
-} sk_ui_glyph_t;
-
-/**
- * One CPU-side atlas page (R8 coverage). pixels is owned by the font system;
- * valid until the system is destroyed or that page is grown (generation bumps).
- * FreeType paint path still uses this R8 format; MSDF atlases use sk_ui_msdf_atlas_t.
- */
-typedef struct sk_ui_atlas_page_t {
-	u32 width;
-	u32 height;
-	u32 generation;	  /**< Increments when the page bitmap is reallocated/grown. */
-	const u8* pixels; /**< R8, row-major, pitch == width. NULL if empty. */
-} sk_ui_atlas_page_t;
 
 /**
  * MSDF glyph atlas snapshot (RGB8 multi-channel signed distance field).
@@ -746,33 +714,14 @@ typedef enum sk_ui_draw_cmd_kind_t {
 
 /**
  * Texture binding kind for a MESH command. NONE = solid (vertex color only).
- * FONT = R8 atlas page (texture_id = page_index). IMAGE = host texture
- * (texture_id = host-defined id from the image node property).
- * MSDF = RGB(A) multi-channel SDF atlas (texture_id = font id).
+ * IMAGE = host texture (texture_id = host-defined id from the image node
+ * property). MSDF = RGB multi-channel SDF atlas (texture_id = font id).
  */
 typedef enum sk_ui_draw_texture_kind_t {
 	SK_UI_DRAW_TEX_NONE = 0,
-	SK_UI_DRAW_TEX_FONT = 1,
-	SK_UI_DRAW_TEX_IMAGE = 2,
-	SK_UI_DRAW_TEX_MSDF = 3,
+	SK_UI_DRAW_TEX_IMAGE = 1,
+	SK_UI_DRAW_TEX_MSDF = 2,
 } sk_ui_draw_texture_kind_t;
-
-/**
- * UI text raster / decode path. Process default is FreeType (legacy R8
- * coverage) so existing goldens stay comparable. MSDF emits one textured
- * quad per glyph; the fragment shader takes the median of RGB, converts
- * to a signed screen-space distance (px_range + fwidth), and covers with
- * a clamped smoothstep.
- *
- * Runtime switch: sk_ui_api_t::set_text_renderer / get_text_renderer, or
- * env SK_UI_TEXT_RENDERER=msdf|freetype (read on first get when unset).
- * Paint may override per call via sk_ui_paint_params_t::text_renderer.
- */
-typedef enum sk_ui_text_renderer_t {
-	SK_UI_TEXT_RENDERER_DEFAULT = 0,  /**< Use process switch / env. */
-	SK_UI_TEXT_RENDERER_FREETYPE = 1, /**< Legacy FreeType R8 coverage. */
-	SK_UI_TEXT_RENDERER_MSDF = 2,	  /**< msdf-atlas-c + MSDF shader. */
-} sk_ui_text_renderer_t;
 
 /**
  * One command in the paint stream. For MESH: index_offset/index_count select
@@ -812,12 +761,12 @@ typedef struct sk_ui_draw_list_t {
 
 /**
  * Optional inputs for the paint walk (fonts for text glyphs).
- * All fields may be NULL / zero when unused.
+ * All fields may be NULL / zero when unused. Text always renders through
+ * the MSDF pipeline (msdf-atlas-c bake + median/smoothstep decode).
  */
 typedef struct sk_ui_paint_params_t {
-	sk_ui_font_system_t* font_system;	 /**< Required to emit text glyph quads. */
-	sk_ui_font_t* font;					 /**< Default face for TEXT nodes. */
-	sk_ui_text_renderer_t text_renderer; /**< 0 = process default / env. */
+	sk_ui_font_system_t* font_system; /**< Required to emit text glyph quads. */
+	sk_ui_font_t* font;				  /**< Default face for TEXT nodes. */
 } sk_ui_paint_params_t;
 
 /* ------------------------------------------------------------------ */
@@ -1814,18 +1763,18 @@ typedef struct sk_ui_api_t {
 	 */
 	const sk_ui_draw_list_t* (*get_draw_list)(const sk_ui_context_t* ctx);
 
-	/* ---- font system (FreeType raster + stb_rect_pack atlas, CPU only) ---- */
+	/* ---- font system (FreeType face load + MSDF atlas, CPU only) ---- */
 
 	/**
-	 * Create a font system with an initial atlas page of @p page_width x @p page_height
-	 * (R8). Pass 0,0 for default 512x512. Owns FreeType state and glyph cache.
+	 * Create a font system. Owns the FreeType library (face loading, cmap
+	 * queries, and metrics) and per-font baked MSDF atlases.
 	 * @param allocator Optional; NULL uses the process default.
 	 * @return New system, or NULL on failure.
 	 */
-	sk_ui_font_system_t* (*font_system_create)(const sk_allocator_t* allocator, u32 page_width, u32 page_height);
+	sk_ui_font_system_t* (*font_system_create)(const sk_allocator_t* allocator);
 
 	/**
-	 * Destroy a font system, every font it owns, atlas pages, and glyph cache.
+	 * Destroy a font system, every font it owns, and their MSDF atlases.
 	 * Safe on NULL.
 	 */
 	void (*font_system_destroy)(sk_ui_font_system_t* system);
@@ -1847,15 +1796,15 @@ typedef struct sk_ui_api_t {
 	sk_ui_font_t* (*font_load_memory)(sk_ui_font_system_t* system, const u8* data, u32 size);
 
 	/**
-	 * Destroy one font face and drop its glyphs from the cache. Atlas pages keep
-	 * packed bitmaps (UV holes are acceptable). Safe on NULL.
+	 * Destroy one font face and its baked MSDF atlas (if any). Safe on NULL.
 	 */
 	void (*font_destroy)(sk_ui_font_t* font);
 
 	/**
 	 * Font metrics at @p pixel_size (from sk_ui_font_pixel_size or equivalent).
-	 * FreeType face metrics. Widget sizing / wrap / align use font_measure_text
-	 * (MSDF atlas metrics when that renderer is selected).
+	 * Scaled from MSDF atlas em metrics (one atlas, any size); FreeType face
+	 * metrics back the em baseline values. Widget sizing / wrap / align use
+	 * font_measure_text (MSDF atlas metrics).
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_get_metrics)(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
@@ -1866,38 +1815,9 @@ typedef struct sk_ui_api_t {
 	u32 (*font_glyph_index)(const sk_ui_font_t* font, u32 codepoint);
 
 	/**
-	 * Get a glyph from the cache or rasterize + pack it.
-	 * Cache key: (font, pixel_size, glyph_index). On miss: FreeType render,
-	 * stb_rect_pack into the current atlas page; grow the page or add a page
-	 * when full. Empty glyphs (space) succeed with width/height 0 and no UV.
-	 * @return 0 on success, non-zero on failure (OOM, FreeType error, etc.).
-	 */
-	i32 (*font_get_glyph)(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, u32 glyph_index, sk_ui_glyph_t* out);
-
-	/** Number of atlas pages currently allocated. */
-	u32 (*font_atlas_page_count)(const sk_ui_font_system_t* system);
-
-	/**
-	 * Snapshot one atlas page (CPU R8). @p out->pixels is system-owned.
-	 * @return 0 on success, non-zero if index is out of range.
-	 */
-	i32 (*font_atlas_get_page)(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
-
-	/**
-	 * Glyph cache entry count (for tests / diagnostics).
-	 */
-	u32 (*font_cache_count)(const sk_ui_font_system_t* system);
-
-	/**
-	 * Cumulative cache hits and misses since system create (for tests).
-	 * Either out pointer may be NULL.
-	 */
-	void (*font_cache_stats)(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
-
-	/**
 	 * Bake an MSDF glyph atlas for the font (printable ASCII + space) via
 	 * msdf-atlas-c. Idempotent when an atlas is already present. Paint uses
-	 * this atlas when the text renderer is MSDF. Owns RGB8 pixels and glyph
+	 * this atlas for all text (single scale-independent bake). Owns RGB8 pixels and glyph
 	 * metrics on the font; frees prior bake on rebake.
 	 * @return 0 on success, non-zero on failure.
 	 */
@@ -1926,26 +1846,11 @@ typedef struct sk_ui_api_t {
 	/**
 	 * Measure UTF-8 @p utf8 at @p pixel_size. Width is the typographic advance
 	 * (wrap / align / Clay sizing). Height is line_height for a single line.
-	 * Uses MSDF atlas em metrics × pixel_size (plus kerning, .notdef fallback)
-	 * when the process text renderer is MSDF; otherwise FreeType advances.
+	 * Uses MSDF atlas em metrics × pixel_size (plus kerning, .notdef fallback).
 	 * Missing glyphs contribute a defined .notdef box advance (never skipped).
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_measure_text)(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, const_chr_t utf8, f32* out_width, f32* out_height);
-
-	/**
-	 * Process-wide text renderer used when paint_params.text_renderer is
-	 * SK_UI_TEXT_RENDERER_DEFAULT. Passing DEFAULT re-reads SK_UI_TEXT_RENDERER
-	 * on the next get. Does not dirty live trees; the next paint rebuilds if
-	 * the resolved path changed since the last list.
-	 */
-	void (*set_text_renderer)(sk_ui_text_renderer_t renderer);
-
-	/**
-	 * Resolved process-wide text renderer (never DEFAULT). First call with
-	 * no prior set reads SK_UI_TEXT_RENDERER (msdf / 1 → MSDF, else FreeType).
-	 */
-	sk_ui_text_renderer_t (*get_text_renderer)(void);
 
 	/* ---- GPU renderer (draw list → sk_render_device_api_t only) ---- */
 
@@ -2061,9 +1966,9 @@ typedef struct sk_ui_api_t {
 	 * Like test_artifact_png_path but under an optional subdirectory:
 	 *   {root}/{subdir}/{sanitized_name}.png
 	 * @p subdir NULL/empty behaves exactly like test_artifact_png_path.
-	 * Useful for mode-scoped capture suites (e.g. "text-screenshot/freetype"
-	 * vs "text-screenshot/msdf") so side-by-side runs land in separate
-	 * folders. Subdirectory separators are preserved (not sanitized).
+	 * Useful for suite-scoped capture trees (e.g. "text-screenshot/msdf")
+	 * so related runs land in separate folders. Subdirectory separators
+	 * are preserved (not sanitized).
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*test_artifact_png_path_in)(const sk_filesystem_api_t* fs, const_chr_t subdir, const_chr_t name, char* out, u32 out_cap);

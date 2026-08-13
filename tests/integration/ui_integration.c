@@ -25,11 +25,11 @@
  *      widget + coverage + histogram + golden.
  *   4. ui_integration_text_glyphs  — TEXT node over a panel with the
  *      vendored DejaVuSans.ttf (APX-250 harness load_test_font; fixed
- *      pixel size / content scale / FreeType raster): text-color coverage +
+ *      pixel size / content scale / MSDF bake): text-color coverage +
  *      bbox inside the label box + panel coverage + golden.
- *   5. ui_integration_msdf_text_*  — MSDF shader path at small/medium/large
- *      sizes plus the legacy FreeType toggle (APX-266). Structural only
- *      (no golden): letterform ink, no solid tofu, no RGB channel fringes.
+ *   5. ui_integration_msdf_text_*  — MSDF pipeline at small/medium/large
+ *      sizes (APX-266). Structural only (no golden): letterform ink, no
+ *      solid tofu, no RGB channel fringes.
  *
  * Determinism: fixed viewport, fixed clear color, fixed logical time 0,
  * pinned DejaVuSans.ttf only (no system/built-in font fallback), no wall
@@ -708,12 +708,11 @@ SK_TEST(ui_integration_text_glyphs) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Scene 5: MSDF text shader (APX-266) — sizes + legacy toggle                */
+/* Scene 5: MSDF text shader (APX-266) — sizes                                */
 /* -------------------------------------------------------------------------- */
 
 typedef struct uii_msdf_cfg_t {
 	f32 font_size;
-	sk_ui_text_renderer_t renderer;
 } uii_msdf_cfg_t;
 
 static i32 uii_scene_msdf_text(sk_ui_capture_scene_t* scene, void* user) {
@@ -725,21 +724,15 @@ static i32 uii_scene_msdf_text(sk_ui_capture_scene_t* scene, void* user) {
 	sk_ui_style_props_t props;
 	const uii_msdf_cfg_t* cfg = (const uii_msdf_cfg_t*)user;
 	f32 font_size = 20.0f;
-	sk_ui_text_renderer_t renderer = SK_UI_TEXT_RENDERER_MSDF;
 
 	if (cfg != NULL) {
 		font_size = cfg->font_size;
-		renderer = cfg->renderer;
 	}
 	if (scene->font_system == NULL || scene->font == NULL) {
 		fprintf(stderr, "ui_integration_msdf_text: pinned test font missing\n");
 		return -1;
 	}
-	ui->set_text_renderer(renderer);
-	if (renderer == SK_UI_TEXT_RENDERER_MSDF && ui->font_msdf_bake(scene->font) != 0) {
-		fprintf(stderr, "ui_integration_msdf_text: bake failed\n");
-		return -1;
-	}
+	/* MSDF bake happens lazily on the first shape; nothing to pre-warm. */
 
 	memset(&props, 0, sizeof(props));
 	props.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
@@ -840,7 +833,6 @@ static void uii_run_msdf_size(const sk_ui_api_t* ui, f32 font_size, const_chr_t 
 
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.font_size = font_size;
-	cfg.renderer = SK_UI_TEXT_RENDERER_MSDF;
 
 	memset(&params, 0, sizeof(params));
 	params.scene_name = scene_name;
@@ -870,40 +862,6 @@ SK_TEST(ui_integration_msdf_text_small_medium_large) {
 	uii_run_msdf_size(ui, 20.0f, "ui_integration_msdf_text_medium");
 	uii_run_msdf_size(ui, 48.0f, "ui_integration_msdf_text_large");
 
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_FREETYPE);
-	uii_env_destroy(&env);
-}
-
-SK_TEST(ui_integration_msdf_text_legacy_toggle) {
-	uii_env_t env;
-	const sk_ui_api_t* ui;
-	sk_ui_capture_harness_params_t params;
-	sk_ui_cpu_image_t img;
-	uii_msdf_cfg_t cfg;
-
-	uii_env_init(&env);
-	ui = env.ui;
-	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
-	if (ui == NULL) {
-		uii_env_destroy(&env);
-		return;
-	}
-
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.font_size = 20.0f;
-	cfg.renderer = SK_UI_TEXT_RENDERER_FREETYPE;
-	memset(&params, 0, sizeof(params));
-	params.scene_name = "ui_integration_msdf_text_legacy";
-	params.width = 320u;
-	params.height = 160u;
-	params.time_seconds = 0.0;
-	params.load_test_font = 1;
-	uii_capture_user(&params, uii_scene_msdf_text, &cfg, &img);
-	/* Legacy path still produces letterforms (CPU coverage quads). */
-	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK,
-						  ui->cpu_image_assert_coverage(&img, uii_region(17u, 17u, 305u, 49u), UII_MATCH(UII_RGB(180u, 180u, 190u), 80u), 0.005f, 0.70f, NULL));
-	uii_free(&img);
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_FREETYPE);
 	uii_env_destroy(&env);
 }
 

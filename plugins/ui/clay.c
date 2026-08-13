@@ -85,9 +85,9 @@ static void ui_clay_error_handler(Clay_ErrorData error) {
 
 /**
  * Clay measure callback. Width is the sum of engine glyph advances at the
- * requested pixel size (MSDF atlas em metrics × size when that renderer is
- * on, else FreeType); height is the engine font line height. Missing glyphs
- * use a defined .notdef advance instead of a space substitute.
+ * requested pixel size (MSDF atlas em metrics × size); height is the engine
+ * font line height. Missing glyphs use a defined .notdef advance instead of
+ * a space substitute.
  */
 // NOLINTNEXTLINE(readability-non-const-parameter)
 static Clay_Dimensions ui_clay_measure_text(Clay_StringSlice text, Clay_TextElementConfig* config, void* user_data) {
@@ -98,17 +98,15 @@ static Clay_Dimensions ui_clay_measure_text(Clay_StringSlice text, Clay_TextElem
 	f32 width;
 	f32 height;
 	f32 px;
-	i32 use_msdf;
 	u32 prev;
 
 	/* Clay text configs use logical/physical pixel sizes, like the engine. */
 	px = (config != NULL && config->fontSize > 0u) ? (f32)config->fontSize : 16.0f;
-	use_msdf = ui_get_text_renderer_impl() == SK_UI_TEXT_RENDERER_MSDF ? 1 : 0;
 
 	width = 0.0f;
 	height = UI_CLAY_FALLBACK_FONT_SIZE;
 	if (state->font != NULL && state->font_system != NULL) {
-		if (ui_text_layout_metrics(state->font, px, use_msdf, &metrics) == 0) {
+		if (ui_text_layout_metrics(state->font, px, &metrics) == 0) {
 			height = metrics.line_height;
 		}
 		index = 0u;
@@ -120,7 +118,7 @@ static Clay_Dimensions ui_clay_measure_text(Clay_StringSlice text, Clay_TextElem
 				prev = 0u;
 				continue;
 			}
-			if (ui_text_layout_shape(state->font_system, state->font, px, prev, cp, use_msdf, &glyph) == 0) {
+			if (ui_text_layout_shape(state->font_system, state->font, px, prev, cp, &glyph) == 0) {
 				width += glyph.advance_x;
 				prev = glyph.is_fallback != 0 ? 0u : cp;
 			} else {
@@ -299,7 +297,7 @@ SK_TEST(ui_clay_smoke_parent_two_children_grow_fixed) {
 
 	/* Bind the engine's test font so the measure callback runs against real
 	 * engine font metrics (not exercised by this layout, but proves wiring). */
-	sys = ui_font_system_create_impl(allocator, 256u, 256u);
+	sys = ui_font_system_create_impl(allocator);
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui_font_load_memory_impl(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);

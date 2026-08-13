@@ -3,10 +3,11 @@
  * @brief MSDF glyph atlas generation via msdf-atlas-c (APX-265).
  *
  * Builds a scale-independent RGB8 multi-channel SDF atlas for the printable
- * ASCII charset, packs glyphs with a distance range of 2 px, and stores
- * per-glyph UV rects plus em-space plane bounds / advance / kerning. Layout
- * (APX-267) scales those em metrics to any pixel size from the single atlas.
- * FreeType R8 paint path is unchanged unless the text-renderer switch is MSDF.
+ * ASCII charset, packs glyphs with a symmetric distance range of 2 px, and
+ * stores per-glyph UV rects plus em-space plane bounds / advance / kerning.
+ * Layout (APX-267) scales those em metrics to any pixel size from the single
+ * atlas. This is the only UI text path: the legacy FreeType R8 raster
+ * pipeline was retired in APX-271.
  * Offline inspection via font_msdf_dump is unchanged.
  *
  * Memory: all msdf-atlas-c bitmaps/layouts are copied into skore-owned
@@ -583,108 +584,71 @@ static i32 ui_text_layout_ensure_msdf(sk_ui_font_t* font) {
 	return ui_font_msdf_bake_impl(font);
 }
 
-i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, i32 use_msdf, sk_ui_font_metrics_t* out) {
+i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, sk_ui_font_metrics_t* out) {
+	const ui_msdf_atlas_live_t* atlas;
 	if (font == NULL || out == NULL || px <= 0.0f) {
 		return -1;
 	}
-	if (use_msdf != 0) {
-		const ui_msdf_atlas_live_t* atlas;
-		if (ui_text_layout_ensure_msdf(font) != 0) {
-			return -1;
-		}
-		atlas = ui_font_msdf_ptr(font);
-		if (atlas == NULL) {
-			return -1;
-		}
-		out->ascent = atlas->ascender_em * px;
-		out->descent = atlas->descender_em * px;
-		out->line_height = atlas->line_height_em * px;
-		out->pixel_size = px;
-		return 0;
+	if (ui_text_layout_ensure_msdf(font) != 0) {
+		return -1;
 	}
-	{
-		const u32 px_u = (u32)(px + 0.5f);
-		return ui_font_get_metrics_impl(font, px_u < 1u ? 1u : px_u, out);
+	atlas = ui_font_msdf_ptr(font);
+	if (atlas == NULL) {
+		return -1;
 	}
+	out->ascent = atlas->ascender_em * px;
+	out->descent = atlas->descender_em * px;
+	out->line_height = atlas->line_height_em * px;
+	out->pixel_size = px;
+	return 0;
 }
 
-i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, i32 use_msdf, ui_text_layout_glyph_t* out) {
+i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, ui_text_layout_glyph_t* out) {
+	const ui_msdf_atlas_live_t* atlas;
+	sk_ui_msdf_glyph_t mg;
+	i32 fallback = 0;
+	i32 synthetic = 0;
+	f32 kern_em;
+	(void)sys;
+
 	if (font == NULL || out == NULL || px <= 0.0f) {
 		return -1;
 	}
 	memset(out, 0, sizeof(*out));
 	out->codepoint = cp;
-	if (use_msdf != 0) {
-		const ui_msdf_atlas_live_t* atlas;
-		sk_ui_msdf_glyph_t mg;
-		i32 fallback = 0;
-		i32 synthetic = 0;
-		f32 kern_em;
-		if (ui_text_layout_ensure_msdf(font) != 0) {
-			return -1;
-		}
-		atlas = ui_font_msdf_ptr(font);
-		if (atlas == NULL || ui_msdf_resolve_glyph(atlas, cp, &mg, &fallback, &synthetic) != 0) {
-			return -1;
-		}
-		kern_em = (fallback == 0) ? ui_msdf_kerning_em(atlas, prev_cp, cp) : 0.0f;
-		out->glyph_index = mg.glyph_index;
-		out->kerning_x = kern_em * px;
-		out->advance_x = mg.advance_em * px + out->kerning_x;
-		out->bearing_x = mg.plane_l * px;
-		out->bearing_y = mg.plane_t * px;
-		out->quad_l = mg.plane_l * px;
-		out->quad_b = mg.plane_b * px;
-		out->quad_r = mg.plane_r * px;
-		out->quad_t = mg.plane_t * px;
-		out->u0 = mg.u0;
-		out->v0 = mg.v0;
-		out->u1 = mg.u1;
-		out->v1 = mg.v1;
-		out->is_fallback = fallback;
-		out->is_whitespace = mg.is_whitespace;
-		if (fallback != 0 && synthetic != 0) {
-			out->has_quad = 0;
-			out->is_whitespace = 0;
-		} else if (mg.is_whitespace == 0 && mg.atlas_w > 0 && mg.atlas_h > 0) {
-			out->has_quad = 1;
-		}
-		return 0;
+	if (ui_text_layout_ensure_msdf(font) != 0) {
+		return -1;
 	}
-	{
-		u32 gi;
-		sk_ui_glyph_t g;
-		const u32 px_u = (u32)(px + 0.5f);
-		const u32 pixel_size = px_u < 1u ? 1u : px_u;
-		(void)prev_cp;
-		if (sys == NULL) {
-			return -1;
-		}
-		gi = ui_font_glyph_index_impl(font, cp);
-		if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) != 0) {
-			return -1;
-		}
-		out->glyph_index = gi;
-		out->advance_x = g.advance_x;
-		out->kerning_x = 0.0f;
-		out->bearing_x = g.bearing_x;
-		out->bearing_y = g.bearing_y;
-		out->quad_l = g.bearing_x;
-		out->quad_t = g.bearing_y;
-		out->quad_r = g.bearing_x + (f32)g.width;
-		out->quad_b = g.bearing_y - (f32)g.height;
-		out->u0 = g.u0;
-		out->v0 = g.v0;
-		out->u1 = g.u1;
-		out->v1 = g.v1;
-		out->has_quad = (g.width > 0u && g.height > 0u) ? 1 : 0;
-		out->is_fallback = (gi == 0u && cp != 0u) ? 1 : 0;
-		out->is_whitespace = out->has_quad == 0 ? 1 : 0;
-		return 0;
+	atlas = ui_font_msdf_ptr(font);
+	if (atlas == NULL || ui_msdf_resolve_glyph(atlas, cp, &mg, &fallback, &synthetic) != 0) {
+		return -1;
 	}
+	kern_em = (fallback == 0) ? ui_msdf_kerning_em(atlas, prev_cp, cp) : 0.0f;
+	out->glyph_index = mg.glyph_index;
+	out->kerning_x = kern_em * px;
+	out->advance_x = mg.advance_em * px + out->kerning_x;
+	out->bearing_x = mg.plane_l * px;
+	out->bearing_y = mg.plane_t * px;
+	out->quad_l = mg.plane_l * px;
+	out->quad_b = mg.plane_b * px;
+	out->quad_r = mg.plane_r * px;
+	out->quad_t = mg.plane_t * px;
+	out->u0 = mg.u0;
+	out->v0 = mg.v0;
+	out->u1 = mg.u1;
+	out->v1 = mg.v1;
+	out->is_fallback = fallback;
+	out->is_whitespace = mg.is_whitespace;
+	if (fallback != 0 && synthetic != 0) {
+		out->has_quad = 0;
+		out->is_whitespace = 0;
+	} else if (mg.is_whitespace == 0 && mg.atlas_w > 0 && mg.atlas_h > 0) {
+		out->has_quad = 1;
+	}
+	return 0;
 }
 
-f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end, i32 use_msdf) {
+f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end) {
 	f32 w = 0.0f;
 	u32 prev = 0u;
 	size_t index = 0u;
@@ -703,7 +667,7 @@ f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f
 		if (cp == (u32)'\n') {
 			break;
 		}
-		if (ui_text_layout_shape(sys, font, px, prev, cp, use_msdf, &g) != 0) {
+		if (ui_text_layout_shape(sys, font, px, prev, cp, &g) != 0) {
 			prev = 0u;
 			continue;
 		}
@@ -713,8 +677,7 @@ f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f
 	return w;
 }
 
-i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_advance, f32* out_min_x, f32* out_max_x,
-								  f32* out_height) {
+i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_advance, f32* out_min_x, f32* out_max_x, f32* out_height) {
 	sk_ui_font_metrics_t metrics;
 	const u8* s;
 	size_t len;
@@ -727,7 +690,7 @@ i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, 
 	if (font == NULL || px <= 0.0f) {
 		return -1;
 	}
-	if (ui_text_layout_metrics(font, px, use_msdf, &metrics) != 0) {
+	if (ui_text_layout_metrics(font, px, &metrics) != 0) {
 		return -1;
 	}
 	s = (const u8*)(utf8 != NULL ? utf8 : "");
@@ -742,7 +705,7 @@ i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, 
 		if (cp == (u32)'\n') {
 			break;
 		}
-		if (ui_text_layout_shape(sys, font, px, prev, cp, use_msdf, &g) != 0) {
+		if (ui_text_layout_shape(sys, font, px, prev, cp, &g) != 0) {
 			prev = 0u;
 			continue;
 		}
@@ -779,16 +742,15 @@ i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, 
 	return 0;
 }
 
-i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_width, f32* out_height) {
-	return ui_text_layout_measure_extent(sys, font, px, utf8, use_msdf, out_width, NULL, NULL, out_height);
+i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_width, f32* out_height) {
+	return ui_text_layout_measure_extent(sys, font, px, utf8, out_width, NULL, NULL, out_height);
 }
 
 i32 ui_font_measure_text_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, const_chr_t utf8, f32* out_width, f32* out_height) {
-	const i32 use_msdf = ui_get_text_renderer_impl() == SK_UI_TEXT_RENDERER_MSDF ? 1 : 0;
 	if (system == NULL || font == NULL || pixel_size == 0u) {
 		return -1;
 	}
-	return ui_text_layout_measure(system, font, (f32)pixel_size, utf8 != NULL ? utf8 : "", use_msdf, out_width, out_height);
+	return ui_text_layout_measure(system, font, (f32)pixel_size, utf8 != NULL ? utf8 : "", out_width, out_height);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1224,7 +1186,7 @@ static void ui_msdf_fill_mock_fs(sk_filesystem_api_t* fs) {
 
 SK_TEST(ui_font_msdf_bake_ascii_atlas) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL);
 	sk_ui_font_t* font;
 	sk_ui_msdf_atlas_t atlas;
 	sk_ui_msdf_glyph_t ga;
@@ -1282,15 +1244,6 @@ SK_TEST(ui_font_msdf_bake_ascii_atlas) {
 	TEST_ASSERT_TRUE(gspace.is_whitespace != 0);
 	TEST_ASSERT_TRUE(gspace.advance_em > 0.0f);
 
-	/* FreeType path still works after MSDF bake. */
-	{
-		sk_ui_glyph_t ft;
-		const u32 px = sk_ui_font_pixel_size(16.0f, 1.0f);
-		const u32 gi = ui->font_glyph_index(font, (u32)'A');
-		TEST_ASSERT_EQUAL_INT(0, ui->font_get_glyph(sys, font, px, gi, &ft));
-		TEST_ASSERT_TRUE(ft.advance_x > 0.0f);
-	}
-
 	ui->font_system_destroy(sys);
 }
 
@@ -1320,7 +1273,7 @@ SK_TEST(ui_font_msdf_dump_and_reload_cycle) {
 
 	/* Repeated load → bake → dump → unload must not assert/leak (ASan when enabled). */
 	for (cycle = 0u; cycle < 3u; ++cycle) {
-		sys = ui->font_system_create(NULL, 128u, 128u);
+		sys = ui->font_system_create(NULL);
 		TEST_ASSERT_NOT_NULL(sys);
 		font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 		TEST_ASSERT_NOT_NULL(font);
@@ -1380,7 +1333,7 @@ SK_TEST(ui_msdf_coverage_screen_space_and_small_text_clamp) {
 
 SK_TEST(ui_msdf_atlas_letter_has_inside_and_outside) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL);
 	sk_ui_font_t* font;
 	sk_ui_msdf_atlas_t atlas;
 	sk_ui_msdf_glyph_t ga;
@@ -1398,12 +1351,12 @@ SK_TEST(ui_msdf_atlas_letter_has_inside_and_outside) {
 	 * packed rect for any interior median instead of assuming the midpoint. */
 	inside = 0.0f;
 	{
-		f32 u;
-		f32 v;
-		const f32 du = (ga.u1 - ga.u0) / 8.0f;
-		const f32 dv = (ga.v1 - ga.v0) / 8.0f;
-		for (v = ga.v0; v <= ga.v1 + 1.0e-6f; v += dv > 0.0f ? dv : 1.0f) {
-			for (u = ga.u0; u <= ga.u1 + 1.0e-6f; u += du > 0.0f ? du : 1.0f) {
+		u32 gi;
+		u32 gj;
+		for (gi = 0u; gi <= 8u; ++gi) {
+			const f32 v = ga.v0 + (ga.v1 - ga.v0) * ((f32)gi / 8.0f);
+			for (gj = 0u; gj <= 8u; ++gj) {
+				const f32 u = ga.u0 + (ga.u1 - ga.u0) * ((f32)gj / 8.0f);
 				const f32 m = ui_msdf_sample_median_nearest(&atlas, u, v);
 				if (m > inside) {
 					inside = m;
@@ -1419,17 +1372,6 @@ SK_TEST(ui_msdf_atlas_letter_has_inside_and_outside) {
 	TEST_ASSERT_TRUE(outside < 0.15f);
 
 	ui->font_system_destroy(sys);
-}
-
-SK_TEST(ui_text_renderer_switch_api) {
-	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_text_renderer_t prev = ui->get_text_renderer();
-
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF);
-	TEST_ASSERT_EQUAL_INT((i32)SK_UI_TEXT_RENDERER_MSDF, (i32)ui->get_text_renderer());
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_FREETYPE);
-	TEST_ASSERT_EQUAL_INT((i32)SK_UI_TEXT_RENDERER_FREETYPE, (i32)ui->get_text_renderer());
-	ui->set_text_renderer(prev);
 }
 
 static u32 ui_msdf_rgb_bounds(const sk_ui_draw_list_t* dl, u32 rgb, f32* out_min_x, f32* out_min_y, f32* out_max_x, f32* out_max_y) {
@@ -1477,8 +1419,7 @@ static u32 ui_msdf_rgb_bounds(const sk_ui_draw_list_t* dl, u32 rgb, f32* out_min
 
 SK_TEST(ui_text_layout_msdf_measure_matches_rendered_extent) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_text_renderer_t prev = ui->get_text_renderer();
-	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL);
 	sk_ui_font_t* font;
 	const char* sample = "Hello AV";
 	const f32 sizes[] = {12.0f, 16.0f, 24.0f, 20.0f};
@@ -1487,7 +1428,6 @@ SK_TEST(ui_text_layout_msdf_measure_matches_rendered_extent) {
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF);
 	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font));
 
 	for (si = 0u; si < (u32)(sizeof(sizes) / sizeof(sizes[0])); ++si) {
@@ -1512,7 +1452,7 @@ SK_TEST(ui_text_layout_msdf_measure_matches_rendered_extent) {
 		const u32 rgb = sk_ui_pack_color(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f)) & 0x00ffffffu;
 		const f32 tol = px * 0.20f + 2.0f;
 
-		TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure_extent(sys, font, px, sample, 1, &advance, &ext_min, &ext_max, &height));
+		TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure_extent(sys, font, px, sample, &advance, &ext_min, &ext_max, &height));
 		TEST_ASSERT_TRUE(advance > 0.0f);
 		TEST_ASSERT_TRUE(height > 0.0f);
 		TEST_ASSERT_TRUE(ext_max > ext_min);
@@ -1550,7 +1490,6 @@ SK_TEST(ui_text_layout_msdf_measure_matches_rendered_extent) {
 		memset(&params, 0, sizeof(params));
 		params.font_system = sys;
 		params.font = font;
-		params.text_renderer = SK_UI_TEXT_RENDERER_MSDF;
 		TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, &params));
 		dl = ui->get_draw_list(ctx);
 		TEST_ASSERT_NOT_NULL(dl);
@@ -1566,14 +1505,12 @@ SK_TEST(ui_text_layout_msdf_measure_matches_rendered_extent) {
 		ui->context_destroy(ctx);
 	}
 
-	ui->set_text_renderer(prev);
 	ui->font_system_destroy(sys);
 }
 
 SK_TEST(ui_text_layout_msdf_scales_linearly_including_fractional) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_text_renderer_t prev = ui->get_text_renderer();
-	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL);
 	sk_ui_font_t* font;
 	const char* sample = "Spacing";
 	f32 w16 = 0.0f;
@@ -1585,27 +1522,24 @@ SK_TEST(ui_text_layout_msdf_scales_linearly_including_fractional) {
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF);
 	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font));
 
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, sample, 1, &w16, &h16));
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 24.0f, sample, 1, &w24, NULL));
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 12.5f, sample, 1, &w125, NULL));
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 32.0f, sample, 1, &w32, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, sample, &w16, &h16));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 24.0f, sample, &w24, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 12.5f, sample, &w125, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 32.0f, sample, &w32, NULL));
 	TEST_ASSERT_TRUE(w16 > 1.0f);
 	/* Same atlas: widths scale with requested pixel size. */
 	TEST_ASSERT_FLOAT_WITHIN(0.05f, w16 * 1.5f, w24);
 	TEST_ASSERT_FLOAT_WITHIN(0.05f, w16 * 2.0f, w32);
 	TEST_ASSERT_FLOAT_WITHIN(0.05f, w16 * (12.5f / 16.0f), w125);
 
-	ui->set_text_renderer(prev);
 	ui->font_system_destroy(sys);
 }
 
 SK_TEST(ui_text_layout_msdf_missing_glyph_uses_notdef) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
-	sk_ui_text_renderer_t prev = ui->get_text_renderer();
-	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL);
 	sk_ui_font_t* font;
 	f32 w_ab = 0.0f;
 	f32 w_missing = 0.0f;
@@ -1615,21 +1549,20 @@ SK_TEST(ui_text_layout_msdf_missing_glyph_uses_notdef) {
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);
-	ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF);
 	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font));
 
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, "AB", 1, &w_ab, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, "AB", &w_ab, NULL));
 	/* U+2603 SNOWMAN is outside the ASCII atlas. */
 	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f,
 													"A\xE2\x98\x83"
 													"B",
-													1, &w_missing, NULL));
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, "\xE2\x98\x83", 1, &w_snow, NULL));
+													&w_missing, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_measure(sys, font, 16.0f, "\xE2\x98\x83", &w_snow, NULL));
 	TEST_ASSERT_TRUE(w_snow > 1.0f);
 	TEST_ASSERT_TRUE(w_missing > w_ab);
 	TEST_ASSERT_FLOAT_WITHIN(0.05f, w_ab + w_snow, w_missing);
 
-	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_shape(sys, font, 16.0f, 0u, 0x2603u, 1, &g));
+	TEST_ASSERT_EQUAL_INT(0, ui_text_layout_shape(sys, font, 16.0f, 0u, 0x2603u, &g));
 	TEST_ASSERT_EQUAL_INT(1, g.is_fallback);
 	TEST_ASSERT_TRUE(g.advance_x > 0.0f);
 	TEST_ASSERT_TRUE(g.quad_r > g.quad_l);
@@ -1640,7 +1573,6 @@ SK_TEST(ui_text_layout_msdf_missing_glyph_uses_notdef) {
 		TEST_ASSERT_TRUE(ui->font_msdf_get_glyph(font, 0x2603u, &miss) != 0);
 	}
 
-	ui->set_text_renderer(prev);
 	ui->font_system_destroy(sys);
 }
 

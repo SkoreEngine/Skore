@@ -3,17 +3,15 @@
  * harness CLI (APX-268).
  *
  * Runs the fixed text-sample suite through the headless offscreen renderer
- * and writes PNG captures into {out-dir}/text-screenshot/{mode}/ for the
- * legacy FreeType path and the MSDF path side by side.
+ * and writes PNG captures into {out-dir}/text-screenshot/msdf/ (all UI text
+ * renders through the MSDF pipeline since APX-271).
  *
  * Usage:
- *   sk-text-screenshot [--mode freetype|msdf|both] [--out-dir <dir>]
- *                      [--verify] [--help]
+ *   sk-text-screenshot [--out-dir <dir>] [--verify] [--help]
  *
- *   --mode     Renderer path to capture (default: both).
  *   --out-dir  Output root (default: $SK_TEST_ARTIFACT_DIR, else
  *              ./text-screenshot). Captures land in
- *              {out-dir}/text-screenshot/{mode}/.
+ *              {out-dir}/text-screenshot/msdf/.
  *   --verify   Re-capture every sample and byte-compare the two runs
  *              (raw readback + PNG artifact bytes). Fails non-zero on any
  *              byte difference.
@@ -23,9 +21,9 @@
  *
  * Determinism check from the shell: run the same command twice and diff the
  * output trees — PNG bytes must be identical:
- *   sk-text-screenshot --mode both --verify
+ *   sk-text-screenshot --verify
  *   cp -r text-screenshot text-screenshot.run1
- *   sk-text-screenshot --mode both --verify
+ *   sk-text-screenshot --verify
  *   diff -r text-screenshot.run1 text-screenshot
  */
 
@@ -59,8 +57,7 @@ static int ts_main_setenv(const char* k, const char* v) {
 
 static void ts_main_usage(const_chr_t prog) {
 	fprintf(stderr,
-			"usage: %s [--mode freetype|msdf|both] [--out-dir <dir>] [--verify] [--help]\n"
-			"  --mode     text renderer path to capture (default: both)\n"
+			"usage: %s [--out-dir <dir>] [--verify] [--help]\n"
 			"  --out-dir  output root (default: $SK_TEST_ARTIFACT_DIR or ./text-screenshot)\n"
 			"  --verify   re-capture every sample and byte-compare (determinism check)\n"
 			"  --help     this message\n",
@@ -69,11 +66,8 @@ static void ts_main_usage(const_chr_t prog) {
 
 int main(int argc, char** argv) {
 	const_chr_t out_dir = NULL;
-	const_chr_t mode_arg = NULL;
 	char buf[SK_FS_PATH_MAX];
 	i32 verify = 0;
-	i32 run_freetype = 0;
-	i32 run_msdf = 0;
 	i32 rc_total = 0;
 	i32 a;
 
@@ -81,8 +75,6 @@ int main(int argc, char** argv) {
 		if (strcmp(argv[a], "--help") == 0 || strcmp(argv[a], "-h") == 0) {
 			ts_main_usage(argv[0]);
 			return 0;
-		} else if (strcmp(argv[a], "--mode") == 0 && a + 1 < argc) {
-			mode_arg = argv[++a];
 		} else if (strcmp(argv[a], "--out-dir") == 0 && a + 1 < argc) {
 			out_dir = argv[++a];
 		} else if (strcmp(argv[a], "--verify") == 0) {
@@ -92,18 +84,6 @@ int main(int argc, char** argv) {
 			ts_main_usage(argv[0]);
 			return 1;
 		}
-	}
-
-	if (mode_arg == NULL || strcmp(mode_arg, "both") == 0) {
-		run_freetype = 1;
-		run_msdf = 1;
-	} else if (strcmp(mode_arg, "freetype") == 0) {
-		run_freetype = 1;
-	} else if (strcmp(mode_arg, "msdf") == 0) {
-		run_msdf = 1;
-	} else {
-		fprintf(stderr, "error: unknown --mode '%s' (expected freetype|msdf|both)\n", mode_arg);
-		return 1;
 	}
 
 	/* Resolve the artifact root: --out-dir wins, else the env/compile-time
@@ -135,30 +115,13 @@ int main(int argc, char** argv) {
 	}
 
 	/* Sanity print of the resolved output tree. */
-	(void)snprintf(buf, sizeof(buf), "sk-text-screenshot: output root = %s (mode=%s verify=%d)", out_dir, mode_arg != NULL ? mode_arg : "both", verify);
+	(void)snprintf(buf, sizeof(buf), "sk-text-screenshot: output root = %s (mode=%s verify=%d)", out_dir, SK_UI_TEXT_SCREENSHOT_MODE_DIR, verify);
 	fprintf(stderr, "%s\n", buf);
 
-	if (run_freetype) {
+	{
 		sk_ui_text_screenshot_params_t p;
 		i32 rc;
 		memset(&p, 0, sizeof(p));
-		p.mode = SK_UI_TEXT_SCREENSHOT_MODE_FREETYPE;
-		p.verify = verify;
-		rc = sk_ui_text_screenshot_run(&p);
-		if (rc == SK_UI_TEXT_SCREENSHOT_RC_SKIPPED) {
-			fprintf(stderr, "sk-text-screenshot: no Vulkan ICD; skipping freetype suite\n");
-			return 2;
-		}
-		if (rc != SK_UI_TEXT_SCREENSHOT_RC_OK) {
-			fprintf(stderr, "sk-text-screenshot: freetype suite FAILED\n");
-			rc_total = 1;
-		}
-	}
-	if (run_msdf) {
-		sk_ui_text_screenshot_params_t p;
-		i32 rc;
-		memset(&p, 0, sizeof(p));
-		p.mode = SK_UI_TEXT_SCREENSHOT_MODE_MSDF;
 		p.verify = verify;
 		rc = sk_ui_text_screenshot_run(&p);
 		if (rc == SK_UI_TEXT_SCREENSHOT_RC_SKIPPED) {
@@ -172,7 +135,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (rc_total == 0) {
-		fprintf(stderr, "sk-text-screenshot: complete capture sets written under %s/text-screenshot/{freetype,msdf}/\n", out_dir);
+		fprintf(stderr, "sk-text-screenshot: complete capture set written under %s/text-screenshot/msdf/\n", out_dir);
 	}
 	return rc_total;
 }

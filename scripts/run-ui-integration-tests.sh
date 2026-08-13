@@ -12,7 +12,7 @@
 #   flexbox      — flexbox layout vision (ui_flexbox_vision.c)
 #   interaction  — behavioural engine suite (plugin) + interaction vision (integration)
 #   vision-helper — ui_vision_assert unit/mock tests
-#   text-screenshot — APX-268 deterministic FreeType/MSDF text PNG suite
+#   text-screenshot — APX-268 deterministic MSDF text PNG suite
 #
 # Vision credentials (optional for structural/interaction; required for live grades):
 #   XAI_API_KEY or SK_UI_VISION_API_KEY
@@ -124,7 +124,7 @@ for raw in "${suite_list[@]}"; do
       plugin_tokens+=("ui_author_*")
       ;;
     text-screenshot|textshot|screenshot)
-      # APX-268: deterministic text rendering screenshot suite (FreeType + MSDF).
+      # APX-268: deterministic text rendering screenshot suite (MSDF pipeline).
       integration_tokens+=("ui_text_screenshot_*")
       ;;
     all)

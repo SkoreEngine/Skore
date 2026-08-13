@@ -508,11 +508,11 @@ SK_TEST(ui_test_artifact_png_path_in_subdir) {
 	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "", "textshot_pangram", nested, (u32)sizeof(nested)));
 	TEST_ASSERT_EQUAL_STRING(plain, nested);
 
-	/* Nested: root/text-screenshot/freetype/name.png — file component clean. */
-	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "text-screenshot/freetype", "pangram", nested, (u32)sizeof(nested)));
+	/* Nested: root/text-screenshot/msdf/name.png — file component clean. */
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "text-screenshot/msdf", "pangram", nested, (u32)sizeof(nested)));
 	TEST_ASSERT_TRUE(strncmp(nested, root, strlen(root)) == 0);
 	TEST_ASSERT_TRUE(strstr(nested, "text-screenshot") != NULL);
-	TEST_ASSERT_TRUE(strstr(nested, "freetype") != NULL);
+	TEST_ASSERT_TRUE(strstr(nested, "msdf") != NULL);
 	TEST_ASSERT_TRUE(strstr(nested, "pangram.png") != NULL);
 	base = nested;
 	for (p = nested; *p != '\0'; ++p) {
