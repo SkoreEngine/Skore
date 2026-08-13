@@ -2902,7 +2902,7 @@ typedef struct sk_ui_api_t {
 	/** Non-zero if @p window_id is in a leaf (not floating / unknown). */
 	i32 (*dock_window_is_docked)(const sk_ui_context_t* ctx, const_chr_t window_id);
 
-	/* ---- persist (JSON writer now; restore is a follow-on. PR 5 may add archive pointers.) ---- */
+	/* ---- persist (JSON save/restore. PR 5 may add archive pointers.) ---- */
 
 	/**
 	 * Emit pretty JSON for the named dockspace into @p out (null-terminated).
@@ -2918,8 +2918,10 @@ typedef struct sk_ui_api_t {
 	 * Replace the named dockspace model from JSON. Fails if version !=
 	 * SK_UI_DOCK_LAYOUT_VERSION. Missing windows become pending binds. Error if
 	 * a builder session is open. Does not destroy editor_window nodes
-	 * (teardown reparents first). Restore is not implemented yet (always fails).
-	 * @return 0 on success, non-zero on parse / schema error / not implemented.
+	 * (teardown reparents first). Rebuilds splits, tab order, the active tab,
+	 * and floating window rects, then applies. Creates the named dockspace if
+	 * it does not exist yet (startup restore).
+	 * @return 0 on success, non-zero on parse / schema / builder-open error.
 	 */
 	i32 (*dock_layout_load_json)(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);
 
