@@ -311,14 +311,15 @@ typedef struct sk_dxc_compiler_state_t {
 
 static sk_dxc_compiler_state_t dxc_state;
 static sk_logger_t* dxc_logger;
+static const sk_logger_api_t* dxc_logger_api;
 
 static void dxc_log_error(const_chr_t fmt, ...) {
 	va_list args;
-	if (dxc_logger == NULL) {
+	if (dxc_logger == NULL || dxc_logger_api == NULL) {
 		return;
 	}
 	va_start(args, fmt);
-	sk_log_messagev(sk_logger_api(), SK_LOGGER_TYPE_ERROR, dxc_logger, fmt, args);
+	sk_log_messagev(dxc_logger_api, SK_LOGGER_TYPE_ERROR, dxc_logger, fmt, args);
 	va_end(args);
 }
 
@@ -570,7 +571,10 @@ void sk_dxc_compiler_init(sk_app_context_t* context, const sk_app_api_t* app_api
 
 void sk_dxc_compiler_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	dxc_state.platform = (const sk_platform_api_t*)app_api->get_api(context, SK_PLATFORM_API_TYPE_ID);
-	dxc_logger = sk_logger_api()->create_logger("dxc-compiler");
+	dxc_logger_api = app_api->logger_api(context);
+	if (dxc_logger_api != NULL && app_api->logger_context(context) != NULL) {
+		dxc_logger = dxc_logger_api->create_logger(app_api->logger_context(context), "dxc-compiler");
+	}
 	app_api->set_api(context, SK_DXC_COMPILER_API_TYPE_ID, (const_ptr_t)&dxc_compiler_api);
 }
 

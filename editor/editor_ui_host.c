@@ -6,6 +6,7 @@
 #include "editor_ui_host.h"
 
 #include "allocator.h"
+#include "logger.h"
 
 #include <string.h>
 
@@ -14,6 +15,8 @@ struct sk_editor_ui_host_t {
 	sk_ui_context_t* ctx;
 	sk_editor_console_panel_t* console;
 	sk_editor_imgui_shell_t* imgui;
+	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* log_ctx;
 	sk_ui_node_t console_root;
 	sk_ui_node_t layout_root; /* full-window column holding console dock */
 
@@ -84,7 +87,7 @@ static void host_place_console(sk_editor_ui_host_t* host) {
 	p.layout.height = sk_ui_percent(100.0f);
 	(void)ui->node_set_inline_style(host->ctx, left_spacer, &p);
 
-	host->console = sk_editor_console_panel_create(ui, host->ctx, bottom_row);
+	host->console = sk_editor_console_panel_create(ui, host->ctx, bottom_row, host->logger_api, host->log_ctx);
 	if (host->console != NULL) {
 		host->console_root = sk_editor_console_panel_root(host->console);
 		memset(&p, 0, sizeof(p));
@@ -97,11 +100,11 @@ static void host_place_console(sk_editor_ui_host_t* host) {
 	host->layout_root = root;
 }
 
-sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui) {
+sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui, const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	sk_editor_ui_host_t* host;
 
-	if (ui == NULL) {
+	if (ui == NULL || logger_api == NULL || log_ctx == NULL) {
 		return NULL;
 	}
 	host = (sk_editor_ui_host_t*)alloc->alloc(alloc->instance, sizeof(sk_editor_ui_host_t));
@@ -110,6 +113,8 @@ sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui) {
 	}
 	memset(host, 0, sizeof(*host));
 	host->ui = ui;
+	host->logger_api = logger_api;
+	host->log_ctx = log_ctx;
 	host->scale_x = 1.0f;
 	host->scale_y = 1.0f;
 	host->width = 1280.0f;
@@ -363,7 +368,7 @@ i32 sk_editor_ui_host_want_capture_keyboard(const sk_editor_ui_host_t* host) {
 #include "test.h"
 
 static i32 host_test_plugin_path(const_chr_t name, char* out, u32 cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	if (fs->app_folder(base, (u32)sizeof(base)) != 0 || base[0] == '\0') {
@@ -380,7 +385,7 @@ static i32 host_test_plugin_path(const_chr_t name, char* out, u32 cap) {
 	return 0;
 }
 
-static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx) {
+static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t name = "sk-ui.dll";
@@ -390,13 +395,14 @@ static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx) {
 	const_chr_t name = "sk-ui.so";
 #endif
 	if (host_test_plugin_path(name, path, (u32)sizeof(path)) == 0) {
-		(void)sk_app_api()->load_plugin(app_ctx, path);
+		(void)app_api->load_plugin(app_ctx, path);
 	}
-	return (const sk_ui_api_t*)sk_app_api()->get_api(app_ctx, SK_UI_API_TYPE_ID);
+	return (const sk_ui_api_t*)app_api->get_api(app_ctx, SK_UI_API_TYPE_ID);
 }
 
 SK_TEST(editor_ui_host_dual_stack_same_frame) {
-	sk_app_context_t* app_ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* app_ctx = boot.context;
 	const sk_ui_api_t* ui;
 	sk_editor_ui_host_t* host;
 	const sk_ui_draw_list_t* sk_dl;
@@ -406,14 +412,14 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	f32 hx, hy, hw, hh;
 
 	TEST_ASSERT_NOT_NULL(app_ctx);
-	ui = host_test_load_ui(app_ctx);
+	ui = host_test_load_ui(app_ctx, boot.api);
 	if (ui == NULL) {
-		sk_app_destroy(app_ctx);
+		sk_app_shutdown(app_ctx);
 		TEST_IGNORE_MESSAGE("sk-ui plugin not available");
 		return;
 	}
 
-	host = sk_editor_ui_host_create(ui);
+	host = sk_editor_ui_host_create(ui, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(host);
 
 	/* One frame: both stacks produce draw output. */
@@ -450,7 +456,7 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	}
 
 	sk_editor_ui_host_destroy(host);
-	sk_app_destroy(app_ctx);
+	sk_app_shutdown(app_ctx);
 }
 
 SK_TEST(editor_imgui_shell_immediate_selection) {

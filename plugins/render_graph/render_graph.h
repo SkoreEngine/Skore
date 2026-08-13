@@ -5,7 +5,7 @@
  * @brief Render graph module API (fn-table).
  *
  * Implemented by the sk-render-graph plugin (SHARED, statically linked
- * sk-core). The plugin registers a static sk_render_graph_api_t on the app
+ * sk-foundation). The plugin registers a static sk_render_graph_api_t on the app
  * context; hosts obtain it **only** via the app registry:
  *
  *   const sk_render_graph_api_t* graph =

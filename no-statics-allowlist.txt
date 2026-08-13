@@ -1,0 +1,176 @@
+# APX-284 — no-statics allowlist
+#
+# The foundation refactor (docs/foundation-refactor-design.md, APX-278) forbids
+# mutable file-scope `static` variables in the foundation module and its
+# plugins: every plugin statically links its own copy of sk-foundation, so a
+# file-scope static would give host and plugin *separate* copies of the same
+# state (the pre-refactor split-logger bug). The guard
+# (scripts/check-no-statics.py) only allows `static const` data and `static`
+# functions; EVERY other file-scope static must be listed here.
+#
+# Format: one entry per line, `<path>:<symbol>` relative to the repo root.
+# Lines starting with '#' and blank lines are ignored. Keep entries sorted
+# within each section. Removing a static from the code also removes the need
+# for its entry — the guard reports stale entries as a NOTE.
+#
+# To regenerate the candidate list after intentional changes:
+#   python3 scripts/check-no-statics.py --dump
+
+# ---------------------------------------------------------------------------
+# foundation — OS-mandated process state (documented exceptions)
+# docs/foundation-refactor-design.md §6.2 (crash handler), §6.4 (DbgHelp),
+# §6.5 (TLS platform_err). These are process-wide by OS design and stay even
+# after the context refactor completes.
+# ---------------------------------------------------------------------------
+foundation/crash.c:crash_active
+foundation/crash.c:crash_alt_stack_mem
+foundation/crash.c:crash_frames
+foundation/crash.c:crash_install_count
+foundation/crash.c:crash_line
+foundation/crash.c:crash_line_len
+foundation/crash.c:crash_old_actions
+foundation/crash.c:crash_old_filter
+foundation/crash.c:crash_old_invalid_param
+foundation/crash.c:crash_old_purecall
+foundation/crash.c:crash_old_stack
+foundation/crash.c:crash_signal_count_installed
+foundation/crash.c:crash_stack_ready
+foundation/crash.c:crash_test_null_target
+foundation/crash.c:crash_vectored_handle
+foundation/platform_unix.c:platform_err
+foundation/stacktrace.c:dbghelp_cs
+foundation/stacktrace.c:dbghelp_cs_ready
+foundation/stacktrace.c:dbghelp_initialized
+
+# ---------------------------------------------------------------------------
+# foundation — process-wide filesystem state (refactor PR 3, not yet moved)
+# temp_override / temp_override_set / view_list are the remaining file-scope
+# filesystem state from docs/foundation-refactor-design.md §1.2. They move
+# onto sk_filesystem_context_t in the filesystem-context PR; until then they
+# are grandfathered here.
+# ---------------------------------------------------------------------------
+foundation/filesystem_unix.c:temp_override
+foundation/filesystem_unix.c:temp_override_set
+foundation/filesystem_unix.c:view_list
+foundation/filesystem_win32.c:temp_override
+foundation/filesystem_win32.c:temp_override_set
+foundation/filesystem_win32.c:view_list
+
+# ---------------------------------------------------------------------------
+# foundation — builtin asset handler / importer tables (resource_asset_builtins.c)
+# One static table per built-in resource type, registered once into the
+# repository and never mutated after init. Not `static const` only because
+# the registration API takes non-const pointers. `builtin_handlers` /
+# `builtin_importers` are `T* const` arrays (immutable pointers).
+# ---------------------------------------------------------------------------
+foundation/resource_asset_builtins.c:animation_clip_handler
+foundation/resource_asset_builtins.c:animation_controller_handler
+foundation/resource_asset_builtins.c:audio_handler
+foundation/resource_asset_builtins.c:audio_importer
+foundation/resource_asset_builtins.c:builtin_handlers
+foundation/resource_asset_builtins.c:builtin_importers
+foundation/resource_asset_builtins.c:compute_shader_handler
+foundation/resource_asset_builtins.c:config_shader_handler
+foundation/resource_asset_builtins.c:csharp_script_handler
+foundation/resource_asset_builtins.c:dcc_asset_handler
+foundation/resource_asset_builtins.c:entity_handler
+foundation/resource_asset_builtins.c:fbx_importer
+foundation/resource_asset_builtins.c:font_handler
+foundation/resource_asset_builtins.c:font_importer
+foundation/resource_asset_builtins.c:gltf_importer
+foundation/resource_asset_builtins.c:imported_asset_handler
+foundation/resource_asset_builtins.c:material_graph_handler
+foundation/resource_asset_builtins.c:mesh_handler
+foundation/resource_asset_builtins.c:obj_importer
+foundation/resource_asset_builtins.c:raster_shader_handler
+foundation/resource_asset_builtins.c:raytrace_shader_handler
+foundation/resource_asset_builtins.c:rml_document_handler
+foundation/resource_asset_builtins.c:rml_style_handler
+foundation/resource_asset_builtins.c:scene_handler
+foundation/resource_asset_builtins.c:texture_handler
+foundation/resource_asset_builtins.c:texture_importer
+
+# ---------------------------------------------------------------------------
+# foundation — SK_TESTS-only test scaffolding (not compiled into the shipped
+# sk-foundation; the refactor design doc §1.3 lists them as [T] test statics).
+# ---------------------------------------------------------------------------
+foundation/compression.c:compat_compressible_payload
+foundation/compression.c:compat_incompressible_payload
+foundation/compression.c:compression_compat_run_count
+foundation/compression.c:compression_compat_runs
+foundation/compression.c:stub_alloc_calls
+foundation/compression.c:zlib_stub_alloc_calls
+foundation/compression.c:zlib_stub_free_calls
+foundation/compression.c:zstd_stub_alloc_calls
+foundation/compression.c:zstd_stub_free_calls
+foundation/resource_assets.c:ra_test_direct_import_count
+foundation/resource_assets.c:ra_test_payload_repo
+foundation/resource_serialize.c:ser_it_seq
+foundation/test.c:test_count
+foundation/test.c:tests
+
+# ---------------------------------------------------------------------------
+# plugins — per-DSO instance state (documented refactor non-goal)
+# The design doc explicitly excludes rewriting plugin-internal file-scope
+# caches of the host pointers/state they were handed at entry ("Those are
+# plugin instance state, not foundation engine state" — Non-Goals). Each
+# shared library owns one copy; the app registry hands them the host context
+# and tables. These entries freeze the CURRENT set so new plugin statics
+# still fail the guard.
+# ---------------------------------------------------------------------------
+plugins/dxc_compiler/dxc_compiler.c:dxc_logger
+plugins/dxc_compiler/dxc_compiler.c:dxc_state
+plugins/entities/entities.c:ecs_component_count
+plugins/entities/entities.c:ecs_component_registry
+plugins/entities/entities.c:g_ecs_app_context
+plugins/platform_window/platform_window.c:glfw_ready
+plugins/profiler/profiler.c:active
+plugins/profiler/profiler.c:app_context
+plugins/profiler/profiler.c:cpu_ctx
+plugins/profiler/profiler.c:device
+plugins/profiler/profiler.c:frame_number
+plugins/profiler/profiler.c:frame_start_seconds
+plugins/profiler/profiler.c:gpu_ctx
+plugins/profiler/profiler.c:has_last_frame
+plugins/profiler/profiler.c:timestamp_period
+plugins/render_graph/render_graph.c:g_rg_app_context
+plugins/render_graph/render_graph.c:g_rg_count_allocator
+plugins/render_graph/render_graph.c:g_rg_count_heap
+plugins/render_graph/render_graph.c:rg_mock_rhi_api
+plugins/render_graph/render_graph.c:rg_test_wc_pass_names
+plugins/render_graph/render_graph.c:rg_test_wc_tex_names
+plugins/ui/automation.c:g_auto_click_count
+plugins/ui/clay.c:ui_clay_state
+plugins/ui/font.c:ui_font_fake_file
+plugins/ui/sample_menu.c:sample_crc32_ready
+plugins/ui/sample_menu.c:sample_crc32_table
+plugins/ui/ui.c:g_ui_log_ctx
+plugins/ui/widgets.c:g_bool_cb_count
+plugins/ui/widgets.c:g_bool_cb_value
+plugins/ui/widgets.c:g_clip_buf
+plugins/ui/widgets.c:g_clip_len
+plugins/ui/widgets.c:g_float_cb_count
+plugins/ui/widgets.c:g_float_cb_value
+plugins/ui/widgets.c:png_crc_ready
+plugins/ui/widgets.c:png_crc_table
+plugins/vulkan_render_device/vulkan_render_device.c:plugin_context
+plugins/vulkan_render_device/vulkan_render_device.c:plugin_log_ctx
+plugins/vulkan_render_device/vulkan_render_device.c:plugin_logger
+
+# ---------------------------------------------------------------------------
+# plugins — TLS profiler core state (thread-local, like foundation platform_err)
+# ---------------------------------------------------------------------------
+plugins/profiler/core/profiler_core.c:thread_ctx
+plugins/profiler/core/profiler_core.c:thread_ctx_owner
+
+# ---------------------------------------------------------------------------
+# plugins — SK_TESTS-only test scaffolding
+# ---------------------------------------------------------------------------
+plugins/entities/entities.c:fake_load_probe
+plugins/profiler/core/profiler_core_tests.c:test_clock_now
+plugins/ui/test_engine.c:g_te_click_button
+plugins/ui/test_engine.c:g_te_click_count
+plugins/ui/test_engine.c:g_te_dbl_click_count
+plugins/ui/test_engine.c:g_te_right_down_count
+plugins/ui/ui_interaction_tests.c:g_ix_btn_clicks
+plugins/ui/ui_test.c:g_ut_clicks

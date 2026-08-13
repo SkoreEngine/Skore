@@ -25,8 +25,11 @@
  *      widget + coverage + histogram + golden.
  *   4. ui_integration_text_glyphs  — TEXT node over a panel with the
  *      vendored DejaVuSans.ttf (APX-250 harness load_test_font; fixed
- *      pixel size / content scale / FreeType raster): text-color coverage +
+ *      pixel size / content scale / MSDF bake): text-color coverage +
  *      bbox inside the label box + panel coverage + golden.
+ *   5. ui_integration_msdf_text_*  — MSDF pipeline at small/medium/large
+ *      sizes (APX-266). Structural only (no golden): letterform ink, no
+ *      solid tofu, no RGB channel fringes.
  *
  * Determinism: fixed viewport, fixed clear color, fixed logical time 0,
  * pinned DejaVuSans.ttf only (no system/built-in font fallback), no wall
@@ -96,7 +99,7 @@ typedef struct uii_env_t {
 } uii_env_t;
 
 static i32 uii_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -124,19 +127,20 @@ static void uii_env_init(uii_env_t* env) {
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
 	memset(env, 0, sizeof(*env));
-	env->app = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	env->app = boot.context;
 	if (env->app == NULL) {
 		return;
 	}
 	if (uii_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(env->app, path);
+		boot.api->load_plugin(env->app, path);
 	}
-	env->ui = (const sk_ui_api_t*)sk_app_api()->get_api(env->app, SK_UI_API_TYPE_ID);
+	env->ui = (const sk_ui_api_t*)boot.api->get_api(env->app, SK_UI_API_TYPE_ID);
 }
 
 static void uii_env_destroy(uii_env_t* env) {
 	if (env->app != NULL) {
-		sk_app_destroy(env->app);
+		sk_app_shutdown(env->app);
 	}
 	memset(env, 0, sizeof(*env));
 }
@@ -165,13 +169,17 @@ static sk_ui_region_t uii_region(u32 x0, u32 y0, u32 x1, u32 y1) {
 }
 
 /* One capture through the harness; maps the no-GPU case to TEST_IGNORE. */
-static void uii_capture(const sk_ui_capture_harness_params_t* params, sk_ui_capture_scene_fn scene, sk_ui_cpu_image_t* out) {
-	const i32 rc = sk_ui_capture_harness_capture(params, scene, NULL, out);
+static void uii_capture_user(const sk_ui_capture_harness_params_t* params, sk_ui_capture_scene_fn scene, void* user, sk_ui_cpu_image_t* out) {
+	const i32 rc = sk_ui_capture_harness_capture(params, scene, user, out);
 	if (rc == SK_UI_CAPTURE_HARNESS_RC_SKIPPED) {
 		TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping UI integration test");
 	}
 	TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
 	TEST_ASSERT_NOT_NULL(out->pixels);
+}
+
+static void uii_capture(const sk_ui_capture_harness_params_t* params, sk_ui_capture_scene_fn scene, sk_ui_cpu_image_t* out) {
+	uii_capture_user(params, scene, NULL, out);
 }
 
 /*
@@ -195,7 +203,7 @@ static void uii_assert_golden(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* im
 	params.update_golden = 0;
 	memset(&stats, 0, sizeof(stats));
 	snprintf(golden_path, sizeof(golden_path), SK_UI_GOLDEN_DIR "/%s.png", base);
-	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_filesystem_api(), &stats);
+	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_test_filesystem_table(), &stats);
 	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_UI_IMAGE_COMPARE_OK, rc, "golden compare failed; see {base}_actual/_expected/_diff.png under the artifact root");
 }
 
@@ -697,6 +705,164 @@ SK_TEST(ui_integration_text_glyphs) {
 	uii_assert_golden(ui, &img, "ui_integration_text_glyphs");
 	uii_debug_measure(ui, &img, "text_glyphs");
 	uii_free(&img);
+	uii_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scene 5: MSDF text shader (APX-266) — sizes                                */
+/* -------------------------------------------------------------------------- */
+
+typedef struct uii_msdf_cfg_t {
+	f32 font_size;
+} uii_msdf_cfg_t;
+
+static i32 uii_scene_msdf_text(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t panel;
+	sk_ui_node_t label;
+	sk_ui_style_props_t props;
+	const uii_msdf_cfg_t* cfg = (const uii_msdf_cfg_t*)user;
+	f32 font_size = 20.0f;
+
+	if (cfg != NULL) {
+		font_size = cfg->font_size;
+	}
+	if (scene->font_system == NULL || scene->font == NULL) {
+		fprintf(stderr, "ui_integration_msdf_text: pinned test font missing\n");
+		return -1;
+	}
+	/* MSDF bake happens lazily on the first shape; nothing to pre-warm. */
+
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	props.background_color = sk_ui_rgba(0.10f, 0.12f, 0.16f, 1.0f);
+	props.layout.width = sk_ui_pt(320.0f);
+	props.layout.height = sk_ui_pt(160.0f);
+	ui->node_set_inline_style(ctx, root, &props);
+
+	panel = ui->widget_panel(ctx, root, "msdf-panel");
+	if (!sk_ui_node_is_valid(panel)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	props.layout.width = sk_ui_pt(304.0f);
+	props.layout.height = sk_ui_pt(144.0f);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(8.0f);
+	props.layout.top = sk_ui_pt(8.0f);
+	ui->node_set_inline_style(ctx, panel, &props);
+
+	label = ui->widget_label(ctx, panel, "Hello MSDF", "lbl-msdf");
+	if (!sk_ui_node_is_valid(label)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	props.color = sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
+	props.font_size = font_size;
+	props.layout.width = sk_ui_pt(288.0f);
+	props.layout.height = sk_ui_pt(font_size + 16.0f);
+	ui->node_set_inline_style(ctx, label, &props);
+	return 0;
+}
+
+static u32 uii_chroma_fringe_count(const sk_ui_cpu_image_t* img, sk_ui_region_t region) {
+	u32 x;
+	u32 y;
+	u32 n = 0u;
+	const u32 x0 = region.x0 < img->width ? region.x0 : img->width;
+	const u32 y0 = region.y0 < img->height ? region.y0 : img->height;
+	const u32 x1 = region.x1 < img->width ? region.x1 : img->width;
+	const u32 y1 = region.y1 < img->height ? region.y1 : img->height;
+	for (y = y0; y < y1; ++y) {
+		for (x = x0; x < x1; ++x) {
+			const u8* p = img->pixels + ((size_t)y * (size_t)img->width + (size_t)x) * 4u;
+			u8 mx;
+			u8 mn;
+			u32 lum;
+			mx = p[0] > p[1] ? p[0] : p[1];
+			if (p[2] > mx) {
+				mx = p[2];
+			}
+			mn = p[0] < p[1] ? p[0] : p[1];
+			if (p[2] < mn) {
+				mn = p[2];
+			}
+			lum = ((u32)p[0] + (u32)p[1] + (u32)p[2]) / 3u;
+			/* Near-neutral light ink should not pick up a single MSDF channel. */
+			if (lum >= 80u && (u32)(mx - mn) > 48u) {
+				n += 1u;
+			}
+		}
+	}
+	return n;
+}
+
+static void uii_assert_msdf_letterforms(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img, const_chr_t tag, f32 font_size) {
+	sk_ui_region_t label = uii_region(17u, 17u, 305u, 17u + (u32)(font_size + 20.0f));
+	const u32 ink = UII_RGB(180u, 180u, 190u);
+	const u32 panel = UII_COLOR_PANEL_BG;
+	u32 fringe;
+	u32 region_px;
+
+	(void)tag;
+	/* Panel still visible around the glyphs (not a solid tofu bar). */
+	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(img, label, UII_MATCH(panel, 12u), 0.20f, 0.995f, NULL));
+	/* Letterform ink exists (AA composites of light text over panel). */
+	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(img, label, UII_MATCH(ink, 80u), 0.004f, 0.70f, NULL));
+
+	if (label.x1 > img->width) {
+		label.x1 = img->width;
+	}
+	if (label.y1 > img->height) {
+		label.y1 = img->height;
+	}
+	region_px = (label.x1 - label.x0) * (label.y1 - label.y0);
+	fringe = uii_chroma_fringe_count(img, label);
+	TEST_ASSERT_TRUE(region_px > 0u);
+	/* Fewer than 2% of the label pixels may be strongly chromatic. */
+	TEST_ASSERT_TRUE(fringe * 50u < region_px);
+}
+
+static void uii_run_msdf_size(const sk_ui_api_t* ui, f32 font_size, const_chr_t scene_name) {
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+	uii_msdf_cfg_t cfg;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.font_size = font_size;
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = scene_name;
+	params.width = 320u;
+	params.height = 160u;
+	params.time_seconds = 0.0;
+	params.load_test_font = 1;
+	uii_capture_user(&params, uii_scene_msdf_text, &cfg, &img);
+	uii_assert_msdf_letterforms(ui, &img, scene_name, font_size);
+	uii_debug_measure(ui, &img, scene_name);
+	uii_free(&img);
+}
+
+SK_TEST(ui_integration_msdf_text_small_medium_large) {
+	uii_env_t env;
+	const sk_ui_api_t* ui;
+
+	uii_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uii_env_destroy(&env);
+		return;
+	}
+
+	uii_run_msdf_size(ui, 10.0f, "ui_integration_msdf_text_small");
+	uii_run_msdf_size(ui, 20.0f, "ui_integration_msdf_text_medium");
+	uii_run_msdf_size(ui, 48.0f, "ui_integration_msdf_text_large");
+
 	uii_env_destroy(&env);
 }
 

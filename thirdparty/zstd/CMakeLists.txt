@@ -2,8 +2,8 @@
 # zstd 1.5.6 single-threaded plain-C build (no ZSTD_MULTITHREAD). Mirrors the
 # main-branch vendored tree (ThirdParty/zstd); huf_decompress_amd64.S is not
 # compiled (the project builds zstd as plain C, see
-# docs/compression-design-v2.md §8). sk-core links this target PRIVATE, so zstd
-# headers never leak into the public sk-core interface.
+# docs/compression-design-v2.md §8). sk-foundation links this target PRIVATE, so zstd
+# headers never leak into the public sk-foundation interface.
 
 add_library(zstd STATIC
     src/common/debug.c

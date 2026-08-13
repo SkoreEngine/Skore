@@ -10,7 +10,7 @@ void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
  *
  * Registers sk_profiler_api_t under SK_PROFILER_API_TYPE_ID via
  * sk_profiler_init. Hosts look it up with app_api->get_api; the host's
- * plugin lifecycle (sk-app) then calls init / begin_frame / end_frame /
+ * plugin lifecycle (host) then calls init / begin_frame / end_frame /
  * shutdown on the table.
  *
  * @param context Process app context (API registry). Must not be NULL.

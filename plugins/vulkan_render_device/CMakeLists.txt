@@ -4,6 +4,19 @@ list(FILTER SKORE_VULKAN_RENDER_DEVICE_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(vulkan-render-device SOURCES ${SKORE_VULKAN_RENDER_DEVICE_SOURCES})
 
+# v2's sk_vkrd_update_buffer_chunk_plan is only referenced from SK_TESTS.
+# Release plugin builds omit SK_TESTS, so that helper is unused and fails
+# -Werror / clang-tidy (Linux/macOS/Windows Release CI). Silence this TU
+# in Release; Debug still compiles and runs the chunk-plan tests.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    set_property(SOURCE vulkan_command_buffer.c APPEND PROPERTY COMPILE_OPTIONS
+        "$<$<CONFIG:Release>:-Wno-unused-function>")
+endif()
+if(CMAKE_C_CLANG_TIDY)
+    set_target_properties(sk-vulkan-render-device PROPERTIES
+        C_CLANG_TIDY "${CMAKE_C_CLANG_TIDY};--extra-arg=-Wno-unused-function")
+endif()
+
 # VMA's implementation block is C++ (std::*, <cstdint>), so it is compiled in
 # its own static TU and linked into the shared plugin (the plugin itself links
 # with the C driver, avoiding the CXX -static link flags).

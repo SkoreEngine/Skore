@@ -41,7 +41,7 @@ Lifecycle owned by the host (mirrors main’s `App` wiring):
 | Each frame (main loop) | `prof->begin_frame()` / `prof->end_frame()` |
 | Teardown | `prof->shutdown()` then unload plugins |
 
-`sk-app` already brackets each tick with begin/end frame when the table is
+The host already brackets each tick with begin/end frame when the table is
 present. Recording stays inactive until a UI/tool calls `set_active(true)`.
 
 ---

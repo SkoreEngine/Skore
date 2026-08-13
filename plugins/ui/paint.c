@@ -11,6 +11,7 @@
 
 #include "allocator.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------- */
@@ -520,30 +521,191 @@ static i32 ui_paint_utf8_next(const u8** pp, u32* out_cp) {
 	return 0;
 }
 
-/** Measure advance of a UTF-8 range [begin,end) at pixel_size. */
-static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, const u8* begin, const u8* end) {
-	f32 w = 0.0f;
-	const u8* p = begin;
-	while (p < end) {
-		u32 cp;
-		u32 gi;
-		sk_ui_glyph_t g;
-		const u8* prev = p;
-		if (!ui_paint_utf8_next(&p, &cp) || p == prev) {
-			if (p == prev) {
-				p += 1;
+static i32 ui_paint_msdf_gpu_quads(void) {
+	const char* e = getenv("SK_UI_MSDF_GPU");
+	return (e != NULL && (e[0] == '1' || e[0] == 'y' || e[0] == 'Y')) ? 1 : 0;
+}
+
+/*
+ * Evaluate the MSDF shader (median + screen-space range + smoothstep) on the
+ * CPU and emit coverage solid runs. GPU atlas sampling is tofu on lavapipe
+ * (APX-244); this keeps captures/letterforms correct while matching the PS.
+ */
+static i32 ui_paint_emit_msdf_coverage(ui_paint_emitter_t* em, const sk_ui_msdf_atlas_t* atlas, const sk_ui_msdf_glyph_t* mg, f32 gx0, f32 gy0, f32 gx1, f32 gy1, u32 color) {
+	i32 x0;
+	i32 y0;
+	i32 x1;
+	i32 y1;
+	i32 y;
+	f32 qw;
+	f32 qh;
+	f32 fw_u;
+	f32 fw_v;
+	f32 spr;
+	const u32 base_a = (color >> 24) & 0xffu;
+
+	if (gx1 < gx0) {
+		f32 t = gx0;
+		gx0 = gx1;
+		gx1 = t;
+	}
+	if (gy1 < gy0) {
+		f32 t = gy0;
+		gy0 = gy1;
+		gy1 = t;
+	}
+	qw = gx1 - gx0;
+	qh = gy1 - gy0;
+	if (qw <= 0.0f || qh <= 0.0f || atlas == NULL || atlas->pixels == NULL) {
+		return 0;
+	}
+	fw_u = (mg->u1 - mg->u0) / qw;
+	fw_v = (mg->v1 - mg->v0) / qh;
+	if (fw_u < 0.0f) {
+		fw_u = -fw_u;
+	}
+	if (fw_v < 0.0f) {
+		fw_v = -fw_v;
+	}
+	spr = ui_msdf_screen_px_range(atlas->px_range, (f32)atlas->width, (f32)atlas->height, fw_u, fw_v);
+
+	x0 = (i32)gx0;
+	y0 = (i32)gy0;
+	x1 = (i32)gx1 + 1;
+	y1 = (i32)gy1 + 1;
+	if (gx0 < 0.0f) {
+		x0 = (i32)(gx0 - 1.0f);
+	}
+	if (gy0 < 0.0f) {
+		y0 = (i32)(gy0 - 1.0f);
+	}
+	if (x1 < x0) {
+		return 0;
+	}
+	if (y1 < y0) {
+		return 0;
+	}
+
+	for (y = y0; y < y1; ++y) {
+		i32 x = x0;
+		while (x < x1) {
+			f32 px = (f32)x + 0.5f;
+			f32 py = (f32)y + 0.5f;
+			f32 u;
+			f32 v;
+			f32 med;
+			f32 cov;
+			u32 a;
+			i32 run = x + 1;
+			u32 sum = 0u;
+			u32 n = 0u;
+			if (px < gx0 || py < gy0 || px >= gx1 || py >= gy1) {
+				x += 1;
+				continue;
 			}
-			continue;
-		}
-		if (cp == (u32)'\n') {
-			break;
-		}
-		gi = ui_font_glyph_index_impl(font, cp);
-		if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-			w += g.advance_x;
+			u = mg->u0 + (mg->u1 - mg->u0) * ((px - gx0) / qw);
+			v = mg->v0 + (mg->v1 - mg->v0) * ((py - gy0) / qh);
+			med = ui_msdf_sample_median_bilinear(atlas, u, v);
+			cov = ui_msdf_coverage(med, spr);
+			a = (u32)((f32)base_a * cov + 0.5f);
+			if (a == 0u) {
+				x += 1;
+				continue;
+			}
+			sum = a;
+			n = 1u;
+			while (run < x1) {
+				f32 rpx = (f32)run + 0.5f;
+				f32 ru;
+				f32 rmed;
+				f32 rcov;
+				u32 ra;
+				if (rpx < gx0 || rpx >= gx1) {
+					break;
+				}
+				ru = mg->u0 + (mg->u1 - mg->u0) * ((rpx - gx0) / qw);
+				rmed = ui_msdf_sample_median_bilinear(atlas, ru, v);
+				rcov = ui_msdf_coverage(rmed, spr);
+				ra = (u32)((f32)base_a * rcov + 0.5f);
+				if (ra == 0u || (ra > a + 16u) || (a > ra + 16u)) {
+					break;
+				}
+				sum += ra;
+				n += 1u;
+				run += 1;
+			}
+			{
+				u32 avg = sum / n;
+				u32 run_col = (color & 0x00ffffffu) | (avg << 24);
+				if (ui_paint_add_solid_quad(em, (f32)x, (f32)y, (f32)run, (f32)y + 1.0f, run_col) != 0) {
+					return -1;
+				}
+			}
+			x = run;
 		}
 	}
-	return w;
+	return 0;
+}
+
+static i32 ui_paint_emit_notdef_box(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, u32 color) {
+	f32 w = x1 - x0;
+	f32 h = y1 - y0;
+	f32 t;
+	if (w < 1.0f) {
+		w = 1.0f;
+		x1 = x0 + w;
+	}
+	if (h < 1.0f) {
+		h = 1.0f;
+		y1 = y0 + h;
+	}
+	t = w < h ? w : h;
+	t *= 0.12f;
+	if (t < 1.0f) {
+		t = 1.0f;
+	}
+	if (t * 2.0f >= w) {
+		t = w * 0.25f;
+	}
+	if (t * 2.0f >= h) {
+		t = h * 0.25f;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y0, x1, y0 + t, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y1 - t, x1, y1, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y0 + t, x0 + t, y1 - t, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x1 - t, y0 + t, x1, y1 - t, color) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+static i32 ui_paint_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, ui_text_layout_glyph_t* out) {
+	return ui_text_layout_shape(sys, font, px, prev_cp, cp, out);
+}
+
+static f32 ui_paint_next_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32* prev_cp, u32 cp) {
+	ui_text_layout_glyph_t g;
+	if (ui_paint_shape(sys, font, px, *prev_cp, cp, &g) != 0) {
+		*prev_cp = 0u;
+		return 0.0f;
+	}
+	*prev_cp = g.is_fallback != 0 ? 0u : cp;
+	return g.advance_x;
+}
+
+static i32 ui_paint_font_metrics(sk_ui_font_t* font, f32 px, sk_ui_font_metrics_t* out) {
+	return ui_text_layout_metrics(font, px, out);
+}
+
+/** Measure advance of a UTF-8 range [begin,end) at px (same path as paint). */
+static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end) {
+	return ui_text_layout_measure_width(sys, font, px, begin, end);
 }
 
 /**
@@ -556,7 +718,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	const_chr_t text;
 	sk_ui_font_system_t* sys;
 	sk_ui_font_t* font;
-	u32 pixel_size;
+	f32 px;
 	sk_ui_font_metrics_t metrics;
 	u32 color;
 	const u8* p;
@@ -633,11 +795,15 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	if (avg_scale <= 0.0f) {
 		avg_scale = 1.0f;
 	}
-	pixel_size = sk_ui_font_pixel_size(slot->computed.font_size, avg_scale);
-	if (pixel_size == 0u) {
-		return 0;
+	/* MSDF: scale one atlas by the physical size. Prefer the unrounded
+	 * logical×scale so non-integer content scales stay linearly spaced;
+	 * Clay still measures at integer fontSize (logical) and paint applies
+	 * content scale here. */
+	px = slot->computed.font_size * avg_scale;
+	if (px < 1.0f) {
+		px = 1.0f;
 	}
-	if (ui_font_get_metrics_impl(font, pixel_size, &metrics) != 0) {
+	if (ui_paint_font_metrics(font, px, &metrics) != 0) {
 		return 0;
 	}
 
@@ -658,23 +824,19 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		}
 
 		if (wrap != 0 && content_w > 0.0f) {
+			u32 prev_cp = 0u;
 			while (*q != 0u && *q != (u8)'\n') {
 				const u8* cp_start = q;
 				u32 cp;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv;
 				if (!ui_paint_utf8_next(&q, &cp)) {
+					prev_cp = 0u;
 					continue;
 				}
 				if (cp == (u32)' ' || cp == (u32)'\t') {
 					word_break = q;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				adv = 0.0f;
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_next_advance(sys, font, px, &prev_cp, cp);
 				if (line_w + adv > content_w && line_end > line_begin) {
 					if (word_break != NULL && word_break > line_begin) {
 						line_end = word_break;
@@ -702,7 +864,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			line_end = q;
 		}
 
-		line_w = ui_paint_measure_advance(sys, font, pixel_size, line_begin, line_end);
+		line_w = ui_paint_measure_advance(sys, font, px, line_begin, line_end);
 		if (line_count < 32u) {
 			line_starts[line_count] = line_begin;
 			line_ends[line_count] = line_end;
@@ -767,11 +929,10 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			f32 x0 = pen_x;
 			f32 x1 = pen_x;
 			i32 started = 0;
+			u32 sel_prev = 0u;
 			while (t < b) {
 				u32 cp;
 				const u8* prev = t;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv = 0.0f;
 				if (!ui_paint_utf8_next(&t, &cp) || t == prev) {
 					if (t == prev) {
@@ -779,10 +940,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_next_advance(sys, font, px, &sel_prev, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x + (f32)(i1 - code_index) * 0.0f + (pen_x - line_x0) + line_x0;
@@ -801,12 +959,11 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			x0 = pen_x;
 			x1 = pen_x;
 			started = 0;
+			sel_prev = 0u;
 			t = a;
 			while (t < b) {
 				u32 cp;
 				const u8* prev = t;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv = 0.0f;
 				if (!ui_paint_utf8_next(&t, &cp) || t == prev) {
 					if (t == prev) {
@@ -814,10 +971,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_next_advance(sys, font, px, &sel_prev, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x;
@@ -842,10 +996,9 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		pen_x = line_x0;
 		{
 			const u8* t = a;
+			u32 layout_prev = 0u;
 			while (t < b) {
 				u32 cp;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 gx0, gy0, gx1, gy1;
 				const u8* prev = t;
 				if (draw_caret && caret == code_index) {
@@ -862,82 +1015,44 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) != 0) {
+				{
+					ui_text_layout_glyph_t sg;
+					if (ui_paint_shape(sys, font, px, layout_prev, cp, &sg) != 0) {
+						layout_prev = 0u;
+						code_index += 1;
+						continue;
+					}
+					layout_prev = sg.is_fallback != 0 ? 0u : cp;
+					gx0 = pen_x + sg.quad_l;
+					gy0 = baseline_y - sg.quad_t;
+					gx1 = pen_x + sg.quad_r;
+					gy1 = baseline_y - sg.quad_b;
+					if (sg.is_fallback != 0 && sg.has_quad == 0) {
+						if (ui_paint_emit_notdef_box(em, gx0, gy0, gx1, gy1, color) != 0) {
+							return -1;
+						}
+					} else if (sg.has_quad != 0) {
+						sk_ui_msdf_atlas_t atlas;
+						sk_ui_msdf_glyph_t mg;
+						memset(&mg, 0, sizeof(mg));
+						mg.u0 = sg.u0;
+						mg.v0 = sg.v0;
+						mg.u1 = sg.u1;
+						mg.v1 = sg.v1;
+						if (ui_paint_msdf_gpu_quads() != 0) {
+							if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_MSDF, ui_font_id(font), gx0, gy0, gx1, gy1, sg.u0, sg.v0, sg.u1, sg.v1, color) != 0) {
+								return -1;
+							}
+						} else if (ui_font_msdf_get_atlas_impl(font, &atlas) == 0) {
+							if (ui_paint_emit_msdf_coverage(em, &atlas, &mg, gx0, gy0, gx1, gy1, color) != 0) {
+								return -1;
+							}
+						}
+					}
+					pen_x += sg.advance_x;
 					code_index += 1;
 					continue;
 				}
-				if (g.width > 0u && g.height > 0u) {
-					/*
-					 * Rasterize glyph coverage from the CPU atlas as solid
-					 * quads (alpha modulated per pixel / horizontal run).
-					 *
-					 * GPU font-atlas sampling currently samples as opaque white
-					 * on lavapipe (host-visible texture uploads never land),
-					 * which APX-244 reported as solid "tofu" blocks. The solid
-					 * path is proven; walking FreeType coverage from the CPU
-					 * atlas restores real letterforms without the GPU texture.
-					 */
-					sk_ui_atlas_page_t page;
-					gx0 = pen_x + g.bearing_x;
-					gy0 = baseline_y - g.bearing_y;
-					if (ui_font_atlas_get_page_impl(sys, g.page_index, &page) == 0 && page.pixels != NULL && page.width > 0u && page.height > 0u) {
-						const u32 ax = (u32)(g.u0 * (f32)page.width + 0.0001f);
-						const u32 ay = (u32)(g.v0 * (f32)page.height + 0.0001f);
-						u32 row;
-						for (row = 0u; row < g.height; ++row) {
-							u32 col = 0u;
-							while (col < g.width) {
-								u8 cov;
-								u32 run_end;
-								u32 sum;
-								u32 n;
-								u32 run_col;
-								if (ay + row >= page.height || ax + col >= page.width) {
-									break;
-								}
-								cov = page.pixels[(ay + row) * page.width + (ax + col)];
-								if (cov == 0u) {
-									col += 1u;
-									continue;
-								}
-								run_end = col + 1u;
-								sum = (u32)cov;
-								n = 1u;
-								while (run_end < g.width && ax + run_end < page.width) {
-									u8 c2 = page.pixels[(ay + row) * page.width + (ax + run_end)];
-									if (c2 == 0u) {
-										break;
-									}
-									sum += (u32)c2;
-									n += 1u;
-									run_end += 1u;
-								}
-								/* Average coverage → alpha; keep RGB from the text color. */
-								run_col = color;
-								{
-									u32 base_a = (run_col >> 24) & 0xffu;
-									u32 avg = sum / n;
-									u32 out_a = (base_a * avg + 127u) / 255u;
-									run_col = (run_col & 0x00ffffffu) | (out_a << 24);
-								}
-								if (ui_paint_add_solid_quad(em, gx0 + (f32)col, gy0 + (f32)row, gx0 + (f32)run_end, gy0 + (f32)row + 1.0f, run_col) != 0) {
-									return -1;
-								}
-								col = run_end;
-							}
-						}
-					} else {
-						/* Fallback: textured quad (may tofu if GPU atlas empty). */
-						gx1 = gx0 + (f32)g.width;
-						gy1 = gy0 + (f32)g.height;
-						if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_FONT, g.page_index, gx0, gy0, gx1, gy1, g.u0, g.v0, g.u1, g.v1, color) != 0) {
-							return -1;
-						}
-					}
-				}
-				pen_x += g.advance_x;
-				code_index += 1;
 			}
 			/* Caret at end of line. */
 			if (draw_caret && caret == code_index && li + 1u == line_count) {
@@ -1962,9 +2077,8 @@ SK_TEST(ui_paint_border_and_rounded_and_text) {
 	sk_ui_font_t* font;
 	sk_ui_paint_params_t params;
 	const sk_ui_draw_list_t* dl;
-	u32 font_meshes;
 
-	sys = ui->font_system_create(NULL, 256u, 256u);
+	sys = ui->font_system_create(NULL);
 	TEST_ASSERT_NOT_NULL(sys);
 	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);
@@ -2019,11 +2133,70 @@ SK_TEST(ui_paint_border_and_rounded_and_text) {
 	dl = ui->get_draw_list(ctx);
 	TEST_ASSERT_TRUE(dl->vertex_count > 8u);
 	TEST_ASSERT_TRUE(dl->index_count > 0u);
-	/* Glyphs are emitted as coverage solid quads (CPU atlas walk), not
-	 * TEX_FONT meshes — still expect more geometry than the box alone. */
-	(void)font_meshes;
+	/* Glyphs are emitted as MSDF coverage solid quads (CPU atlas walk) —
+	 * still expect more geometry than the box alone. */
 	TEST_ASSERT_TRUE(dl->vertex_count > 24u);
 	TEST_ASSERT_TRUE(dl->index_count > 36u);
+
+	ui->font_system_destroy(sys);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_paint_msdf_text_emits_coverage_quads) {
+	const sk_ui_api_t* ui = ui_paint_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t text;
+	sk_ui_font_system_t* sys;
+	sk_ui_font_t* font;
+	sk_ui_paint_params_t params;
+	const sk_ui_draw_list_t* dl;
+	u32 msdf_meshes;
+	u32 i;
+
+	sys = ui->font_system_create(NULL);
+	TEST_ASSERT_NOT_NULL(sys);
+	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
+	TEST_ASSERT_NOT_NULL(font);
+
+	ui_paint_set_size(ui, ctx, root, 220.0f, 80.0f);
+	text = ui->node_create(ctx, SK_UI_NODE_KIND_TEXT, root);
+	ui_paint_set_size(ui, ctx, text, 200.0f, 40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, text, "text", "Hi"));
+	{
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+		p.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 0.8f);
+		p.font_size = 24.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, text, &p));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 220.0f, 80.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 1.0f, 1.0f));
+
+	/* Text always paints through the MSDF pipeline: bake on first shape,
+	 * then emit per-glyph coverage solids (CPU evaluate of the shader;
+	 * SK_UI_MSDF_GPU=1 switches to TEX_MSDF quads). */
+	memset(&params, 0, sizeof(params));
+	params.font_system = sys;
+	params.font = font;
+	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, &params));
+	dl = ui->get_draw_list(ctx);
+	msdf_meshes = ui_paint_count_mesh_tex(dl, SK_UI_DRAW_TEX_MSDF);
+	TEST_ASSERT_EQUAL_UINT(0u, msdf_meshes); /* default CPU path: coverage solids */
+	TEST_ASSERT_TRUE(dl->vertex_count >= 8u);
+	{
+		u32 ink_verts = 0u;
+		const u32 want_rgb = sk_ui_pack_color(sk_ui_rgba(1.0f, 1.0f, 1.0f, 0.8f)) & 0x00ffffffu;
+		for (i = 0u; i < dl->vertex_count; ++i) {
+			if ((dl->vertices[i].color & 0x00ffffffu) == want_rgb && ((dl->vertices[i].color >> 24) & 0xffu) > 0u) {
+				ink_verts += 1u;
+			}
+		}
+		TEST_ASSERT_TRUE(ink_verts >= 8u);
+	}
 
 	ui->font_system_destroy(sys);
 	ui->context_destroy(ctx);

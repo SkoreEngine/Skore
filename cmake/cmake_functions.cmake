@@ -164,7 +164,7 @@ function(sk_add_plugin name)
     # (not libsk-…); host scan and tests use the unprefixed name on every OS.
     add_library(${_plugin} SHARED ${SK_PLUGIN_SOURCES})
     target_include_directories(${_plugin} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(${_plugin} PRIVATE sk-core)
+    target_link_libraries(${_plugin} PRIVATE sk-foundation)
     set_target_properties(${_plugin} PROPERTIES
         PREFIX ""
         LIBRARY_OUTPUT_DIRECTORY "${_plugins_dir}"
@@ -178,20 +178,20 @@ function(sk_add_plugin name)
         LIBRARY_OUTPUT_DIRECTORY_MINSIZEREL "${_plugins_dir}"
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${_plugins_dir}"
     )
-    # Host load_plugin GetProcAddress/dlsym("sk_logger_bind_api") must see the
-    # plugin-local copy (static sk-core). Force export: the symbol is otherwise
-    # easy to drop (unused from plugin .c) on MSVC / --gc-sections.
-    if(MSVC)
-        target_link_options(${_plugin} PRIVATE "/EXPORT:sk_logger_bind_api")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        target_link_options(${_plugin} PRIVATE "LINKER:-exported_symbol,_sk_logger_bind_api")
-    else()
-        # ELF: keep the symbol even if nothing in the plugin .c references it.
-        target_link_options(${_plugin} PRIVATE "LINKER:--export-dynamic-symbol=sk_logger_bind_api")
-    endif()
-
     # In-source tests: non-Release only (never ship tests in Release plugins).
     sk_target_enable_tests(${_plugin})
+
+    # Darwin -exported_symbol is exclusive. v2 also passes
+    # -exported_symbol,_sk_logger_bind_api, which would hide the plugin
+    # entry points from dlsym (macOS CI: "plugin missing sk_plugin_entry_point").
+    # Re-list the host-resolved symbols so they stay visible. run_tests exists
+    # only in non-Release plugin builds.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        target_link_options(${_plugin} PRIVATE
+            "LINKER:-exported_symbol,_sk_plugin_entry_point"
+            "$<$<AND:$<NOT:$<CONFIG:Release>>,$<NOT:$<CONFIG:MinSizeRel>>>:LINKER:-exported_symbol,_sk_plugin_run_tests>"
+        )
+    endif()
 
     # Export public headers for consumers / host tests that include this plugin.
     # APX-275: the consumer-facing header surface is public-only — internal

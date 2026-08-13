@@ -19,7 +19,7 @@
 #
 # Usage:
 #   ./scripts/check-windows-abi.sh
-#   ./scripts/check-windows-abi.sh core/stacktrace.c
+#   ./scripts/check-windows-abi.sh foundation/stacktrace.c
 #   JOBS=8 ./scripts/check-windows-abi.sh
 #
 # Env:
@@ -240,7 +240,7 @@ default_file_ok() {
 	case "${f}" in
 		tests/* | */tests/* ) return 1 ;;
 		*.cpp | *.cc | *.cxx ) return 1 ;;
-		core/* | app/* | player/* | editor/* | plugins/* ) return 0 ;;
+		foundation/* | player/* | editor/* | plugins/* ) return 0 ;;
 		* ) return 1 ;;
 	esac
 }
@@ -259,8 +259,7 @@ build_extra_args() {
 		"--extra-arg=-DWIN32_LEAN_AND_MEAN"
 		"--extra-arg=-DSK_ENGINE_VERSION=\"0.0.1\""
 		"--extra-arg=-DSK_VERSION=\"0.0.1-windows-abi\""
-		"--extra-arg=-I${ROOT}/core"
-		"--extra-arg=-I${ROOT}/app"
+		"--extra-arg=-I${ROOT}/foundation"
 		"--extra-arg=-I${ROOT}/player"
 		"--extra-arg=-I${ROOT}/editor"
 		"--extra-arg=-Wno-unknown-warning-option"
@@ -279,16 +278,19 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
-		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
 		"--extra-arg=-I${ROOT}/thirdparty/clay"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image_write"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image"
+		# msdf-atlas-c public C API (plugins/ui/font_msdf.c); headers live under
+		# thirdparty/msdf-atlas-gen/c_api/include, not thirdparty/*/include.
+		"--extra-arg=-I${ROOT}/thirdparty/msdf-atlas-gen/c_api/include"
+		"--extra-arg=-DMSDF_ATLAS_C_STATIC=1"
 		# Plugin fixture data headers (e.g. skore_test_font_ttf.h), mirroring
 		# player/CMakeLists.txt / tests/integration/CMakeLists.txt.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
-		# Compression codec (sk-core links zstd PRIVATE; headers live under
-		# thirdparty/zstd/src and core/compression.c gates the include on
-		# SK_COMPRESSION_HAS_ZSTD, mirroring core/CMakeLists.txt).
+		# Compression codec (sk-foundation links zstd PRIVATE; headers live under
+		# thirdparty/zstd/src and foundation/compression.c gates the include on
+		# SK_COMPRESSION_HAS_ZSTD, mirroring foundation/CMakeLists.txt).
 		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
 		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 	)

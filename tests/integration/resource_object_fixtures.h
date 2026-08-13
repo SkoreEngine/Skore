@@ -81,6 +81,19 @@ typedef struct sk_resource_fixture_payload_t {
 i32 sk_resource_fixture_dir(char* out, u32 out_cap);
 
 /**
+ * Shared fixture-root resolution for every tests/data/<subdir> fixture set
+ * (resource_object, entities, ...): locate the directory that contains
+ * @p subdir and a manifest.json, using the same SK_TEST_DATA_DIR / app_folder
+ * / cwd fallbacks as sk_resource_fixture_dir.
+ *
+ * @param subdir  Fixture subdirectory name under tests/data/ (e.g. "entities").
+ * @param out     Destination path buffer (UTF-8, NUL-terminated on success).
+ * @param out_cap Capacity of @p out in bytes (including NUL).
+ * @return 0 on success, non-zero if no candidate directory exists.
+ */
+i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_cap);
+
+/**
  * Return the static catalog entry for @p id.
  * @param id Fixture id; must be in range [0, SK_RESOURCE_FIXTURE_COUNT).
  * @return Non-NULL descriptor.

@@ -9,6 +9,7 @@
 
 #include "resource_object_fixtures.h"
 
+#include "app.h"
 #include "filesystem.h"
 #include "path.h"
 #include "test.h"
@@ -20,6 +21,100 @@
 #ifndef SK_TEST_DATA_DIR
 #define SK_TEST_DATA_DIR ""
 #endif
+
+/* Validate a candidate fixture root: it must exist and contain a manifest so
+ * a wrong folder (or a parent dir that merely exists) does not win. */
+static i32 fixture_dir_is_valid(const_chr_t dir) {
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
+	char probe[SK_FS_PATH_MAX];
+	if (dir == NULL || dir[0] == '\0') {
+		return 0;
+	}
+	if (fs->get_file_status(dir) != SK_FILE_STATUS_DIRECTORY) {
+		return 0;
+	}
+	/* Require the manifest so a wrong "resource_object" folder does not win. */
+	if (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr("manifest.json"), probe, (u32)sizeof(probe)) < 0) {
+		return 0;
+	}
+	return fs->get_file_status(probe) == SK_FILE_STATUS_FILE ? 1 : 0;
+}
+
+static i32 try_join_fixture_root(const_chr_t base, const_chr_t mid, const_chr_t subdir, char* out, u32 out_cap) {
+	char step[SK_FS_PATH_MAX];
+	if (base == NULL || base[0] == '\0') {
+		return -1;
+	}
+	if (mid != NULL && mid[0] != '\0') {
+		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(mid), step, (u32)sizeof(step)) < 0) {
+			return -1;
+		}
+		if (sk_path_join(sk_str_view_cstr(step), sk_str_view_cstr(subdir), out, out_cap) < 0) {
+			return -1;
+		}
+	} else {
+		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(subdir), out, out_cap) < 0) {
+			return -1;
+		}
+	}
+	return fixture_dir_is_valid(out) ? 0 : -1;
+}
+
+/* Shared fixture-root resolution for every tests/data/<subdir> fixture set
+ * (resource_object, entities, ...). Works when the test binary runs from
+ * {build}/bin (CTest default) via SK_TEST_DATA_DIR and relative fallbacks
+ * from app_folder / cwd. The candidate must contain a manifest.json. */
+i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_cap) {
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
+	char base[SK_FS_PATH_MAX];
+
+	/* 1) Compile-time source-tree path: ${CMAKE_SOURCE_DIR}/tests/data */
+	if (SK_TEST_DATA_DIR[0] != '\0') {
+		if (try_join_fixture_root(SK_TEST_DATA_DIR, NULL, subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		/* SK_TEST_DATA_DIR may already point at tests/data/<subdir> */
+		if (fixture_dir_is_valid(SK_TEST_DATA_DIR)) {
+			size_t n = strlen(SK_TEST_DATA_DIR);
+			if (n + 1u > (size_t)out_cap) {
+				return -1;
+			}
+			memcpy(out, SK_TEST_DATA_DIR, n + 1u);
+			return 0;
+		}
+	}
+
+	/* 2) Relative to the running executable (…/build/bin → source tree) */
+	if (fs->app_folder(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
+		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../../tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+	}
+
+	/* 3) Relative to cwd (ctest WORKING_DIRECTORY is usually {build}/bin) */
+	if (fs->current_dir(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
+		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../../tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../../../tests/data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+	}
+
+	return -1;
+}
 
 /* Relative root under tests/data/ */
 static const char fixture_subdir[] = "resource_object";
@@ -35,92 +130,8 @@ const sk_resource_fixture_desc_t* sk_resource_fixture_desc(sk_resource_fixture_i
 	return &fixture_catalog[(u32)id < (u32)SK_RESOURCE_FIXTURE_COUNT ? (u32)id : 0u];
 }
 
-static i32 fixture_dir_is_valid(const_chr_t dir) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
-	char probe[SK_FS_PATH_MAX];
-	if (dir == NULL || dir[0] == '\0') {
-		return 0;
-	}
-	if (fs->get_file_status(dir) != SK_FILE_STATUS_DIRECTORY) {
-		return 0;
-	}
-	/* Require the manifest so a wrong "resource_object" folder does not win. */
-	if (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr("manifest.json"), probe, (u32)sizeof(probe)) < 0) {
-		return 0;
-	}
-	return fs->get_file_status(probe) == SK_FILE_STATUS_FILE ? 1 : 0;
-}
-
-static i32 try_join_fixture_root(const_chr_t base, const_chr_t mid, char* out, u32 out_cap) {
-	char step[SK_FS_PATH_MAX];
-	if (base == NULL || base[0] == '\0') {
-		return -1;
-	}
-	if (mid != NULL && mid[0] != '\0') {
-		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(mid), step, (u32)sizeof(step)) < 0) {
-			return -1;
-		}
-		if (sk_path_join(sk_str_view_cstr(step), sk_str_view_cstr(fixture_subdir), out, out_cap) < 0) {
-			return -1;
-		}
-	} else {
-		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(fixture_subdir), out, out_cap) < 0) {
-			return -1;
-		}
-	}
-	return fixture_dir_is_valid(out) ? 0 : -1;
-}
-
 i32 sk_resource_fixture_dir(char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
-	char base[SK_FS_PATH_MAX];
-
-	/* 1) Compile-time source-tree path: ${CMAKE_SOURCE_DIR}/tests/data */
-	if (SK_TEST_DATA_DIR[0] != '\0') {
-		if (try_join_fixture_root(SK_TEST_DATA_DIR, NULL, out, out_cap) == 0) {
-			return 0;
-		}
-		/* SK_TEST_DATA_DIR may already point at tests/data/resource_object */
-		if (fixture_dir_is_valid(SK_TEST_DATA_DIR)) {
-			size_t n = strlen(SK_TEST_DATA_DIR);
-			if (n + 1u > (size_t)out_cap) {
-				return -1;
-			}
-			memcpy(out, SK_TEST_DATA_DIR, n + 1u);
-			return 0;
-		}
-	}
-
-	/* 2) Relative to the running executable (…/build/bin → source tree) */
-	if (fs->app_folder(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
-		if (try_join_fixture_root(base, "tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-		if (try_join_fixture_root(base, "../tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-		if (try_join_fixture_root(base, "../../tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-	}
-
-	/* 3) Relative to cwd (ctest WORKING_DIRECTORY is usually {build}/bin) */
-	if (fs->current_dir(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
-		if (try_join_fixture_root(base, "tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-		if (try_join_fixture_root(base, "../tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-		if (try_join_fixture_root(base, "../../tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-		if (try_join_fixture_root(base, "../../../tests/data", out, out_cap) == 0) {
-			return 0;
-		}
-	}
-
-	return -1;
+	return sk_resource_fixture_dir_for_subdir(fixture_subdir, out, out_cap);
 }
 
 i32 sk_resource_fixture_path(const_chr_t relative_name, char* out, u32 out_cap) {
@@ -149,7 +160,7 @@ i32 sk_resource_fixture_payload_path(sk_resource_fixture_id_t id, char* out, u32
 
 i32 sk_resource_fixture_load_payload(sk_resource_fixture_id_t id, const sk_allocator_t* allocator, sk_resource_fixture_payload_t* out) {
 	const sk_resource_fixture_desc_t* desc = sk_resource_fixture_desc(id);
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char path[SK_FS_PATH_MAX];
 
 	if (out == NULL) {
@@ -234,11 +245,11 @@ SK_TEST(resource_object_fixture_dir_resolves) {
 	char dir[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, sk_resource_fixture_dir(dir, (u32)sizeof(dir)));
 	TEST_ASSERT_TRUE(dir[0] != '\0');
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_DIRECTORY, sk_filesystem_api()->get_file_status(dir));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_DIRECTORY, sk_test_filesystem_table()->get_file_status(dir));
 
 	char manifest[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, sk_resource_fixture_path("manifest.json", manifest, (u32)sizeof(manifest)));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(manifest));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(manifest));
 }
 
 SK_TEST(resource_object_fixture_catalog_and_paths) {
@@ -251,7 +262,7 @@ SK_TEST(resource_object_fixture_catalog_and_paths) {
 
 		char resource_path[SK_FS_PATH_MAX];
 		TEST_ASSERT_EQUAL_INT(0, sk_resource_fixture_resource_path((sk_resource_fixture_id_t)i, resource_path, (u32)sizeof(resource_path)));
-		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(resource_path));
+		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(resource_path));
 
 		char payload_path[SK_FS_PATH_MAX];
 		i32 payload_rc = sk_resource_fixture_payload_path((sk_resource_fixture_id_t)i, payload_path, (u32)sizeof(payload_path));
@@ -260,8 +271,8 @@ SK_TEST(resource_object_fixture_catalog_and_paths) {
 			TEST_ASSERT_NULL(desc->payload_file);
 		} else {
 			TEST_ASSERT_EQUAL_INT(0, payload_rc);
-			TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(payload_path));
-			TEST_ASSERT_EQUAL_UINT64((u64)desc->expected_payload_size, sk_filesystem_api()->get_path_size(payload_path));
+			TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(payload_path));
+			TEST_ASSERT_EQUAL_UINT64((u64)desc->expected_payload_size, sk_test_filesystem_table()->get_path_size(payload_path));
 		}
 	}
 }
