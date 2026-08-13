@@ -34,6 +34,18 @@
  * validated on access, so using a handle after destroy (or after world
  * shutdown) returns an error instead of crashing.
  *
+ * Scene queries are implemented (APX-322): ray_cast() and sphere_cast() run
+ * Jolt narrow-phase queries against the live world and report the closest hit
+ * in a POD sk_jolt_query_hit_t (hit body handle, world-space hit point, unit
+ * surface normal, and parametric fraction along the query direction). Both
+ * queries are cast "from" an object layer and honor the same layer / collision
+ * matrix as the contact filters: a query from layer L only hits bodies on
+ * layers that collide with L, so a ray from the ghost SENSOR layer hits
+ * nothing, a ray from NON_MOVING does not hit static geometry, and a query
+ * never hits a body on a layer it does not collide with. Queries are
+ * main-thread only, safe to run between steps (they take Jolt body locks),
+ * and fail with an error code instead of crashing without a live world.
+ *
  * The layer and collision-filter constants below are wired to the filters:
  * the object-layer pair filter is driven straight from the per-layer
  * SK_JOLT_COLLISION_MASK_* masks (the documented matrix is the single
@@ -327,6 +339,35 @@ typedef struct sk_jolt_body_t sk_jolt_body_t;
 typedef struct sk_jolt_character_t sk_jolt_character_t;
 
 /* ------------------------------------------------------------------ */
+/*  Scene queries (ray / shape casts)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Closest-hit result of a scene query (ray_cast / sphere_cast): the body
+ * that was hit, the world-space hit point, the world-space unit surface
+ * normal at that point, and the parametric fraction along the query
+ * direction. Zeroed when the query found no hit.
+ *
+ * @field body     Body handle of the hit body (valid until body_destroy /
+ *                 world shutdown; NULL when no hit occurred).
+ * @field position World-space hit point in meters (on the hit body's
+ *                 surface).
+ * @field normal   World-space unit surface normal of the hit body at the
+ *                 hit point (points out of the body, toward the query).
+ * @field fraction Parametric distance along the query direction:
+ *                 position = query origin + query direction * fraction.
+ *                 With a unit-length direction this equals the distance in
+ *                 meters; hits beyond max_distance are never reported, so
+ *                 with direction length == max_distance it is in [0, 1].
+ */
+typedef struct sk_jolt_query_hit_t {
+	sk_jolt_body_t* body;
+	sk_jolt_vec3_t position;
+	sk_jolt_vec3_t normal;
+	f32 fraction;
+} sk_jolt_query_hit_t;
+
+/* ------------------------------------------------------------------ */
 /*  World settings                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -380,8 +421,12 @@ typedef void (*sk_jolt_step_callback_fn)(void_ptr_t user_data, f64 physics_time,
  *
  * Rigid bodies are implemented (APX-320): body_create() / body_destroy()
  * and the position / rotation / velocity accessors (all handles are
- * validated, so use-after-destroy returns an error). Character controllers
- * are not implemented yet: character_create() reports failure (NULL).
+ * validated, so use-after-destroy returns an error). Scene queries are
+ * implemented (APX-322): ray_cast() / sphere_cast() report the closest hit
+ * as a POD sk_jolt_query_hit_t, honoring the layer collision matrix
+ * (queries are cast from an object layer and only hit colliding layers).
+ * Character controllers are not implemented yet: character_create() reports
+ * failure (NULL).
  */
 typedef struct sk_jolt_api_t {
 	/**
@@ -593,6 +638,61 @@ typedef struct sk_jolt_api_t {
 	 * @param character Character handle (may be NULL; NULL is a no-op). Stub: no-op.
 	 */
 	void (*character_destroy)(sk_jolt_character_t* character);
+
+	/**
+	 * Cast a ray against the world and return the closest hit. The ray is
+	 * cast "from" @p object_layer: it only hits bodies on layers that
+	 * collide with that layer per the filter matrix (the
+	 * SK_JOLT_COLLISION_MASK_* constants — the same contract the contact
+	 * filters implement), so a ray from the ghost SENSOR layer hits nothing,
+	 * a ray from NON_MOVING does not hit static geometry, and a ray never
+	 * hits a body on a layer it does not collide with. Convex bodies are
+	 * treated as solid (a ray starting inside one reports a hit at fraction
+	 * 0). Main-thread only; safe to call between steps.
+	 * @param origin       Ray origin in world space (meters). Must not be NULL.
+	 * @param direction    Ray direction; need not be unit length. The hit
+	 *                     fraction is measured along this vector
+	 *                     (hit position = origin + direction * fraction), so
+	 *                     with a unit direction the fraction equals the
+	 *                     distance in meters. Must be non-zero.
+	 * @param max_distance Maximum ray length in meters; hits beyond it are
+	 *                     ignored. Must be > 0.
+	 * @param object_layer Object layer the ray is cast from (one of the
+	 *                     SK_JOLT_OBJECT_LAYER_* values).
+	 * @param out_hit      Output hit info; zeroed when there is no hit. Must
+	 *                     not be NULL.
+	 * @return 0 when a hit was found (out_hit filled), 1 when the query ran
+	 *         but found nothing (out_hit zeroed), negative when the query
+	 *         was invalid: world not initialized, NULL origin/direction/
+	 *         out_hit, max_distance <= 0, zero-length direction, or unknown
+	 *         object layer (out_hit zeroed).
+	 */
+	i32 (*ray_cast)(const sk_jolt_vec3_t* origin, const sk_jolt_vec3_t* direction, f32 max_distance, u32 object_layer, sk_jolt_query_hit_t* out_hit);
+
+	/**
+	 * Cast a sphere along a ray against the world and return the closest
+	 * hit. Same layer-filter contract as ray_cast: the sphere is cast "from"
+	 * @p object_layer and only hits bodies on layers that collide with it.
+	 * The reported hit point is the contact point on the hit body's surface
+	 * and the normal is the hit body's surface normal there; the fraction is
+	 * measured along @p direction from the sphere's start center (the
+	 * sphere's surface first touches the body at that point — with a unit
+	 * direction the fraction equals the distance in meters to first
+	 * contact). Main-thread only; safe to call between steps.
+	 * @param radius       Sphere radius in meters. Must be > 0.
+	 * @param origin       Center of the sphere at the start of the cast
+	 *                     (world space, meters). Must not be NULL.
+	 * @param direction    Cast direction; need not be unit length (same
+	 *                     fraction convention as ray_cast). Must be non-zero.
+	 * @param max_distance Maximum cast length in meters. Must be > 0.
+	 * @param object_layer Object layer the cast is made from (one of the
+	 *                     SK_JOLT_OBJECT_LAYER_* values).
+	 * @param out_hit      Output hit info; zeroed when there is no hit. Must
+	 *                     not be NULL.
+	 * @return 0 hit / 1 no hit / negative invalid input (same contract and
+	 *         failure modes as ray_cast).
+	 */
+	i32 (*sphere_cast)(f32 radius, const sk_jolt_vec3_t* origin, const sk_jolt_vec3_t* direction, f32 max_distance, u32 object_layer, sk_jolt_query_hit_t* out_hit);
 } sk_jolt_api_t;
 
 #ifdef __cplusplus

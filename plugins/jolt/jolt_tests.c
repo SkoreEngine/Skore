@@ -22,6 +22,16 @@
  * two dynamic bodies on layers configured not to collide interpenetrate
  * freely, the same bodies on colliding layers resolve contact, and a body
  * on the ghost SENSOR layer falls through the static floor.
+ * Scene queries (APX-322) are verified from C: a ray fired at a known
+ * static box reports a hit with the expected body handle, hit point,
+ * outward normal, and a fraction matching the analytic distance within
+ * tolerance; a ray fired away reports no hit; rays are clipped by
+ * max_distance; queries cast from non-colliding layers (NON_MOVING vs
+ * static, SENSOR vs anything) report no hit, and a body on the ghost
+ * SENSOR layer is invisible to a MOVING ray; the sphere cast reports the
+ * analytic first-contact distance, contact point, and normal; invalid
+ * queries (NULL arguments, zero max_distance/radius, unknown layer,
+ * shutdown world) fail with an error instead of crashing.
  * Character controllers are still stubbed.
  */
 
@@ -899,6 +909,184 @@ SK_TEST(jolt_body_handle_validation) {
 	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
 	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(body, &v));
 	api->shutdown();
+}
+
+/* ---- scene queries (APX-322) ---- */
+
+/* Shared query scenario: a static 1×1×1 box (half extent 0.5) centered at
+ * (0, 0, -5) — its +Z face sits at z = -4.5, 4.5 m from the origin along
+ * -Z. Returns the box handle; the caller destroys it. */
+static sk_jolt_body_t* jolt_test_query_box(const sk_jolt_api_t* api) {
+	sk_jolt_body_t* box = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING, 0.5f);
+	if (box != NULL) {
+		const sk_jolt_vec3_t center = jolt_test_vec3(0.0f, 0.0f, -5.0f);
+		api->body_set_position(box, &center);
+	}
+	return box;
+}
+
+/* A ray fired at a known static box reports the closest hit: the expected
+ * body handle, a hit point on the box's +Z face, the outward face normal,
+ * and a fraction matching the analytic distance (4.5 m with a unit
+ * direction). A ray fired away reports no hit, max_distance clips the ray,
+ * and invalid queries fail with an error instead of crashing. */
+SK_TEST(jolt_ray_cast_hits_known_static_box) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_query_hit_t hit;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* box = jolt_test_query_box(api);
+	TEST_ASSERT_NOT_NULL(box);
+
+	const sk_jolt_vec3_t origin = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t toward = jolt_test_vec3(0.0f, 0.0f, -1.0f); /* unit length */
+
+	/* Closest hit: 4.5 m to the +Z face, normal pointing back at the ray. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(0, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)box, (const_ptr_t)hit.body);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 4.5f, hit.fraction);
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&hit.position, &(sk_jolt_vec3_t){0.0f, 0.0f, -4.5f}, 1.0e-3f));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&hit.normal, &(sk_jolt_vec3_t){0.0f, 0.0f, 1.0f}, 1.0e-3f));
+	/* Invariant: position == origin + direction * fraction (here -Z). */
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&hit.position, &(sk_jolt_vec3_t){0.0f, 0.0f, -hit.fraction}, 1.0e-3f));
+
+	/* max_distance clips the ray: 4 m never reaches the box at 4.5 m. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(1, api->ray_cast(&origin, &toward, 4.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	/* A ray fired away from the box reports no hit (out_hit zeroed). */
+	memset(&hit, 0xAA, sizeof(hit));
+	const sk_jolt_vec3_t away = jolt_test_vec3(0.0f, 0.0f, 1.0f);
+	TEST_ASSERT_EQUAL_INT32(1, api->ray_cast(&origin, &away, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_NULL(hit.body);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, hit.fraction);
+
+	/* Invalid queries fail with a negative code and a zeroed output. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, &toward, 0.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(NULL, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, NULL, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, NULL));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, &(sk_jolt_vec3_t){0.0f, 0.0f, 0.0f}, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_INVALID, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	api->body_destroy(box);
+	api->shutdown();
+
+	/* Without a live world the query fails instead of crashing. */
+	TEST_ASSERT_EQUAL_INT32(-1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+}
+
+/* Scene queries honor the layer collision matrix: a ray is cast "from" an
+ * object layer and only hits bodies on layers that collide with it. The
+ * static box is on NON_MOVING, so a MOVING ray hits it, but a NON_MOVING
+ * ray (static never collides with static) and a SENSOR ray (ghost) do not;
+ * and a body on the ghost SENSOR layer is invisible to a MOVING ray, which
+ * passes straight through it. */
+SK_TEST(jolt_ray_cast_honors_layer_filter) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_query_hit_t hit;
+	const sk_jolt_vec3_t origin = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t toward = jolt_test_vec3(0.0f, 0.0f, -1.0f);
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	/* Control: a MOVING ray hits the static box (MOVING-vs-NON_MOVING). */
+	sk_jolt_body_t* box = jolt_test_query_box(api);
+	TEST_ASSERT_NOT_NULL(box);
+	memset(&hit, 0, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(0, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)box, (const_ptr_t)hit.body);
+
+	/* NON_MOVING-vs-NON_MOVING never collides: the same ray from the
+	 * NON_MOVING layer does not see static geometry. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_NON_MOVING, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	/* SENSOR collides with nothing: a ghost ray hits nothing. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_SENSOR, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	/* MOVING-vs-SENSOR never collides: a body on the ghost SENSOR layer
+	 * between the origin and the box is invisible to the MOVING ray, which
+	 * passes through it and still hits the box at 4.5 m. */
+	sk_jolt_body_t* ghost = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_SENSOR, 0.5f);
+	TEST_ASSERT_NOT_NULL(ghost);
+	const sk_jolt_vec3_t ghost_center = jolt_test_vec3(0.0f, 0.0f, -2.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(ghost, &ghost_center));
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(0, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)box, (const_ptr_t)hit.body);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 4.5f, hit.fraction);
+
+	api->body_destroy(ghost);
+	api->body_destroy(box);
+	api->shutdown();
+}
+
+/* A sphere cast reports the closest hit the same way: expected body handle,
+ * contact point on the box's +Z face, outward face normal, and a fraction
+ * matching the analytic first-contact distance — the sphere's surface
+ * touches the face when its center is radius in front of it
+ * (4.5 - 0.25 = 4.25 m). The layer filter applies exactly as for rays. */
+SK_TEST(jolt_sphere_cast_hits_known_static_box) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_query_hit_t hit;
+	const sk_jolt_vec3_t origin = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t toward = jolt_test_vec3(0.0f, 0.0f, -1.0f);
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* box = jolt_test_query_box(api);
+	TEST_ASSERT_NOT_NULL(box);
+
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(0, api->sphere_cast(0.25f, &origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)box, (const_ptr_t)hit.body);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-2f, 4.25f, hit.fraction);
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&hit.position, &(sk_jolt_vec3_t){0.0f, 0.0f, -4.5f}, 1.0e-2f));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&hit.normal, &(sk_jolt_vec3_t){0.0f, 0.0f, 1.0f}, 1.0e-2f));
+
+	/* max_distance clips the cast. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(1, api->sphere_cast(0.25f, &origin, &toward, 4.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	/* Layer filter: a cast from the ghost SENSOR layer hits nothing. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(1, api->sphere_cast(0.25f, &origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_SENSOR, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	/* Invalid inputs fail cleanly. */
+	memset(&hit, 0xAA, sizeof(hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->sphere_cast(0.0f, &origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->sphere_cast(-1.0f, &origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_EQUAL_INT32(-1, api->sphere_cast(0.25f, &origin, &toward, 0.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_NULL(hit.body);
+
+	api->body_destroy(box);
+	api->shutdown();
+
+	/* Without a live world the cast fails instead of crashing. */
+	TEST_ASSERT_EQUAL_INT32(-1, api->sphere_cast(0.25f, &origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
 }
 
 SK_TEST(jolt_shape_desc_layout) {

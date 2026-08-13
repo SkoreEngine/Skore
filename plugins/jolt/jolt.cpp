@@ -29,8 +29,15 @@
  * sk_jolt_quat_t, layout-identical to the core math3d types). Every body
  * handle is validated against the live-handle registry, so use-after-destroy
  * (and use after world shutdown) returns an error code instead of crashing;
- * handle records are module-owned and released at shutdown. Character
- * controllers remain empty stubs until a later stage.
+ * handle records are module-owned and released at shutdown. Scene queries
+ * are implemented (APX-322): ray_cast() / sphere_cast() run Jolt
+ * narrow-phase queries (NarrowPhaseQuery::CastRay / CastShape) against the
+ * live world and return the closest hit as a POD sk_jolt_query_hit_t; both
+ * are cast from an object layer and honor the same collision matrix as the
+ * contact filters via dedicated broad-phase / object-layer query filters
+ * driven from kLayerCollisionMasks, and hit BodyIDs are mapped back to the
+ * public body handles through the handle registry. Character controllers
+ * remain empty stubs until a later stage.
  *
  * Unit tests live in jolt_tests.c (C, like every other plugin's tests); this
  * TU only exposes SK_TESTS-only accessors for them.
@@ -49,12 +56,18 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Math/Vec3.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/EPhysicsUpdateError.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -188,6 +201,62 @@ public:
 		}
 		return (kLayerCollisionMasks[inObject1] & (1u << inObject2)) != 0u && (kLayerCollisionMasks[inObject2] & (1u << inObject1)) != 0u;
 	}
+};
+
+/* ---- scene-query filters (APX-322): same matrix, query-shaped ---- */
+
+/**
+ * Broad-phase layer filter for scene queries: mirrors the
+ * ObjectVsBroadPhaseLayerFilterImpl aggregated over the object layers — a
+ * query from object layer L reaches broad-phase layer B iff L collides with
+ * some object layer mapped to B, so the coarse broad-phase pass never admits
+ * a candidate the object-layer filter rejects. Concretely: MOVING reaches
+ * both broad-phase layers (static + moving bodies), NON_MOVING reaches only
+ * the moving layer (its sole collision partner MOVING lives there), SENSOR
+ * reaches neither (ghost queries pass through everything).
+ */
+class QueryBroadPhaseLayerFilterImpl : public JPH::BroadPhaseLayerFilter {
+public:
+	explicit QueryBroadPhaseLayerFilterImpl(JPH::ObjectLayer inQueryLayer) : mQueryLayer(inQueryLayer) {}
+
+	bool ShouldCollide(JPH::BroadPhaseLayer inLayer) const override {
+		switch (mQueryLayer) {
+		case SK_JOLT_OBJECT_LAYER_MOVING:
+			return true;
+		case SK_JOLT_OBJECT_LAYER_NON_MOVING:
+			return inLayer == kBroadPhaseMoving;
+		default: /* SENSOR (unknown layers are rejected at the entry point) */
+			return false;
+		}
+	}
+
+private:
+	JPH::ObjectLayer mQueryLayer;
+};
+
+/**
+ * Object-layer filter for scene queries: a query cast from object layer L
+ * hits a body on layer M iff the two layers collide per the documented
+ * filter matrix — exactly the object-layer pair filter evaluated for the
+ * (L, M) pair (symmetric, so both directions must agree). Driven straight
+ * from kLayerCollisionMasks, so the matrix in jolt.h stays the single
+ * source of truth for queries too: a ray from SENSOR hits nothing, a ray
+ * from NON_MOVING does not hit static geometry, and no query ever hits a
+ * body on a layer it does not collide with.
+ */
+class QueryObjectLayerFilterImpl : public JPH::ObjectLayerFilter {
+public:
+	explicit QueryObjectLayerFilterImpl(JPH::ObjectLayer inQueryLayer) : mQueryLayer(inQueryLayer) {}
+
+	bool ShouldCollide(JPH::ObjectLayer inLayer) const override {
+		if (mQueryLayer >= SK_JOLT_OBJECT_LAYER_COUNT || inLayer >= SK_JOLT_OBJECT_LAYER_COUNT) {
+			return false;
+		}
+		return (kLayerCollisionMasks[mQueryLayer] & (1u << inLayer)) != 0u && (kLayerCollisionMasks[inLayer] & (1u << mQueryLayer)) != 0u;
+	}
+
+private:
+	JPH::ObjectLayer mQueryLayer;
 };
 
 /* ---- the live world ---- */
@@ -668,6 +737,176 @@ i32 jolt_body_set_angular_velocity_impl(sk_jolt_body_t* body, const sk_jolt_vec3
 	return 0;
 }
 
+/* ---- scene queries (APX-322) ---- */
+
+/**
+ * Map a Jolt BodyID back to the public body handle, or NULL when no body of
+ * the current world owns that id. Destroyed bodies leave the broad phase, so
+ * a query can never hit one; Jolt recycles BodyIDs only with a new sequence
+ * number, so an exact (index, sequence) match always names the live body
+ * that was created through body_create — never a stale or aliased record.
+ */
+sk_jolt_body_t* jolt_body_from_id(const JPH::BodyID& id) noexcept {
+	for (JoltBodyHandle* record : g_body_handles) {
+		if (record->body_id == id) {
+			return reinterpret_cast<sk_jolt_body_t*>(record);
+		}
+	}
+	return nullptr;
+}
+
+/** Zero a query hit result (the documented no-hit / error output). */
+void jolt_query_hit_clear(sk_jolt_query_hit_t* out_hit) noexcept {
+	out_hit->body = nullptr;
+	out_hit->position.x = 0.0f;
+	out_hit->position.y = 0.0f;
+	out_hit->position.z = 0.0f;
+	out_hit->normal.x = 0.0f;
+	out_hit->normal.y = 0.0f;
+	out_hit->normal.z = 0.0f;
+	out_hit->fraction = 0.0f;
+}
+
+/**
+ * Scale a query direction so its length equals max_distance and return the
+ * Jolt-fraction → C-fraction factor. Jolt's closest-hit queries treat the
+ * direction vector as the full ray extent (a hit at the end has fraction 1),
+ * so bounding the search to max_distance meters means scaling the direction
+ * to that length; the returned factor converts the Jolt fraction back to the
+ * caller's direction units (reported fraction * |direction| = meters).
+ * Returns false for a zero-length direction (Jolt cannot cast such a ray).
+ */
+bool jolt_query_direction(const sk_jolt_vec3_t* direction, f32 max_distance, JPH::Vec3* out_jolt_dir, f32* out_fraction_scale) noexcept {
+	const JPH::Vec3 dir(direction->x, direction->y, direction->z);
+	const f32 length = dir.Length();
+	if (!(length > 0.0f)) {
+		return false;
+	}
+	*out_jolt_dir = dir * (max_distance / length);
+	*out_fraction_scale = max_distance / length;
+	return true;
+}
+
+/*
+ * Query return contract (documented in jolt.h): 0 = hit found (out_hit
+ * filled), 1 = query ran but found nothing (out_hit zeroed), negative =
+ * invalid query (world not initialized / NULL arguments / bad numeric
+ * inputs / unknown object layer; out_hit zeroed). Shared failure prefix:
+ * clears the output, then validates the world and the common parameters.
+ */
+#define JOLT_QUERY_VALIDATE(origin_arg, direction_arg, out_hit_arg, extra_cond)                                             \
+	do {                                                                                                                    \
+		if ((out_hit_arg) != nullptr) {                                                                                     \
+			jolt_query_hit_clear(out_hit_arg);                                                                              \
+		}                                                                                                                   \
+		if (g_jolt_world == nullptr || (origin_arg) == nullptr || (direction_arg) == nullptr || (out_hit_arg) == nullptr) { \
+			return -1;                                                                                                      \
+		}                                                                                                                   \
+		if (!(extra_cond)) {                                                                                                \
+			return -1;                                                                                                      \
+		}                                                                                                                   \
+	} while (0)
+
+i32 jolt_ray_cast_impl(const sk_jolt_vec3_t* origin, const sk_jolt_vec3_t* direction, f32 max_distance, u32 object_layer, sk_jolt_query_hit_t* out_hit) noexcept {
+	JOLT_QUERY_VALIDATE(origin, direction, out_hit, (max_distance > 0.0f) && object_layer < SK_JOLT_OBJECT_LAYER_COUNT);
+
+	JPH::Vec3 jolt_dir = JPH::Vec3::sZero();
+	f32 fraction_scale;
+	if (!jolt_query_direction(direction, max_distance, &jolt_dir, &fraction_scale)) {
+		return -1;
+	}
+
+	const JPH::ObjectLayer query_layer = static_cast<JPH::ObjectLayer>(object_layer);
+	QueryBroadPhaseLayerFilterImpl broad_phase_filter(query_layer);
+	QueryObjectLayerFilterImpl object_filter(query_layer);
+
+	/* The single-hit NarrowPhaseQuery::CastRay treats the ray direction as
+	 * the full extent (a hit at the end has fraction 1): scaled direction,
+	 * default mFraction bound (1 + epsilon) — hits beyond max_distance are
+	 * never reported. */
+	JPH::RayCastResult hit;
+	const JPH::RVec3 ray_origin(origin->x, origin->y, origin->z);
+	const bool found = g_jolt_world->physics_system.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray_origin, jolt_dir), hit, broad_phase_filter, object_filter);
+	if (!found) {
+		return 1;
+	}
+
+	const JPH::RVec3 hit_point = ray_origin + jolt_dir * hit.mFraction;
+	JPH::Vec3 normal = JPH::Vec3::sZero();
+	{
+		/* Surface normals are not part of the ray hit result; read them from
+		 * the hit body under a read lock (the body just passed the query's
+		 * own lock, so in this main-thread module the lock always succeeds). */
+		JPH::BodyLockRead lock(g_jolt_world->physics_system.GetBodyLockInterface(), hit.mBodyID);
+		if (!lock.Succeeded() || !lock.GetBody().IsInBroadPhase()) {
+			return 1; /* hit body vanished between the query and the lock */
+		}
+		normal = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hit_point);
+	}
+
+	out_hit->body = jolt_body_from_id(hit.mBodyID);
+	out_hit->position.x = hit_point.GetX();
+	out_hit->position.y = hit_point.GetY();
+	out_hit->position.z = hit_point.GetZ();
+	out_hit->normal.x = normal.GetX();
+	out_hit->normal.y = normal.GetY();
+	out_hit->normal.z = normal.GetZ();
+	out_hit->fraction = hit.mFraction * fraction_scale;
+	return 0;
+}
+
+i32 jolt_sphere_cast_impl(f32 radius, const sk_jolt_vec3_t* origin, const sk_jolt_vec3_t* direction, f32 max_distance, u32 object_layer, sk_jolt_query_hit_t* out_hit) noexcept {
+	JOLT_QUERY_VALIDATE(origin, direction, out_hit, (max_distance > 0.0f) && (radius > 0.0f) && object_layer < SK_JOLT_OBJECT_LAYER_COUNT);
+
+	JPH::Vec3 jolt_dir = JPH::Vec3::sZero();
+	f32 fraction_scale;
+	if (!jolt_query_direction(direction, max_distance, &jolt_dir, &fraction_scale)) {
+		return -1;
+	}
+
+	const JPH::SphereShapeSettings settings(radius);
+	const JPH::ShapeSettings::ShapeResult shape_result = settings.Create();
+	if (!shape_result.IsValid()) {
+		return -1;
+	}
+
+	const JPH::ObjectLayer query_layer = static_cast<JPH::ObjectLayer>(object_layer);
+	QueryBroadPhaseLayerFilterImpl broad_phase_filter(query_layer);
+	QueryObjectLayerFilterImpl object_filter(query_layer);
+
+	/* Base offset zero: the collected hit points/normals come back in world
+	 * coordinates. The shape cast runs the full scaled extent (fraction 1 =
+	 * max_distance), honoring the same layer filters as the ray cast. */
+	const JPH::RShapeCast shape_cast(shape_result.Get(), JPH::Vec3::sOne(), JPH::RMat44::sTranslation(JPH::RVec3(origin->x, origin->y, origin->z)), jolt_dir);
+	JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+	g_jolt_world->physics_system.GetNarrowPhaseQuery().CastShape(shape_cast, JPH::ShapeCastSettings(), JPH::RVec3::sZero(), collector, broad_phase_filter, object_filter);
+	if (!collector.HadHit()) {
+		return 1;
+	}
+
+	/* Jolt recommends -mPenetrationAxis.Normalized() as the contact normal
+	 * for shape-cast results (GetWorldSpaceSurfaceNormal only returns face
+	 * normals). For a non-penetrating hit the penetration axis is the unit
+	 * contact normal from the cast shape to the hit body, so negating it
+	 * yields the hit body's outward surface normal at the contact point. */
+	const JPH::ShapeCastResult& result = collector.mHit;
+	const JPH::Vec3 penetration_axis = result.mPenetrationAxis;
+	const f32 penetration_length = penetration_axis.Length();
+	const JPH::Vec3 normal = (penetration_length > 0.0f) ? (-penetration_axis / penetration_length) : JPH::Vec3::sZero();
+
+	out_hit->body = jolt_body_from_id(result.mBodyID2);
+	out_hit->position.x = result.mContactPointOn2.GetX();
+	out_hit->position.y = result.mContactPointOn2.GetY();
+	out_hit->position.z = result.mContactPointOn2.GetZ();
+	out_hit->normal.x = normal.GetX();
+	out_hit->normal.y = normal.GetY();
+	out_hit->normal.z = normal.GetZ();
+	out_hit->fraction = result.mFraction * fraction_scale;
+	return 0;
+}
+
+#undef JOLT_QUERY_VALIDATE
+
 /* ---- character stubs (not implemented at this stage) ---- */
 
 sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
@@ -701,6 +940,8 @@ const sk_jolt_api_t jolt_api = {
 	jolt_body_set_angular_velocity_impl,
 	jolt_character_create_impl,
 	jolt_character_destroy_impl,
+	jolt_ray_cast_impl,
+	jolt_sphere_cast_impl,
 };
 
 } /* namespace */
@@ -732,6 +973,10 @@ static_assert(std::is_trivial<sk_jolt_settings_t>::value && std::is_standard_lay
  * sk_quat_t by construction — same fields, same order, same types.) */
 static_assert(std::is_trivial<sk_jolt_vec3_t>::value && std::is_standard_layout<sk_jolt_vec3_t>::value);
 static_assert(std::is_trivial<sk_jolt_quat_t>::value && std::is_standard_layout<sk_jolt_quat_t>::value);
+/* The scene queries cross the C boundary through the hit result POD (body
+ * handle pointer + vec3s + fraction), so it must stay trivial/standard-layout
+ * for a C host. */
+static_assert(std::is_trivial<sk_jolt_query_hit_t>::value && std::is_standard_layout<sk_jolt_query_hit_t>::value);
 static_assert(std::is_enum<sk_jolt_motion_type_t>::value && std::is_trivial<sk_jolt_motion_type_t>::value);
 
 /* Motion type values mirror JPH::EMotionType; layer/group constants mirror
