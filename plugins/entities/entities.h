@@ -42,7 +42,8 @@
  * free list with a bumped generation, so stale handles fail the generation
  * check. The immediate structural APIs (world_spawn / world_despawn /
  * world_add_component / world_remove_component /
- * world_add_component_from_asset) mutate storage right away and
+ * world_add_component_from_asset / world_spawn_from_asset /
+ * world_spawn_scene_from_asset) mutate storage right away and
  * are intentionally separate from the deferred sk_entitycommands_t surface.
  *
  * # Deferred entity commands
@@ -900,6 +901,37 @@ typedef struct sk_entities_api_t {
 	 *         non-zero code when on_load_asset fails.
 	 */
 	i32 (*world_add_component_from_asset)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, sk_rid_t component_resource);
+
+	/**
+	 * Spawn an entity tree from an entity_resource (or a scene_resource).
+	 *
+	 * @p rid may be an entity_resource / scene_resource payload, or a
+	 * ResourceAsset wrapper whose OBJECT field is one of those payloads
+	 * (unwrapped once). Components are instantiated through
+	 * world_add_component_from_asset. Child entity_resources are spawned
+	 * after the parent (resource Children tree; no Parent ECS component).
+	 * A child RID already on the ancestor chain is skipped (cycle guard).
+	 *
+	 * A failed entity is despawned (partial component adds are not left
+	 * behind). Failed siblings / later scene roots are not rolled back.
+	 *
+	 * @param world      World (must not be NULL).
+	 * @param repository Repository that owns @p rid (must not be NULL).
+	 * @param rid        Entity, scene, or ResourceAsset wrapper RID.
+	 * @return The spawned entity (first successful scene root), or
+	 *         SK_ENTITY_INVALID on failure / empty scene / unknown type.
+	 */
+	sk_entity_t (*world_spawn_from_asset)(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Spawn every Roots item of a scene_resource (and each item's children)
+	 * as sibling trees. @p rid may be a scene_resource payload or a
+	 * ResourceAsset wrapper whose OBJECT is one (unwrapped once).
+	 *
+	 * @return The first successfully spawned root, or SK_ENTITY_INVALID if
+	 *         the list is empty / every root failed / @p rid is not a scene.
+	 */
+	sk_entity_t (*world_spawn_scene_from_asset)(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid);
 
 	/**
 	 * Create a world-managed query. The query observes every archetype the

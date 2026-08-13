@@ -1487,6 +1487,8 @@ SK_TEST(app_init_auto_loads_entities_plugin) {
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
 	TEST_ASSERT_NOT_NULL(ecs->component_desc);
+	TEST_ASSERT_NOT_NULL(ecs->world_spawn_from_asset);
+	TEST_ASSERT_NOT_NULL(ecs->world_spawn_scene_from_asset);
 	sk_app_destroy(ctx);
 }
 
@@ -1514,6 +1516,8 @@ SK_TEST(entities_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
 	TEST_ASSERT_NOT_NULL(ecs->component_desc);
+	TEST_ASSERT_NOT_NULL(ecs->world_spawn_from_asset);
+	TEST_ASSERT_NOT_NULL(ecs->world_spawn_scene_from_asset);
 	plat->lib_close(lib);
 	sk_app_destroy(ctx);
 }

@@ -215,9 +215,10 @@ static sk_rid_t builtins_create_resource(builtins_test_env_t* env, sk_type_id_t 
 }
 
 /* Spawn an entity holding @p type_id and invoke the registered on_load_asset
- * hook for @p component_rid exactly the way world_spawn_from_asset will:
- * lookup the stored descriptor (component_desc), then call its hook with the
- * live entity, repository, instance slot, and component resource RID. */
+ * hook for @p component_rid the same way world_add_component_from_asset /
+ * world_spawn_from_asset dispatch: lookup the stored descriptor
+ * (component_desc), then call its hook with the live entity, repository,
+ * instance slot, and component resource RID. */
 static void builtins_spawn_and_load(builtins_test_env_t* env, sk_type_id_t type_id, sk_rid_t component_rid, sk_entity_t* out_entity, void_ptr_t* out_instance) {
 	const sk_entities_api_t* ecs = builtins_ecs();
 	sk_entity_t entity = ecs->world_spawn(env->world, &type_id, 1u);
@@ -407,6 +408,74 @@ SK_TEST(entities_builtins_static_tag_no_asset_loader) {
 	void_ptr_t instance = ecs->world_component(env.world, entity, SK_STATIC_TAG_COMPONENT_TYPE_ID);
 	TEST_ASSERT_NOT_NULL(instance);
 	TEST_ASSERT_EQUAL_UINT8(0u, ((const sk_static_tag_t*)instance)->marker);
+
+	builtins_env_teardown(&env);
+}
+
+SK_TEST(entities_builtins_spawn_from_asset_loads_transform) {
+	builtins_test_env_t env;
+	builtins_env_setup(&env);
+	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_entities_api_t* ecs = builtins_ecs();
+
+	typedef struct spawn_entity_resource_t {
+		sk_field_string_t name;
+		sk_field_subobject_list_t components;
+		sk_field_subobject_list_t children;
+	} spawn_entity_resource_t;
+	static const sk_resource_field_t fields[] = {
+		{"Name", SK_ENTITY_RESOURCE_FIELD_NAME, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(spawn_entity_resource_t, name), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+		{"Components",
+		 SK_ENTITY_RESOURCE_FIELD_COMPONENTS,
+		 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+		 (u32)offsetof(spawn_entity_resource_t, components),
+		 (u32)sizeof(sk_field_subobject_list_t),
+		 {0ull, 0ull}},
+		{"Children",
+		 SK_ENTITY_RESOURCE_FIELD_CHILDREN,
+		 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+		 (u32)offsetof(spawn_entity_resource_t, children),
+		 (u32)sizeof(sk_field_subobject_list_t),
+		 {0ull, 0ull}},
+	};
+	sk_resource_type_desc_t entity_desc = {0};
+	entity_desc.type_id = SK_ENTITY_RESOURCE_TYPE_ID;
+	entity_desc.name = "EntityResource";
+	entity_desc.instance_size = (u32)sizeof(spawn_entity_resource_t);
+	entity_desc.fields = fields;
+	entity_desc.field_count = (u32)(sizeof(fields) / sizeof(fields[0]));
+	TEST_ASSERT_EQUAL_INT(0, repo->register_type(env.repository, &entity_desc));
+
+	sk_rid_t transform = builtins_create_resource(&env, SK_TRANSFORM_COMPONENT_TYPE_ID, (sk_uuid_t){0x3101u, 0x3101u});
+	{
+		sk_resource_object_t w = repo->write(env.repository, transform);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT(0, repo->set_vec3(w, SK_TRANSFORM_FIELD_POSITION, (sk_vec3_t){4.0f, 5.0f, 6.0f}));
+		TEST_ASSERT_EQUAL_INT(0, repo->set_quat(w, SK_TRANSFORM_FIELD_ROTATION, (sk_quat_t){0.0f, 0.0f, 0.0f, 1.0f}));
+		TEST_ASSERT_EQUAL_INT(0, repo->set_vec3(w, SK_TRANSFORM_FIELD_SCALE, (sk_vec3_t){1.0f, 1.0f, 1.0f}));
+		repo->commit(w, NULL);
+	}
+
+	const sk_resource_type_t* entity_type = repo->find_type(env.repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(entity_type);
+	sk_rid_t entity_rid = repo->create_resource(env.repository, entity_type, (sk_uuid_t){0x3102u, 0x3102u}, NULL);
+	TEST_ASSERT_TRUE(entity_rid.id != 0u);
+	{
+		sk_resource_object_t w = repo->write(env.repository, entity_rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT(0, repo->set_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, &transform, 1u));
+		repo->commit(w, NULL);
+	}
+
+	sk_entity_t spawned = ecs->world_spawn_from_asset(env.world, env.repository, entity_rid);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
+	const sk_transform_t* live = (const sk_transform_t*)ecs->world_component(env.world, spawned, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(live);
+	TEST_ASSERT_EQUAL_FLOAT(4.0f, live->position.x);
+	TEST_ASSERT_EQUAL_FLOAT(5.0f, live->position.y);
+	TEST_ASSERT_EQUAL_FLOAT(6.0f, live->position.z);
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, live->rotation.w);
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, live->scale.x);
 
 	builtins_env_teardown(&env);
 }

@@ -21,7 +21,8 @@
  * the world-managed query set that observes every new archetype) with
  * immediate structural ops (world_spawn / world_despawn /
  * world_add_component / world_remove_component /
- * world_add_component_from_asset). The deferred
+ * world_add_component_from_asset / world_spawn_from_asset /
+ * world_spawn_scene_from_asset). The deferred
  * sk_entitycommands_t surface records the same structural changes without
  * touching the world and applies them in FIFO order with commands_apply, so
  * commands can be queued during query iteration and flushed afterwards.
@@ -36,6 +37,8 @@
 #include "hashmap.h"
 #include "logger.h"
 #include "profiler.h"
+#include "resource_asset_builtins.h"
+#include "resource_assets_types.h"
 #include "resource_component_types.h"
 
 #include <stddef.h>
@@ -1267,6 +1270,217 @@ static i32 world_add_component_from_asset_impl(sk_world_t* world, sk_entity_t en
 	return 0;
 }
 
+/* Max ancestor depth when walking entity_resource Children. Cycles are
+ * skipped separately; this caps a pathologically deep (cycle-free) tree. */
+enum { SK_ECS_MAX_ASSET_SPAWN_DEPTH = 64u };
+
+static sk_type_id_t ecs_live_type_id(sk_repository_t* repository, sk_rid_t rid) {
+	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_type_t* type = repo->resource_type(repository, rid);
+	if (type == NULL) {
+		return SK_TYPE_ID_ZERO;
+	}
+	return repo->type_id(type);
+}
+
+static i32 ecs_rid_in_chain(const sk_rid_t* chain, u32 count, sk_rid_t rid) {
+	for (u32 i = 0u; i < count; ++i) {
+		if (SK_RID_EQ(chain[i], rid)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Unwrap a ResourceAsset wrapper once (mapping contract §4.2). Other types
+ * (including SK_RID_ZERO / dead) pass through unchanged. */
+static sk_rid_t ecs_unwrap_spawn_rid(sk_repository_t* repository, sk_rid_t rid) {
+	if (!SK_TYPE_ID_EQ(ecs_live_type_id(repository, rid), SK_RESOURCE_ASSET_TYPE_ID)) {
+		return rid;
+	}
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_object_t view = repo->read(repository, rid);
+	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
+		return SK_RID_ZERO;
+	}
+	return repo->get_subobject(view, SK_RESOURCE_ASSET_FIELD_OBJECT);
+}
+
+/* Instantiate one entity_resource: resolve Components, spawn, then run each
+ * sub-object through world_add_component_from_asset. On any instantiate
+ * failure the entity is despawned so a half-built slot is not left behind.
+ * @p out_children / @p out_child_count receive the borrowed Children list. */
+static sk_entity_t ecs_instantiate_entity_resource(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid, const sk_rid_t** out_children, u32* out_child_count) {
+	*out_children = NULL;
+	*out_child_count = 0u;
+	if (!SK_TYPE_ID_EQ(ecs_live_type_id(repository, rid), SK_ENTITY_RESOURCE_TYPE_ID)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_object_t view = repo->read(repository, rid);
+	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	u32 comp_count = 0u;
+	const sk_rid_t* comps = repo->get_subobject_list(view, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, &comp_count);
+	sk_rid_t resolved_rids[SK_ECS_MAX_ARCHETYPE_COLUMNS] = {0};
+	sk_type_id_t resolved_ids[SK_ECS_MAX_ARCHETYPE_COLUMNS] = {0};
+	u32 resolved_count = 0u;
+	for (u32 i = 0u; i < comp_count; ++i) {
+		const sk_rid_t crid = comps[i];
+		if (crid.id == 0u) {
+			continue;
+		}
+		const sk_type_id_t type_id = sk_resource_entity_component_type_id(repository, crid);
+		if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO)) {
+			continue;
+		}
+		if (component_desc_impl(type_id, NULL) != 0) {
+			ecs_report_asset_error("failed to spawn entity from asset: unregistered component");
+			return SK_ENTITY_INVALID;
+		}
+		for (u32 j = 0u; j < resolved_count; ++j) {
+			if (SK_TYPE_ID_EQ(resolved_ids[j], type_id)) {
+				ecs_report_asset_error("failed to spawn entity from asset: duplicate component type");
+				return SK_ENTITY_INVALID;
+			}
+		}
+		if (resolved_count >= (u32)SK_ECS_MAX_ARCHETYPE_COLUMNS - 1u) {
+			ecs_report_asset_error("failed to spawn entity from asset: too many components");
+			return SK_ENTITY_INVALID;
+		}
+		resolved_rids[resolved_count] = crid;
+		resolved_ids[resolved_count] = type_id;
+		resolved_count += 1u;
+	}
+
+	sk_entity_t entity = world_spawn_impl(world, resolved_count > 0u ? resolved_ids : NULL, resolved_count);
+	if (!sk_entity_is_valid(entity)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	for (u32 i = 0u; i < resolved_count; ++i) {
+		if (world_add_component_from_asset_impl(world, entity, repository, resolved_rids[i]) != 0) {
+			(void)world_despawn_impl(world, entity);
+			return SK_ENTITY_INVALID;
+		}
+	}
+
+	*out_children = repo->get_subobject_list(view, SK_ENTITY_RESOURCE_FIELD_CHILDREN, out_child_count);
+	return entity;
+}
+
+typedef struct ecs_spawn_frame_t {
+	const sk_rid_t* children;
+	u32 child_count;
+	u32 child_index;
+} ecs_spawn_frame_t;
+
+/* Walk an entity_resource Children tree iteratively (parent before children).
+ * A child RID already on the ancestor chain is skipped. Depth is capped so a
+ * cycle-free but unbounded tree cannot blow the stack. */
+static sk_entity_t world_spawn_entity_resource_impl(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid) {
+	ecs_spawn_frame_t frames[SK_ECS_MAX_ASSET_SPAWN_DEPTH];
+	sk_rid_t ancestors[SK_ECS_MAX_ASSET_SPAWN_DEPTH];
+
+	const sk_rid_t* children = NULL;
+	u32 child_count = 0u;
+	const sk_entity_t root = ecs_instantiate_entity_resource(world, repository, rid, &children, &child_count);
+	if (!sk_entity_is_valid(root)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	frames[0].children = children;
+	frames[0].child_count = child_count;
+	frames[0].child_index = 0u;
+	ancestors[0] = rid;
+	u32 depth = 0u;
+
+	while (1) {
+		ecs_spawn_frame_t* frame = &frames[depth];
+		if (frame->child_index >= frame->child_count) {
+			if (depth == 0u) {
+				break;
+			}
+			depth -= 1u;
+			continue;
+		}
+		const sk_rid_t child = frame->children[frame->child_index];
+		frame->child_index += 1u;
+		if (child.id == 0u) {
+			continue;
+		}
+		if (SK_TYPE_ID_EQ(ecs_live_type_id(repository, child), SK_TYPE_ID_ZERO)) {
+			continue;
+		}
+		if (ecs_rid_in_chain(ancestors, depth + 1u, child) != 0) {
+			continue;
+		}
+		if (depth + 1u >= (u32)SK_ECS_MAX_ASSET_SPAWN_DEPTH) {
+			ecs_report_asset_error("failed to spawn entity from asset: recursion limit");
+			continue;
+		}
+
+		const sk_rid_t* child_children = NULL;
+		u32 child_child_count = 0u;
+		const sk_entity_t spawned = ecs_instantiate_entity_resource(world, repository, child, &child_children, &child_child_count);
+		if (!sk_entity_is_valid(spawned)) {
+			continue;
+		}
+		depth += 1u;
+		frames[depth].children = child_children;
+		frames[depth].child_count = child_child_count;
+		frames[depth].child_index = 0u;
+		ancestors[depth] = child;
+	}
+	return root;
+}
+
+static sk_entity_t world_spawn_scene_from_asset_impl(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid) {
+	rid = ecs_unwrap_spawn_rid(repository, rid);
+	if (!SK_TYPE_ID_EQ(ecs_live_type_id(repository, rid), SK_SCENE_RESOURCE_TYPE_ID)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_object_t view = repo->read(repository, rid);
+	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
+		return SK_ENTITY_INVALID;
+	}
+
+	u32 root_count = 0u;
+	const sk_rid_t* roots = repo->get_subobject_list(view, SK_SCENE_RESOURCE_FIELD_ROOTS, &root_count);
+	sk_entity_t first = SK_ENTITY_INVALID;
+	for (u32 i = 0u; i < root_count; ++i) {
+		const sk_rid_t root = roots[i];
+		if (root.id == 0u) {
+			continue;
+		}
+		if (SK_TYPE_ID_EQ(ecs_live_type_id(repository, root), SK_TYPE_ID_ZERO)) {
+			continue;
+		}
+		const sk_entity_t spawned = world_spawn_entity_resource_impl(world, repository, root);
+		if (sk_entity_is_valid(spawned) && !sk_entity_is_valid(first)) {
+			first = spawned;
+		}
+	}
+	return first;
+}
+
+static sk_entity_t world_spawn_from_asset_impl(sk_world_t* world, sk_repository_t* repository, sk_rid_t rid) {
+	rid = ecs_unwrap_spawn_rid(repository, rid);
+	const sk_type_id_t type_id = ecs_live_type_id(repository, rid);
+	if (SK_TYPE_ID_EQ(type_id, SK_SCENE_RESOURCE_TYPE_ID)) {
+		return world_spawn_scene_from_asset_impl(world, repository, rid);
+	}
+	if (SK_TYPE_ID_EQ(type_id, SK_ENTITY_RESOURCE_TYPE_ID)) {
+		return world_spawn_entity_resource_impl(world, repository, rid);
+	}
+	return SK_ENTITY_INVALID;
+}
+
 static sk_query_t* world_query_create_impl(sk_world_t* world, const sk_query_desc_t* desc) {
 	sk_query_t* query = query_create_impl(desc);
 	if (query == NULL) {
@@ -1881,6 +2095,8 @@ static const sk_entities_api_t entities_api = {
 	world_remove_component_impl,
 	world_component_impl,
 	world_add_component_from_asset_impl,
+	world_spawn_from_asset_impl,
+	world_spawn_scene_from_asset_impl,
 	world_query_create_impl,
 
 	system_create_impl,
@@ -1994,6 +2210,8 @@ SK_TEST(entities_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(entities_api.component_info);
 	TEST_ASSERT_NOT_NULL(entities_api.component_desc);
 	TEST_ASSERT_NOT_NULL(entities_api.world_add_component_from_asset);
+	TEST_ASSERT_NOT_NULL(entities_api.world_spawn_from_asset);
+	TEST_ASSERT_NOT_NULL(entities_api.world_spawn_scene_from_asset);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_create);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_destroy);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_column);
@@ -2291,6 +2509,370 @@ SK_TEST(entities_add_component_from_asset_on_load_asset_failure) {
 	TEST_ASSERT_TRUE(sk_entity_eq(fake_load_probe.entity, entity));
 	TEST_ASSERT_TRUE(entities_api.world_alive(world, entity));
 	TEST_ASSERT_FALSE(entities_api.world_has_component(world, entity, TEST_FAKE_ASSET_COMP_ID));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+/* ---- world_spawn_from_asset / world_spawn_scene_from_asset (APX-299) ---- */
+
+typedef struct spawn_entity_resource_t {
+	sk_field_string_t name;
+	sk_field_subobject_list_t components;
+	sk_field_subobject_list_t children;
+} spawn_entity_resource_t;
+
+typedef struct spawn_scene_resource_t {
+	sk_field_string_t name;
+	sk_field_subobject_list_t roots;
+} spawn_scene_resource_t;
+
+static const sk_resource_field_t spawn_entity_resource_fields[] = {
+	{"Name", SK_ENTITY_RESOURCE_FIELD_NAME, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(spawn_entity_resource_t, name), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+	{"Components",
+	 SK_ENTITY_RESOURCE_FIELD_COMPONENTS,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(spawn_entity_resource_t, components),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+	{"Children",
+	 SK_ENTITY_RESOURCE_FIELD_CHILDREN,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(spawn_entity_resource_t, children),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+};
+
+static const sk_resource_field_t spawn_scene_resource_fields[] = {
+	{"Name", SK_SCENE_RESOURCE_FIELD_NAME, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(spawn_scene_resource_t, name), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+	{"Roots",
+	 SK_SCENE_RESOURCE_FIELD_ROOTS,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(spawn_scene_resource_t, roots),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+};
+
+static void spawn_register_entity_scene_types(sk_repository_t* repository) {
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_type_desc_t entity_desc = {0};
+	entity_desc.type_id = SK_ENTITY_RESOURCE_TYPE_ID;
+	entity_desc.name = "EntityResource";
+	entity_desc.instance_size = (u32)sizeof(spawn_entity_resource_t);
+	entity_desc.fields = spawn_entity_resource_fields;
+	entity_desc.field_count = (u32)(sizeof(spawn_entity_resource_fields) / sizeof(spawn_entity_resource_fields[0]));
+	TEST_ASSERT_EQUAL_INT32(0, repo->register_type(repository, &entity_desc));
+
+	sk_resource_type_desc_t scene_desc = {0};
+	scene_desc.type_id = SK_SCENE_RESOURCE_TYPE_ID;
+	scene_desc.name = "SceneResource";
+	scene_desc.instance_size = (u32)sizeof(spawn_scene_resource_t);
+	scene_desc.fields = spawn_scene_resource_fields;
+	scene_desc.field_count = (u32)(sizeof(spawn_scene_resource_fields) / sizeof(spawn_scene_resource_fields[0]));
+	TEST_ASSERT_EQUAL_INT32(0, repo->register_type(repository, &scene_desc));
+}
+
+static sk_rid_t spawn_create_typed(sk_repository_t* repository, sk_type_id_t type_id) {
+	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_type_t* type = repo->find_type(repository, type_id);
+	TEST_ASSERT_NOT_NULL(type);
+	sk_rid_t rid = repo->create_resource(repository, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	return rid;
+}
+
+static void spawn_commit_entity(sk_repository_t* repository, sk_rid_t entity, const sk_rid_t* comps, u32 comp_count, const sk_rid_t* children, u32 child_count) {
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_object_t w = repo->write(repository, entity);
+	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+	if (comp_count > 0u) {
+		TEST_ASSERT_EQUAL_INT32(0, repo->set_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, comps, comp_count));
+	}
+	if (child_count > 0u) {
+		TEST_ASSERT_EQUAL_INT32(0, repo->set_subobject_list(w, SK_ENTITY_RESOURCE_FIELD_CHILDREN, children, child_count));
+	}
+	repo->commit(w, NULL);
+}
+
+SK_TEST(entities_spawn_from_asset_empty_entity) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t entity_rid = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, entity_rid);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, spawned));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_instantiates_components) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+
+	sk_component_desc_t desc = {0};
+	desc.type_id = TEST_FAKE_ASSET_COMP_ID;
+	desc.size = (u32)sizeof(fake_asset_comp_t);
+	desc.align = 4u;
+	desc.name = "fake-asset";
+	desc.on_load_asset = fake_on_load_asset;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&desc));
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t comp = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeAssetComp");
+	sk_rid_t entity_rid = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, entity_rid, &comp, 1u, NULL, 0u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, entity_rid);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_EQUAL_INT32(1, fake_load_probe.called);
+	TEST_ASSERT_TRUE(fake_load_probe.world == world);
+	TEST_ASSERT_TRUE(sk_entity_eq(fake_load_probe.entity, spawned));
+	TEST_ASSERT_TRUE(fake_load_probe.repository == repository);
+	TEST_ASSERT_EQUAL_UINT64(comp.id, fake_load_probe.component_resource.id);
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, spawned, TEST_FAKE_ASSET_COMP_ID));
+	const fake_asset_comp_t* live = (const fake_asset_comp_t*)entities_api.world_component(world, spawned, TEST_FAKE_ASSET_COMP_ID);
+	TEST_ASSERT_NOT_NULL(live);
+	TEST_ASSERT_EQUAL_INT32(42, live->value);
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_spawns_children) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t parent = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t child_a = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t child_b = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t children[2] = {child_a, child_b};
+	spawn_commit_entity(repository, parent, NULL, 0u, children, 2u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, parent);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_skips_cycles) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t parent = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t child = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, parent, NULL, 0u, &child, 1u);
+	spawn_commit_entity(repository, child, NULL, 0u, &parent, 1u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, parent);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
+	/* Parent + child; the child's back-edge to parent is skipped. */
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_unregistered_component_cleans_up) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t unknown = test_create_typed_resource(repository, TEST_FAKE_UNKNOWN_TYPE_ID, "FakeUnknownComp");
+	sk_rid_t entity_rid = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, entity_rid, &unknown, 1u, NULL, 0u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, entity_rid);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_duplicate_component_fails) {
+	ecs_component_registry_reset();
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_FAKE_ASSET_COMP_ID, (u32)sizeof(fake_asset_comp_t), 4u, "fake-dup"));
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t a = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeDupA");
+	sk_rid_t b = spawn_create_typed(repository, TEST_FAKE_ASSET_COMP_ID);
+	sk_rid_t comps[2] = {a, b};
+	sk_rid_t entity_rid = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, entity_rid, comps, 2u, NULL, 0u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, entity_rid);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_on_load_failure_despawns) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+	fake_load_probe.return_code = -7;
+
+	sk_component_desc_t desc = {0};
+	desc.type_id = TEST_FAKE_ASSET_COMP_ID;
+	desc.size = (u32)sizeof(fake_asset_comp_t);
+	desc.align = 4u;
+	desc.name = "fake-fail";
+	desc.on_load_asset = fake_on_load_asset;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&desc));
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t comp = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeFailComp");
+	sk_rid_t entity_rid = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, entity_rid, &comp, 1u, NULL, 0u);
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, entity_rid);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(spawned));
+	TEST_ASSERT_EQUAL_INT32(1, fake_load_probe.called);
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_rejects_unknown) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t unknown = test_create_typed_resource(repository, TEST_FAKE_UNKNOWN_TYPE_ID, "NotAnEntity");
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn_from_asset(world, repository, SK_RID_ZERO)));
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn_from_asset(world, repository, unknown)));
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn_scene_from_asset(world, repository, unknown)));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_scene_from_asset_roots) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t root_a = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t root_b = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t child = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, root_a, NULL, 0u, &child, 1u);
+	sk_rid_t scene = spawn_create_typed(repository, SK_SCENE_RESOURCE_TYPE_ID);
+	{
+		const sk_repository_api_t* repo = sk_repository_api();
+		sk_resource_object_t w = repo->write(repository, scene);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		sk_rid_t roots[2] = {root_a, root_b};
+		TEST_ASSERT_EQUAL_INT32(0, repo->set_subobject_list(w, SK_SCENE_RESOURCE_FIELD_ROOTS, roots, 2u));
+		repo->commit(w, NULL);
+	}
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t first = entities_api.world_spawn_scene_from_asset(world, repository, scene);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(first));
+	/* root_a + child + root_b */
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+
+	/* world_spawn_from_asset dispatches scene_resource to the same path. */
+	sk_entity_t again = entities_api.world_spawn_from_asset(world, repository, scene);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(again));
+	TEST_ASSERT_EQUAL_UINT32(6u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_scene_from_asset_empty_and_partial) {
+	ecs_component_registry_reset();
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_FAKE_ASSET_COMP_ID, (u32)sizeof(fake_asset_comp_t), 4u, "fake-ok"));
+
+	sk_repository_t* repository = test_create_repository();
+	spawn_register_entity_scene_types(repository);
+	sk_rid_t empty_scene = spawn_create_typed(repository, SK_SCENE_RESOURCE_TYPE_ID);
+
+	sk_rid_t bad_comp = test_create_typed_resource(repository, TEST_FAKE_UNKNOWN_TYPE_ID, "UnknownOnRoot");
+	sk_rid_t bad_root = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	spawn_commit_entity(repository, bad_root, &bad_comp, 1u, NULL, 0u);
+	sk_rid_t good_root = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t scene = spawn_create_typed(repository, SK_SCENE_RESOURCE_TYPE_ID);
+	{
+		const sk_repository_api_t* repo = sk_repository_api();
+		sk_resource_object_t w = repo->write(repository, scene);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		sk_rid_t roots[2] = {bad_root, good_root};
+		TEST_ASSERT_EQUAL_INT32(0, repo->set_subobject_list(w, SK_SCENE_RESOURCE_FIELD_ROOTS, roots, 2u));
+		repo->commit(w, NULL);
+	}
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn_scene_from_asset(world, repository, empty_scene)));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	sk_entity_t first = entities_api.world_spawn_scene_from_asset(world, repository, scene);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(first));
+	/* Failed first root is not left behind; the good root stays. */
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_spawn_from_asset_unwraps_resource_asset) {
+	ecs_component_registry_reset();
+
+	sk_repository_t* repository = test_create_repository();
+	TEST_ASSERT_EQUAL_INT32(0, sk_resource_assets_register_types(repository));
+	spawn_register_entity_scene_types(repository);
+
+	sk_rid_t payload = spawn_create_typed(repository, SK_ENTITY_RESOURCE_TYPE_ID);
+	sk_rid_t wrapper = spawn_create_typed(repository, SK_RESOURCE_ASSET_TYPE_ID);
+	{
+		const sk_repository_api_t* repo = sk_repository_api();
+		sk_resource_object_t w = repo->write(repository, wrapper);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+		TEST_ASSERT_EQUAL_INT32(0, repo->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, payload));
+		repo->commit(w, NULL);
+	}
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t spawned = entities_api.world_spawn_from_asset(world, repository, wrapper);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(spawned));
 	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
 
 	entities_api.world_destroy(world);
