@@ -308,13 +308,13 @@ endfunction()
 # ---------------------------------------------------------------------------
 # CTest labels / integration gate
 #
-# Default `ctest` still *registers* integration binaries so they show up, but
-# they return SK_TEST_SKIP_CODE (77) unless SK_RUN_INTEGRATION=1. Direct
-# invocation of the binary is never gated. Must match SK_TEST_SKIP_CODE in
-# foundation/test.h.
+# Default `ctest` registers and runs integration binaries (label `integration`).
+# SK_RUN_INTEGRATION=0 under SK_CTEST_GATE returns SK_TEST_SKIP_CODE (77).
+# Direct invocation of the binary is never gated. Must match SK_TEST_SKIP_CODE
+# in foundation/test.h.
 # ---------------------------------------------------------------------------
 if(NOT DEFINED SK_TEST_SKIP_CODE)
-    set(SK_TEST_SKIP_CODE 77)
+    set(SK_TEST_SKIP_CODE 77 CACHE INTERNAL "CTest skip code; must match SK_TEST_SKIP_CODE in foundation/test.h")
 endif()
 
 function(sk_ctest_mark_unit name)

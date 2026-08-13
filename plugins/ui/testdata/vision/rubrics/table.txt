@@ -1,9 +1,0 @@
-Widget family: LIST / TABLE
-
-Strict visual criteria (PASS only if ALL hold):
-
-1. A grid-like arrangement of rows and cells is visible.
-2. The header row differs from body rows (stronger/darker fill, different weight, or distinct background).
-3. When striping is claimed: body rows alternate fills (or equivalent zebra striping).
-4. When column separators are claimed: vertical lines or clear column divisions separate cells.
-5. FAIL if: header matches body rows, no multi-column structure when claimed, missing striping when claimed, or no rows.

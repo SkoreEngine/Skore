@@ -1,8 +1,0 @@
-Widget family: MENU / DROPDOWN POPUP
-
-Strict visual criteria (PASS only if ALL hold):
-
-1. A floating rectangular menu/popup surface is visible with a clear border and solid face.
-2. Stacked item rows with readable labels are present inside the popup.
-3. When separators are claimed: thin horizontal divider lines appear between item groups (not full blank gaps only).
-4. FAIL if: no popup panel, no item rows, missing claimed separators, or items overflow the chrome chaotically.

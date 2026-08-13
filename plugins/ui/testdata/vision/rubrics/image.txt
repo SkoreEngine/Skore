@@ -1,8 +1,0 @@
-Widget family: IMAGE
-
-Strict visual criteria (PASS only if ALL hold):
-
-1. A rectangular image region is visible (not collapsed to zero).
-2. When a texture is bound: non-uniform content or the bound sample is visible inside the region (not only the empty placeholder color if content is claimed).
-3. When unbound/placeholder: a flat placeholder face is acceptable.
-4. FAIL if: missing region, or claimed textured content is a blank hole.

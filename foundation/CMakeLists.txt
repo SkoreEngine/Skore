@@ -37,10 +37,10 @@ set_target_properties(sk-foundation PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Engine physics wiring includes plugins/entities (scene world) + plugins/jolt
 # (physics API table) — also header-only; both load at runtime.
 target_include_directories(sk-foundation PRIVATE
-    ${CMAKE_SOURCE_DIR}/plugins/profiler
-    ${CMAKE_SOURCE_DIR}/plugins/render_device
-    ${CMAKE_SOURCE_DIR}/plugins/entities
-    ${CMAKE_SOURCE_DIR}/plugins/jolt)
+    ${SKORE_SOURCE_DIR}/plugins/profiler
+    ${SKORE_SOURCE_DIR}/plugins/render_device
+    ${SKORE_SOURCE_DIR}/plugins/entities
+    ${SKORE_SOURCE_DIR}/plugins/jolt)
 
 # Default heap backend (mimalloc). PRIVATE: hide mimalloc from consumers;
 # only sk_allocator_t is public.
@@ -145,11 +145,11 @@ if(BUILD_TESTING)
     # Plugin headers for integration-style tests that include platform_window.h
     # (and other plugin public headers). Same list as the former sk-app-tests.
     target_include_directories(sk-foundation-tests PRIVATE
-        ${CMAKE_SOURCE_DIR}/plugins/platform_window
-        ${CMAKE_SOURCE_DIR}/plugins/entities
-        ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler
-        ${CMAKE_SOURCE_DIR}/plugins/render_graph
-        ${CMAKE_SOURCE_DIR}/plugins/render_device
-        ${CMAKE_SOURCE_DIR}/plugins/profiler
-        ${CMAKE_SOURCE_DIR}/plugins/jolt)
+        ${SKORE_SOURCE_DIR}/plugins/platform_window
+        ${SKORE_SOURCE_DIR}/plugins/entities
+        ${SKORE_SOURCE_DIR}/plugins/dxc_compiler
+        ${SKORE_SOURCE_DIR}/plugins/render_graph
+        ${SKORE_SOURCE_DIR}/plugins/render_device
+        ${SKORE_SOURCE_DIR}/plugins/profiler
+        ${SKORE_SOURCE_DIR}/plugins/jolt)
 endif()

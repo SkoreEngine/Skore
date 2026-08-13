@@ -276,20 +276,20 @@ SK_TEST(test_filter_empty_matches_all) {
 }
 
 SK_TEST(test_filter_exact_does_not_substring) {
-	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_widget_vision_tab", "ui_widget_vision_tab"));
-	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_widget_vision_table", "ui_widget_vision_tab"));
-	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_widget_vision_tab", "ui_widget_vision_table"));
+	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_capture_tab", "ui_capture_tab"));
+	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_capture_table", "ui_capture_tab"));
+	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_capture_tab", "ui_capture_table"));
 }
 
 SK_TEST(test_filter_prefix_wildcard_and_bare_star) {
-	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_widget_vision_tab", "ui_widget_vision_*"));
-	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_widget_vision_table", "ui_widget_vision_*"));
-	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_flexbox_vision_wrap", "ui_widget_vision_*"));
+	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_capture_tab", "ui_capture_*"));
+	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_capture_table", "ui_capture_*"));
+	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("ui_dock_wrap", "ui_capture_*"));
 	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("anything", "*"));
 }
 
 SK_TEST(test_filter_comma_list) {
-	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_ix_vision_checkbox_after_click", "ui_widget_vision_*,ui_ix_*"));
+	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("ui_ix_checkbox_after_click", "ui_capture_*,ui_ix_*"));
 	TEST_ASSERT_EQUAL_INT(1, sk_test_name_matches_filter("vec3_dot", "vec3_dot,vec3_cross"));
 	TEST_ASSERT_EQUAL_INT(0, sk_test_name_matches_filter("vec4_dot", "vec3_dot,vec3_cross"));
 }
@@ -352,10 +352,13 @@ SK_TEST(test_integration_gate_direct_run_never_skips) {
 
 	TEST_ASSERT_EQUAL_INT(0, sk_test_set_env("SK_CTEST_GATE", "1"));
 	TEST_ASSERT_EQUAL_INT(0, sk_test_set_env("SK_RUN_INTEGRATION", NULL));
-	TEST_ASSERT_EQUAL_INT(1, sk_test_should_skip_integration());
+	TEST_ASSERT_EQUAL_INT(0, sk_test_should_skip_integration());
 
 	TEST_ASSERT_EQUAL_INT(0, sk_test_set_env("SK_RUN_INTEGRATION", "1"));
 	TEST_ASSERT_EQUAL_INT(0, sk_test_should_skip_integration());
+
+	TEST_ASSERT_EQUAL_INT(0, sk_test_set_env("SK_RUN_INTEGRATION", "0"));
+	TEST_ASSERT_EQUAL_INT(1, sk_test_should_skip_integration());
 	TEST_ASSERT_EQUAL_INT(SK_TEST_SKIP_CODE, sk_test_ctest_map_skip(2));
 
 	if (prev_gate[0] != '\0') {

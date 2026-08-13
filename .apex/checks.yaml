@@ -56,20 +56,9 @@ checks:
     blocking: true
     timeoutSeconds: 900
 
-  # Unit + smoke only. Integration binaries (Vulkan / UI capture / lavapipe)
-  # skip unless SK_RUN_INTEGRATION=1 — that is the 12+ min default-ctest cost.
+  # Unit + smoke only (sk-tests). GPU / UI integration lives in skore-test-suite.
   - id: ctest
     stage: fast
     run: ctest --test-dir build --output-on-failure
     blocking: true
     timeoutSeconds: 400
-
-  # --- Layer 2: deep --------------------------------------------------------
-  # GPU / device / UI-capture suite once. Do not re-run unit tests.
-  # (test-integrity still runs automatically when any check exists.)
-
-  - id: ctest-full
-    stage: deep
-    run: cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build --output-on-failure -j 4 -L integration
-    blocking: true
-    timeoutSeconds: 1800

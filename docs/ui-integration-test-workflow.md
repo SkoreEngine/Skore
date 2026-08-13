@@ -42,11 +42,10 @@ SUITES=interaction ./scripts/run-ui-integration-tests.sh --no-build
 ```
 
 Equivalent CTest / binary filters (integration binary only, no plugin interaction suite).
-Default `ctest` **skips** integration; either run the binary directly or set
-`SK_RUN_INTEGRATION=1`:
+Default `ctest` in skore-test-suite **runs** integration (`SK_RUN_INTEGRATION=0` skips):
 
 ```bash
-cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -R sk-integration-tests --output-on-failure
+ctest --test-dir build -R sk-integration-tests --output-on-failure
 (cd build/bin && ./sk-integration-tests --filter='ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*')
 ```
 
@@ -119,15 +118,15 @@ so multi-state tests still run all structural captures before IGNORE.
 
 GitHub Actions (`.github/workflows/ci.yml`):
 
-1. **Matrix `build-and-test`**: default `ctest` (unit + smoke). Integration
-   binaries SKIP unless `SK_RUN_INTEGRATION=1`.
-2. **Job `integration`** (Linux + lavapipe): `SK_RUN_INTEGRATION=1 ctest -L integration`.
+1. **Matrix `build-and-test`**: default `ctest` (unit + smoke in the engine tree).
+2. **Job `integration`** (Linux + lavapipe): `ctest -L integration` in
+   skore-test-suite (on by default; `SK_RUN_INTEGRATION=0` skips).
    Passes optional `secrets.XAI_API_KEY` / `secrets.SK_UI_VISION_API_KEY`.
    Uploads `build/test-artifacts/` (including `*_vision_fail.png`) on every run.
 
 Local: `scripts/run-ui-integration-tests.sh` for focused UI suites (invokes
-the binary directly, so the CTest gate does not apply). Full integration:
-`scripts/run-integration-tests.sh` or `SK_RUN_INTEGRATION=1 ctest -L integration`.
+the binary directly). Full integration: `scripts/run-integration-tests.sh`
+or `ctest -L integration`.
 
 ### Broken widget → failing job + downloadable frame
 

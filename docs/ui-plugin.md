@@ -458,8 +458,8 @@ Run it standalone with the determinism re-check:
 ```bash
 # from the build tree; needs a Vulkan loader/ICD (skips with exit 2 without one)
 ./bin/sk-text-screenshot --verify
-# or from ctest (opt-in; default ctest SKIPs this target):
-cmake -E env SK_RUN_INTEGRATION=1 ctest -R sk-text-screenshot
+# or from ctest in skore-test-suite (on by default; SK_RUN_INTEGRATION=0 skips):
+ctest -R sk-text-screenshot
 ```
 
 `--verify` re-captures every sample and byte-compares the two runs (raw RGBA

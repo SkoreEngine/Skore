@@ -11,4 +11,4 @@ target_link_libraries(sk-render-graph PRIVATE sk-render-device-lib)
 
 # Instrumentation macros (profiler.h) — the profiler plugin is resolved via
 # the app registry at runtime; header-only include.
-target_include_directories(sk-render-graph PRIVATE ${CMAKE_SOURCE_DIR}/plugins/profiler)
+target_include_directories(sk-render-graph PRIVATE ${SKORE_SOURCE_DIR}/plugins/profiler)

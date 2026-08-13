@@ -1,8 +1,0 @@
-Widget family: PROGRESS BAR
-
-Strict visual criteria (PASS only if ALL hold for the claimed fraction):
-
-1. A horizontal track/container is visible.
-2. A filled portion occupies roughly the claimed fraction of the track (empty / partial / full).
-3. There is NO grab handle/thumb (that would make it a slider). Progress is a value display, not a draggable control.
-4. FAIL if: missing fill when fraction > 0, full fill when fraction is 0, looks like a slider with a thumb, or no track at all.

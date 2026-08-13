@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 	}
 	sk_test_apply_cli(&cli);
 
-	/* --list always runs. CTest-gated runs skip unless SK_RUN_INTEGRATION=1. */
+	/* --list always runs. CTest-gated runs skip only when SK_RUN_INTEGRATION=0. */
 	if (cli.list_only == 0 && sk_test_should_skip_integration() != 0) {
 		return SK_TEST_SKIP_CODE;
 	}

@@ -68,7 +68,7 @@ i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_ca
 	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 
-	/* 1) Compile-time source-tree path: ${CMAKE_SOURCE_DIR}/tests/data */
+	/* 1) Compile-time source-tree path: SK_TEST_DATA_DIR (test-suite/data) */
 	if (SK_TEST_DATA_DIR[0] != '\0') {
 		if (try_join_fixture_root(SK_TEST_DATA_DIR, NULL, subdir, out, out_cap) == 0) {
 			return 0;
@@ -86,6 +86,15 @@ i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_ca
 
 	/* 2) Relative to the running executable (…/build/bin → source tree) */
 	if (fs->app_folder(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
+		if (try_join_fixture_root(base, "data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../../data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
 		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
@@ -99,6 +108,15 @@ i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_ca
 
 	/* 3) Relative to cwd (ctest WORKING_DIRECTORY is usually {build}/bin) */
 	if (fs->current_dir(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
+		if (try_join_fixture_root(base, "data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
+		if (try_join_fixture_root(base, "../../data", subdir, out, out_cap) == 0) {
+			return 0;
+		}
 		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}

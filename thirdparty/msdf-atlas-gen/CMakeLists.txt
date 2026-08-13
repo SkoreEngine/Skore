@@ -110,7 +110,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(msdf-atlas-c-smoke PRIVATE msdf-atlas-c)
     target_compile_definitions(msdf-atlas-c-smoke PRIVATE
-        MSDF_ATLAS_C_SMOKE_FONT_PATH="${CMAKE_SOURCE_DIR}/plugins/ui/testdata/skore_test_font.ttf"
+        MSDF_ATLAS_C_SMOKE_FONT_PATH="${SKORE_SOURCE_DIR}/plugins/ui/testdata/skore_test_font.ttf"
     )
     set_target_properties(msdf-atlas-c-smoke PROPERTIES
         C_STANDARD 99

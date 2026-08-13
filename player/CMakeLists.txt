@@ -22,13 +22,13 @@ endif()
 # added before plugins/ in the root CMakeLists. ui.h pulls render_device and
 # dxc_compiler headers for the GPU renderer types (not linked here).
 target_include_directories(sk-player PRIVATE
-    ${CMAKE_SOURCE_DIR}/plugins/platform_window
-    ${CMAKE_SOURCE_DIR}/plugins/ui
-    ${CMAKE_SOURCE_DIR}/plugins/ui/testdata
-    ${CMAKE_SOURCE_DIR}/plugins/render_graph
-    ${CMAKE_SOURCE_DIR}/plugins/render_device
-    ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler
-    ${CMAKE_SOURCE_DIR}/plugins/profiler)
+    ${SKORE_SOURCE_DIR}/plugins/platform_window
+    ${SKORE_SOURCE_DIR}/plugins/ui
+    ${SKORE_SOURCE_DIR}/plugins/ui/testdata
+    ${SKORE_SOURCE_DIR}/plugins/render_graph
+    ${SKORE_SOURCE_DIR}/plugins/render_device
+    ${SKORE_SOURCE_DIR}/plugins/dxc_compiler
+    ${SKORE_SOURCE_DIR}/plugins/profiler)
 
 # Ensure sk-ui is built so auto-load from {app_folder}/plugins finds it.
 # (add_dependencies after plugins are defined via root order is not available

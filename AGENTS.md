@@ -225,8 +225,8 @@ sk-tests (host)                 — default ctest / Apex fast
        load → sk_plugin_run_tests(&report) → unload
   3. aggregate ran/failed → process exit code
 
-sk-integration-tests            — opt-in (SK_RUN_INTEGRATION=1 or run the binary)
-  Vulkan / UI capture / resource+entity fixtures. Default ctest SKIPs these.
+sk-integration-tests            — lives in the skore-test-suite repo
+  Vulkan / UI capture / resource+entity fixtures. Built there against this engine.
 ```
 
 Plugin tests are **plugin-local**: each DLL that links `sk-test` has its own registry + Unity instance. The host only aggregates `{ran, failed}`. Do not share Unity globals across the host↔DLL boundary.
@@ -271,9 +271,9 @@ SK_API i32 sk_plugin_run_tests(sk_test_report_t* out);  /* omit entire function 
 | **Integration** | Host-side (`app.c` under `SK_TESTS`) and/or plugin-local | Plugin load + registration, app bootstrap, multi-module paths |
 
 Both layers are **always** expected to exist. Default `ctest` / Apex fast runs
-the **unit** layer only. Integration (GPU, lavapipe, UI capture) is opt-in:
-`SK_RUN_INTEGRATION=1 ctest -L integration`, or run `sk-integration-tests`
-directly. Write both; do not run the GPU suite on every agent iteration.
+the **unit** layer only (`sk-tests`). GPU / lavapipe / UI-capture cases live in
+**skore-test-suite** (this repo keeps the harness under `tests/integration/`).
+Do not run the GPU suite on every engine-agent iteration.
 
 ### What “invest a lot” means in practice
 
@@ -295,6 +295,7 @@ plugins/foo/foo.c          # plugin unit tests in-file
 plugins/foo/plugin_entry_point.c  # sk_plugin_entry_point + sk_plugin_run_tests
 tests/main.c               # bootstrap only (host run + plugin scan)
 tests/CMakeLists.txt       # sk-tests + CTest
+tests/integration/         # reusable harness only (cases live in skore-test-suite)
 ```
 
 ### Build & run
@@ -306,13 +307,13 @@ tests/CMakeLists.txt       # sk-tests + CTest
 ```bash
 cmake -S . -B build -G Ninja
 cmake --build build
-ctest --test-dir build --output-on-failure          # unit + smoke (integration SKIPs)
+ctest --test-dir build --output-on-failure          # unit + smoke (sk-tests)
 # or: ./build/bin/sk-tests
 # or: ./build/bin/sk-tests --filter=vec3_*
-# integration (Vulkan / UI capture / lavapipe):
-cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
-# or: ./build/bin/sk-integration-tests
-# or: ./scripts/run-integration-tests.sh
+# integration (Vulkan / UI capture / lavapipe) — skore-test-suite repo:
+#   cmake -S ../skore-test-suite -B ../skore-test-suite/build -G Ninja
+#   ctest --test-dir ../skore-test-suite/build -L integration --output-on-failure
+#   # SK_RUN_INTEGRATION=0 skips the integration binaries under ctest
 ```
 
 - Optional: `sk-tests [--list] [--filter=<tokens>] [plugins_dir]` — `plugins_dir` overrides `{app_folder}/plugins`. `--filter` is comma-separated exact names and/or `prefix*` (same as `SK_TEST_FILTER`). `--list` prints registered names and exits.
@@ -605,10 +606,10 @@ Useful targets: `sk-foundation`, `sk-player`, `sk-tests`, `sk-example-plugin`.
 Native Linux builds do **not** see Windows LLP64 type widths. After changing first-party C/C++:
 
 ```bash
-# 1) Normal host build + unit tests (existing). Integration is opt-in.
+# 1) Normal host build + unit tests (existing). Integration lives in skore-test-suite
+#    and runs there by default (SK_RUN_INTEGRATION=0 to skip).
 cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure
-#    SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
-# integration (opt-in): cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
+#    ctest --test-dir ../skore-test-suite/build -L integration --output-on-failure
 
 # 2) Windows data-model tidy (no MSVC; uses MinGW headers + clang-tidy)
 ./scripts/check-windows-abi.sh
