@@ -28,6 +28,29 @@ Build a single target:
 cmake --build build --target sk-player
 ```
 
+### Docking demo
+
+`sk-player --dock-demo` opens a **fixed 1280×720** workspace built with `sample_dock_demo_build` (no persist / `.ini` restore):
+
+| Region | Window id | Content label |
+|--------|-----------|---------------|
+| Left leaf | `dock-demo-hierarchy` | LEFT — Hierarchy |
+| Center tabs | `dock-demo-scene`, `dock-demo-game` | CENTER — Scene / Game |
+| Right top | `dock-demo-inspector` | RIGHT TOP — Inspector |
+| Right bottom | `dock-demo-console` | RIGHT BOTTOM — Console |
+
+The split tree and ratios are hardcoded. Two consecutive launches produce the same dock geometry (screenshots are comparable). The window is not resizable so the first frame stays at 1280×720.
+
+```bash
+cmake --build build --target sk-player
+./build/bin/sk-player --dock-demo
+# Headless geometry dump (no window). The `dock-demo-layout:` line is
+# identical across consecutive runs:
+./build/bin/sk-player --dock-demo --dump-layout | grep '^dock-demo-layout:'
+```
+
+See **[docs/ui-plugin.md](docs/ui-plugin.md)** §7.10 for the API.
+
 ### Tests
 
 In-source `SK_TEST` blocks (see `AGENTS.md`). Host runs core/app then each plugin DLL.

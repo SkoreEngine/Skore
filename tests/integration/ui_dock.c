@@ -143,4 +143,56 @@ SK_TEST(ui_dock_headless_tree_and_layout) {
 	uidock_shutdown(&env);
 }
 
+SK_TEST(ui_dock_demo_scene_identical_geometry_two_runs) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* a;
+	sk_ui_context_t* b;
+	sk_ui_rect_t space;
+	sk_ui_rect_t a_left, b_left, a_center, b_center, a_rt, b_rt, a_rb, b_rb;
+	sk_ui_dock_node_t a_ds, b_ds;
+	f32 dw = 0.0f;
+	f32 dh = 0.0f;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock demo)");
+	}
+	ui = env.ui;
+	ui->sample_dock_demo_logical_size(&dw, &dh);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1280.0f, dw);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 720.0f, dh);
+
+	a = ui->context_create(NULL);
+	b = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_NOT_NULL(b);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->sample_dock_demo_build(a, SK_UI_NODE_INVALID)));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->sample_dock_demo_build(b, SK_UI_NODE_INVALID)));
+
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = dw;
+	space.height = dh;
+	a_ds = ui->dockspace_find(a, "dock-demo");
+	b_ds = ui->dockspace_find(b, "dock-demo");
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(a, a_ds, &space));
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(b, b_ds, &space));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(a, ui->dock_find_node_for_window(a, "dock-demo-hierarchy"), &a_left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(b, ui->dock_find_node_for_window(b, "dock-demo-hierarchy"), &b_left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(a, ui->dock_find_node_for_window(a, "dock-demo-scene"), &a_center));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(b, ui->dock_find_node_for_window(b, "dock-demo-scene"), &b_center));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(a, ui->dock_find_node_for_window(a, "dock-demo-inspector"), &a_rt));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(b, ui->dock_find_node_for_window(b, "dock-demo-inspector"), &b_rt));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(a, ui->dock_find_node_for_window(a, "dock-demo-console"), &a_rb));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(b, ui->dock_find_node_for_window(b, "dock-demo-console"), &b_rb));
+	TEST_ASSERT_EQUAL_MEMORY(&a_left, &b_left, sizeof(sk_ui_rect_t));
+	TEST_ASSERT_EQUAL_MEMORY(&a_center, &b_center, sizeof(sk_ui_rect_t));
+	TEST_ASSERT_EQUAL_MEMORY(&a_rt, &b_rt, sizeof(sk_ui_rect_t));
+	TEST_ASSERT_EQUAL_MEMORY(&a_rb, &b_rb, sizeof(sk_ui_rect_t));
+
+	ui->context_destroy(a);
+	ui->context_destroy(b);
+	uidock_shutdown(&env);
+}
+
 #endif /* SK_TESTS */

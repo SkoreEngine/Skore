@@ -654,6 +654,14 @@ sk_ui_node_t ui_sample_menu_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent
 void ui_sample_menu_logical_size_impl(f32* out_width, f32* out_height);
 
 /* -------------------------------------------------------------------------- */
+/* Deterministic docking demo (sample_dock.c)                                 */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_sample_dock_demo_register_styles_impl(sk_ui_context_t* ctx);
+sk_ui_node_t ui_sample_dock_demo_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent);
+void ui_sample_dock_demo_logical_size_impl(f32* out_width, f32* out_height);
+
+/* -------------------------------------------------------------------------- */
 /* Dock model + layout solver (dock.c)                                        */
 /* -------------------------------------------------------------------------- */
 

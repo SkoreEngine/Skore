@@ -1655,6 +1655,9 @@ static const sk_ui_api_t ui_api = {
 	ui_dockspace_layout_impl,
 	ui_dock_node_get_rect_impl,
 	ui_dock_split_get_splitter_rect_impl,
+	ui_sample_dock_demo_register_styles_impl,
+	ui_sample_dock_demo_build_impl,
+	ui_sample_dock_demo_logical_size_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

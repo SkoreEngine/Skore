@@ -2944,6 +2944,37 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero if @p node is not a live split.
 	 */
 	i32 (*dock_split_get_splitter_rect)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
+
+	/* ---- sample docking demo (fixed layout; APX-292) ---- */
+
+	/**
+	 * Register style classes used by the docking demo (fill colors + labels).
+	 * Idempotent. Called automatically by sample_dock_demo_build.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*sample_dock_demo_register_styles)(sk_ui_context_t* ctx);
+
+	/**
+	 * Build a hardcoded docked workspace under @p parent (or the context root
+	 * when @p parent is SK_UI_NODE_INVALID). Always resets the named
+	 * "dock-demo" dockspace first — never loads persist JSON / .ini.
+	 *
+	 * Layout (logical 1280 x 720):
+	 *   left leaf          — window "dock-demo-hierarchy"
+	 *   right column       — split vertically: "dock-demo-inspector" over
+	 *                        "dock-demo-console"
+	 *   central leaf       — tabs "dock-demo-scene" then "dock-demo-game"
+	 *
+	 * Each window content is a distinctly colored, labeled panel.
+	 * @return Workspace node, or SK_UI_NODE_INVALID on failure.
+	 */
+	sk_ui_node_t (*sample_dock_demo_build)(sk_ui_context_t* ctx, sk_ui_node_t parent);
+
+	/**
+	 * Logical size used by the docking demo and as the player host default
+	 * (1280 x 720). Either out pointer may be NULL.
+	 */
+	void (*sample_dock_demo_logical_size)(f32* out_width, f32* out_height);
 } sk_ui_api_t;
 
 /**
