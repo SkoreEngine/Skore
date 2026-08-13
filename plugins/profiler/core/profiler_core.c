@@ -1,6 +1,6 @@
 /**
  * @file profiler_core.c
- * @brief Engine-independent profiler core (see profiler_core.h).
+ * @brief Engine-independent profiler core (see profiler_core.internal.h).
  *
  * Layout:
  *  - The default clock has one platform backend per v2 target (Win32 QPC /
@@ -29,7 +29,7 @@
  * thread/core, which is logged through the process logger ("profiler").
  */
 
-#include "profiler_core.h"
+#include "profiler_core.internal.h"
 
 #include "atomics.h"
 #include "logger.h"

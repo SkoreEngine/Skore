@@ -55,6 +55,33 @@ add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
     WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 sk_ctest_mark_unit(sk-compression-conformance)
 
+# APX-310: runnable end-to-end physics validation scene. Builds a ground plane,
+# a stack of dynamic boxes/spheres, a kinematic platform + rider, and a
+# character controller, then simulates it through the sk-jolt plugin via the
+# app-owned ECS scene world (sk_app_init auto-loads the plugins;
+# app_physics_startup inits the jolt world with defaults) with
+# jolt->step_world(world, 1/60) per frame — the same call the engine frame loop
+# makes. Prints the observed behavior (settling, no jitter, no tunneling at the
+# default timestep, platform ride, stair climb, repeat-run determinism) and
+# exits non-zero when an expectation fails. Run directly for the full report:
+#   ./build/bin/sk-physics-scene
+add_executable(sk-physics-scene physics_scene.c)
+target_link_libraries(sk-physics-scene PRIVATE sk-foundation)
+# Plugin public headers (the plugins themselves are loaded at runtime).
+target_include_directories(sk-physics-scene PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/entities
+    ${CMAKE_SOURCE_DIR}/plugins/jolt)
+set_target_properties(sk-physics-scene PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-physics-scene COMMAND sk-physics-scene
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set_tests_properties(sk-physics-scene PROPERTIES LABELS "physics")
+# Ensure the plugins the scene loads at runtime are built.
+add_dependencies(sk-physics-scene sk-jolt sk-entities)
+
 add_executable(sk-tests main.c)
 
 # sk-foundation-tests pulls sk-test transitively.
@@ -118,7 +145,7 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui sk-jolt)
 
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.

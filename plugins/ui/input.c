@@ -8,7 +8,7 @@
  * click/wheel/key/text/focus events with capture → target → bubble order.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

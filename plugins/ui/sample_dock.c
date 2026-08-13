@@ -12,7 +12,7 @@
  * context produce identical node rects at the documented logical size.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include <stdio.h>
 #include <string.h>

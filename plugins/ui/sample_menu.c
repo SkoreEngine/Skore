@@ -25,7 +25,7 @@
  *     draw-list arrays once then reuse capacity
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

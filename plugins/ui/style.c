@@ -8,7 +8,7 @@
  * Resolve runs on STYLE-dirty nodes (parent before child for inheritance).
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

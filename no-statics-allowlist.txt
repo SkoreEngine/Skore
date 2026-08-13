@@ -123,6 +123,9 @@ plugins/dxc_compiler/dxc_compiler.c:dxc_state
 plugins/entities/entities.c:ecs_component_count
 plugins/entities/entities.c:ecs_component_registry
 plugins/entities/entities.c:g_ecs_app_context
+plugins/jolt/jolt_sync.c:bound_world
+plugins/jolt/jolt_sync.c:bound_query
+plugins/jolt/jolt_sync.c:bound_character_query
 plugins/platform_window/platform_window.c:glfw_ready
 plugins/profiler/profiler.c:active
 plugins/profiler/profiler.c:app_context
@@ -166,6 +169,11 @@ plugins/profiler/core/profiler_core.c:thread_ctx_owner
 # ---------------------------------------------------------------------------
 # plugins — SK_TESTS-only test scaffolding
 # ---------------------------------------------------------------------------
+plugins/entities/entities.c:fake_load_probe
+plugins/jolt/jolt_tests.c:g_jolt_step_callbacks
+plugins/jolt/jolt_tests.c:g_jolt_last_physics_time
+plugins/jolt/jolt_tests.c:g_jolt_last_step_index
+plugins/ui/dock.c:ui_dock_test_close_id
 plugins/profiler/core/profiler_core_tests.c:test_clock_now
 plugins/ui/test_engine.c:g_te_click_button
 plugins/ui/test_engine.c:g_te_click_count

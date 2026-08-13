@@ -21,7 +21,7 @@
  * degenerate or clamped-empty region is an ERROR (likely a test bug).
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "logger.h"
 

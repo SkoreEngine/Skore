@@ -1,4 +1,6 @@
 file(GLOB_RECURSE SKORE_DXC_COMPILER_SOURCES *.h *.c)
+# APX-275: exclude the internal-only extension (*.internal.h) — pattern rule, never exported/installed.
+list(FILTER SKORE_DXC_COMPILER_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(dxc-compiler SOURCES ${SKORE_DXC_COMPILER_SOURCES})
 

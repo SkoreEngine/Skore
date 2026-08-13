@@ -34,9 +34,13 @@ set_target_properties(sk-foundation PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Host lifecycle wiring includes plugins/profiler (sk_profiler_api_t table +
 # render_device handles for the CPU-only init call). Header-only; the plugin
 # itself is loaded at runtime from the plugins folder.
+# Engine physics wiring includes plugins/entities (scene world) + plugins/jolt
+# (physics API table) — also header-only; both load at runtime.
 target_include_directories(sk-foundation PRIVATE
     ${CMAKE_SOURCE_DIR}/plugins/profiler
-    ${CMAKE_SOURCE_DIR}/plugins/render_device)
+    ${CMAKE_SOURCE_DIR}/plugins/render_device
+    ${CMAKE_SOURCE_DIR}/plugins/entities
+    ${CMAKE_SOURCE_DIR}/plugins/jolt)
 
 # Default heap backend (mimalloc). PRIVATE: hide mimalloc from consumers;
 # only sk_allocator_t is public.
@@ -146,5 +150,6 @@ if(BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler
         ${CMAKE_SOURCE_DIR}/plugins/render_graph
         ${CMAKE_SOURCE_DIR}/plugins/render_device
-        ${CMAKE_SOURCE_DIR}/plugins/profiler)
+        ${CMAKE_SOURCE_DIR}/plugins/profiler
+        ${CMAKE_SOURCE_DIR}/plugins/jolt)
 endif()

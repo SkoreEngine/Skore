@@ -143,6 +143,13 @@ function(sk_add_plugin name)
         message(FATAL_ERROR "sk_add_plugin(${name}): SOURCES is required")
     endif()
 
+    # APX-275: headers with the internal-only extension (*.internal.h) are
+    # compile-time-only and are never part of the exported header set. This is
+    # an exclusion pattern, not a filename list — any future internal header
+    # is excluded automatically. They stay reachable for this plugin's own TUs
+    # via the PRIVATE include dir below.
+    list(FILTER SK_PLUGIN_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
+
     set(_plugin "sk-${name}")
     set(_lib    "sk-${name}-lib")
 
@@ -187,6 +194,9 @@ function(sk_add_plugin name)
     endif()
 
     # Export public headers for consumers / host tests that include this plugin.
+    # APX-275: the consumer-facing header surface is public-only — internal
+    # *.internal.h files are excluded from every header glob (see above) and
+    # from the root install rule, so they are never installed or exported.
     add_library(${_lib} INTERFACE)
     target_include_directories(${_lib} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 endfunction()

@@ -3118,14 +3118,6 @@ typedef struct sk_ui_api_t {
 	void (*sample_dock_demo_logical_size)(f32* out_width, f32* out_height);
 } sk_ui_api_t;
 
-/**
- * Register the static sk_ui_api_t on the app context.
- * Called from sk_plugin_entry_point.
- * @param context App context (must not be NULL).
- * @param app_api App module table (must not be NULL).
- */
-void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api);
-
 #ifdef __cplusplus
 }
 #endif

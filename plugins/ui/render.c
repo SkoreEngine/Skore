@@ -14,7 +14,7 @@
  *         → end_render_pass
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 #include "dxc_compiler.h"

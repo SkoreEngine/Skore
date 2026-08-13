@@ -8,7 +8,7 @@
  * per-thread attribution) instead of exact times.
  */
 
-#include "profiler_core.h"
+#include "profiler_core.internal.h"
 
 #ifdef SK_TESTS
 

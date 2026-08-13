@@ -199,6 +199,13 @@ elif [[ -f "${HOME}/.grok/auth.json" ]]; then
   has_vision_key=1
 fi
 
+# Live AI grading is explicit opt-in in the test binaries (plain ctest skips
+# without env keys); this dedicated integration flow opts in whenever
+# credentials are present, including a discoverable ~/.grok/auth.json.
+if [[ "${has_vision_key}" -eq 1 ]]; then
+  export SK_UI_VISION_LIVE=1
+fi
+
 echo "==> UI integration suites (APX-263)"
 echo "    BUILD_DIR=${BUILD_DIR}"
 echo "    SUITES=${SUITES}"
