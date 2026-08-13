@@ -28,6 +28,7 @@
 #include "resource_object_fixtures.h"
 
 #include "allocator.h"
+#include "app.h"
 #include "common.h"
 #include "filesystem.h"
 #include "path.h"
@@ -61,7 +62,9 @@ static sk_type_id_t it_buffer_type_id(u64 tag) {
 }
 
 static sk_repository_t* it_buffer_repo(const sk_resource_type_t** out_type, const sk_allocator_t* allocator, u64 tag) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	sk_repository_t* repo = api->create(allocator);
 	TEST_ASSERT_NOT_NULL(repo);
 	sk_resource_type_desc_t desc;
@@ -169,7 +172,9 @@ static i32 it_file_read_all(const_chr_t path, void* data, u64 size) {
 /* Load each present fixture from disk, set it on a resource, and verify the
  * buffer read back matches the on-disk bytes and size byte-for-byte. */
 SK_TEST(resource_object_buffer_fixture_load_byte_for_byte) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	const sk_allocator_t* alloc = sk_allocator_default();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	const sk_resource_type_t* type = NULL;
@@ -237,7 +242,9 @@ SK_TEST(resource_object_buffer_fixture_load_byte_for_byte) {
  * resource with different bytes, reload the temp file, and verify the buffer
  * round-trips back to the original bytes. */
 SK_TEST(resource_object_buffer_save_reload_roundtrip) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	const sk_allocator_t* alloc = sk_allocator_default();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	const sk_resource_type_t* type = NULL;
@@ -320,7 +327,9 @@ SK_TEST(resource_object_buffer_save_reload_roundtrip) {
  * release the previous payload (live allocation count returns to baseline
  * after garbage_collect) and reads must observe only the new bytes. */
 SK_TEST(resource_object_buffer_overwrite_releases_old_payload) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	it_counting_alloc_t state = {sk_allocator_default(), 0u};
 	sk_allocator_t counting_allocator = {&state, it_counting_alloc, it_counting_free, it_counting_realloc};
 	const sk_resource_type_t* type = NULL;
@@ -376,7 +385,9 @@ SK_TEST(resource_object_buffer_overwrite_releases_old_payload) {
 /* Unset, empty-buffer, unknown-index, and type-mismatch reads return the
  * documented sentinel (NULL pointer, size 0) instead of crashing. */
 SK_TEST(resource_object_buffer_sentinels_empty_and_missing) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	const sk_allocator_t* alloc = sk_allocator_default();
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = it_buffer_repo(&type, alloc, 187u);
@@ -472,7 +483,9 @@ SK_TEST(resource_object_buffer_sentinels_empty_and_missing) {
 /* The >1 MiB fixture round-trips intact: load → set → save → reload → set,
  * with the on-disk file size and every byte verified at each stage. */
 SK_TEST(resource_object_buffer_large_fixture_roundtrip) {
-	const sk_repository_api_t* api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
 	const sk_allocator_t* alloc = sk_allocator_default();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	const sk_resource_type_t* type = NULL;

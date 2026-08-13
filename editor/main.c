@@ -41,13 +41,13 @@ static void print_usage(const_chr_t argv0) {
 			argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor");
 }
 
-static i32 count_root_children(sk_editor_project_t* project) {
+static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* app, const sk_app_api_t* app_api) {
 	sk_repository_t* repository = sk_editor_project_repository(project);
 	sk_rid_t root = sk_editor_project_root_directory(project);
 	if (repository == NULL || root.id == 0u) {
 		return -1;
 	}
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = app_api->repository_api(app);
 	sk_resource_object_t view = repo->read(repository, root);
 	u32 count = 0u;
 	(void)repo->get_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
@@ -153,7 +153,7 @@ static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		sk_log_info(logger_api, log, "imported via core: %s", import_paths[i]);
 	}
 
-	child_count = count_root_children(project);
+	child_count = count_root_children(project, app, app_api);
 	sk_log_info(logger_api, log, "package root has %d child asset node(s); thumbnails not generated (dropped)", child_count);
 
 	sk_editor_project_close(project);

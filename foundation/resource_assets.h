@@ -46,7 +46,7 @@
  * Built-ins call this for every table in
  * sk_resource_asset_builtins_register_impls(). Hosts resolve with
  * sk_resource_asset_handler_find_by_extension / _find_by_resource_type or
- * sk_resource_assets_api_t::get_asset_handler_for_extension, then invoke
+ * app_api->resource_assets_api(ctx)->get_asset_handler_for_extension, then invoke
  * callbacks only through the null-safe free functions (sk_resource_asset_handler_*).
  *
  * Thumbnail / PreviewGenerator generation is intentionally not part of this
@@ -125,6 +125,8 @@ typedef struct sk_resource_ingest_context_t {
 	const u8* source_bytes;
 	u32 source_size;
 	sk_undo_redo_scope_t* scope;
+	sk_repository_t* repository;
+	const sk_repository_api_t* repo_api;
 	sk_uuid_t (*declare_sub_resource)(struct sk_resource_ingest_context_t* ctx, const_chr_t sub_id, sk_type_id_t type);
 	i32 (*add_dependency)(struct sk_resource_ingest_context_t* ctx, const_chr_t rel_path, const u8* bytes, u32 size);
 	i32 (*has_dependency)(struct sk_resource_ingest_context_t* ctx, const_chr_t rel_path);
@@ -140,6 +142,8 @@ typedef struct sk_resource_cook_context_t {
 	const u8* source_bytes;
 	u32 source_size;
 	sk_undo_redo_scope_t* scope;
+	sk_repository_t* repository;
+	const sk_repository_api_t* repo_api;
 	sk_rid_t (*sub_resource)(struct sk_resource_cook_context_t* ctx, const_chr_t sub_id, sk_type_id_t type);
 	sk_sub_resource_allocator_t (*allocator)(struct sk_resource_cook_context_t* ctx);
 } sk_resource_cook_context_t;
@@ -158,11 +162,12 @@ typedef struct sk_resource_asset_handler_t {
 	void (*open_asset)(void_ptr_t user_data, sk_rid_t asset);
 	sk_type_id_t (*get_resource_type_id)(void_ptr_t user_data);
 	const_chr_t (*get_desc)(void_ptr_t user_data);
-	sk_rid_t (*load)(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path);
-	void (*save)(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path);
-	sk_rid_t (*create)(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
-	void (*reloaded)(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path);
-	void (*after_move)(void_ptr_t user_data, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path);
+	sk_rid_t (*load)(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path);
+	void (*save)(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path);
+	sk_rid_t (*create)(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
+	void (*reloaded)(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path);
+	void (*after_move)(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t old_absolute_path,
+					   const_chr_t new_absolute_path);
 	void (*export_object)(void_ptr_t user_data, sk_rid_t object, sk_archive_writer_t* writer);
 	const_chr_t (*get_icon)(void_ptr_t user_data);
 	i32 (*get_load_order)(void_ptr_t user_data);
@@ -183,11 +188,16 @@ const_chr_t sk_resource_asset_handler_extension(const sk_resource_asset_handler_
 void sk_resource_asset_handler_open_asset(const sk_resource_asset_handler_t* handler, sk_rid_t asset);
 sk_type_id_t sk_resource_asset_handler_get_resource_type_id(const sk_resource_asset_handler_t* handler);
 const_chr_t sk_resource_asset_handler_get_desc(const sk_resource_asset_handler_t* handler);
-sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
-void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_rid_t object, const_chr_t absolute_path);
-sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
-void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
-void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path);
+sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										const_chr_t absolute_path);
+void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object,
+									const_chr_t absolute_path);
+sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid,
+										  sk_undo_redo_scope_t* scope);
+void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										const_chr_t absolute_path);
+void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										  const_chr_t old_absolute_path, const_chr_t new_absolute_path);
 void sk_resource_asset_handler_export_object(const sk_resource_asset_handler_t* handler, sk_rid_t object, sk_archive_writer_t* writer);
 const_chr_t sk_resource_asset_handler_get_icon(const sk_resource_asset_handler_t* handler);
 i32 sk_resource_asset_handler_get_load_order(const sk_resource_asset_handler_t* handler);
@@ -219,9 +229,10 @@ typedef struct sk_resource_asset_importer_t {
 typedef struct sk_resource_assets_context_t sk_resource_assets_context_t;
 
 /**
- * Process-wide repository-assets engine API (implemented in sk-foundation).
- * Parent parameters are ResourceAssetDirectory node RIDs. Extensions are
- * lowercase with a leading dot. No thumbnails, no efsw file watching.
+ * Repository-assets engine API (implemented in sk-foundation).
+ * Obtain via `app_api->resource_assets_api(ctx)`. Parent parameters are
+ * ResourceAssetDirectory node RIDs. Extensions are lowercase with a leading
+ * dot. No thumbnails, no efsw file watching.
  */
 typedef struct sk_resource_assets_api_t {
 	sk_resource_assets_context_t* (*create)(sk_repository_t* repository, sk_app_context_t* app_context, const sk_app_api_t* app_api, const sk_allocator_t* allocator);
@@ -266,8 +277,6 @@ typedef struct sk_resource_assets_api_t {
 	i32 (*get_asset_full_name)(sk_resource_assets_context_t* ctx, sk_rid_t rid, char_ptr_t out, u32 out_cap);
 	sk_rid_t (*find_asset_on_directory)(sk_resource_assets_context_t* ctx, sk_rid_t directory, sk_type_id_t type_id, const_chr_t name);
 } sk_resource_assets_api_t;
-
-SK_API const sk_resource_assets_api_t* sk_resource_assets_api(void);
 
 #ifdef __cplusplus
 }

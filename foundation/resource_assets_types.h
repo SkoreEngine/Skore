@@ -251,11 +251,12 @@ typedef struct sk_resource_extracted_entry_t {
  * Extracted entry structs. Fields and defaults are copied by register_type, so
  * the module's static descriptors need not outlive the call.
  * @param repository Target repository (must not be NULL).
+ * @param repo_api   Repository function table (must not be NULL).
  * @return 0 when every type registered; otherwise the first register_type
  *         error (-1 duplicate type id, -2 duplicate name, -3 OOM, -4 invalid
  *         descriptor) with registration stopped at that type.
  */
-i32 sk_resource_assets_register_types(sk_repository_t* repository);
+i32 sk_resource_assets_register_types(sk_repository_t* repository, const sk_repository_api_t* repo_api);
 
 #ifdef __cplusplus
 }

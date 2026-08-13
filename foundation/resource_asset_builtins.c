@@ -25,51 +25,42 @@
 /*  Bound repository for Create / cook writes                         */
 /* ------------------------------------------------------------------ */
 
-static sk_repository_t* builtins_repository = NULL;
-
-void sk_resource_asset_builtins_bind_repository(sk_repository_t* repository) {
-	builtins_repository = repository;
-}
-
-static sk_rid_t builtins_create(sk_type_id_t type_id, sk_uuid_t uuid, sk_undo_redo_scope_t* scope, const_chr_t name) {
-	const sk_repository_api_t* repo = sk_repository_api();
-	const sk_resource_type_t* type = repo->find_type(builtins_repository, type_id);
+static sk_rid_t builtins_create(sk_repository_t* repository, const sk_repository_api_t* repo, sk_type_id_t type_id, sk_uuid_t uuid, sk_undo_redo_scope_t* scope, const_chr_t name) {
+	const sk_resource_type_t* type = repo->find_type(repository, type_id);
 	if (type == NULL) {
 		return SK_RID_ZERO;
 	}
-	sk_rid_t rid = repo->create_resource(builtins_repository, type, uuid, scope);
+	sk_rid_t rid = repo->create_resource(repository, type, uuid, scope);
 	if (rid.id == 0u || name == NULL || name[0] == '\0') {
 		return rid;
 	}
-	sk_resource_object_t view = repo->write(builtins_repository, rid);
+	sk_resource_object_t view = repo->write(repository, rid);
 	repo->set_string(view, SK_NAMED_RESOURCE_FIELD_NAME, name);
 	repo->commit(view, scope);
 	return rid;
 }
 
-static void builtins_set_name(sk_rid_t rid, const_chr_t name, sk_undo_redo_scope_t* scope) {
+static void builtins_set_name(sk_repository_t* repository, const sk_repository_api_t* repo, sk_rid_t rid, const_chr_t name, sk_undo_redo_scope_t* scope) {
 	if (rid.id == 0u || name == NULL) {
 		return;
 	}
-	const sk_repository_api_t* repo = sk_repository_api();
-	sk_resource_object_t view = repo->write(builtins_repository, rid);
+	sk_resource_object_t view = repo->write(repository, rid);
 	repo->set_string(view, SK_NAMED_RESOURCE_FIELD_NAME, name);
 	repo->commit(view, scope);
 }
 
-static void builtins_set_content(sk_rid_t rid, const_chr_t content, sk_undo_redo_scope_t* scope) {
+static void builtins_set_content(sk_repository_t* repository, const sk_repository_api_t* repo, sk_rid_t rid, const_chr_t content, sk_undo_redo_scope_t* scope) {
 	if (rid.id == 0u) {
 		return;
 	}
-	const sk_repository_api_t* repo = sk_repository_api();
-	sk_resource_object_t view = repo->write(builtins_repository, rid);
+	sk_resource_object_t view = repo->write(repository, rid);
 	repo->set_string(view, SK_NAMED_RESOURCE_FIELD_CONTENT, content != NULL ? content : "");
 	repo->commit(view, scope);
 }
 
 static const_chr_t cook_source_name(sk_resource_cook_context_t* ctx, const_chr_t fallback) {
-	const sk_repository_api_t* repo = sk_repository_api();
-	sk_resource_object_t wrapper = repo->read(builtins_repository, ctx->imported_asset);
+	const sk_repository_api_t* repo = ctx->repo_api;
+	sk_resource_object_t wrapper = repo->read(ctx->repository, ctx->imported_asset);
 	const_chr_t original = repo->get_string(wrapper, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_FILE_NAME);
 	if (original == NULL || original[0] == '\0') {
 		return fallback;
@@ -166,8 +157,8 @@ static const sk_resource_type_desc_t* const builtin_type_descs[] = {
 	&obj_import_settings_type_desc,
 };
 
-i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository) {
-	const sk_repository_api_t* api = sk_repository_api();
+i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository, const sk_repository_api_t* repo_api) {
+	const sk_repository_api_t* api = repo_api;
 	u32 count = (u32)(sizeof(builtin_type_descs) / sizeof(builtin_type_descs[0]));
 	for (u32 i = 0u; i < count; ++i) {
 		i32 result = api->register_type(repository, builtin_type_descs[i]);
@@ -213,9 +204,9 @@ static const_chr_t animation_clip_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Animation Clip";
 }
-static sk_rid_t animation_clip_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t animation_clip_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_ANIMATION_CLIP_RESOURCE_TYPE_ID, uuid, scope, NULL);
+	return builtins_create(repository, repo_api, SK_ANIMATION_CLIP_RESOURCE_TYPE_ID, uuid, scope, NULL);
 }
 static const_chr_t animation_clip_icon_fn(void_ptr_t user_data) {
 	(void)user_data;
@@ -250,9 +241,9 @@ static const_chr_t anim_controller_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Animation Controller";
 }
-static sk_rid_t anim_controller_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t anim_controller_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_ANIMATION_CONTROLLER_RESOURCE_TYPE_ID, uuid, scope, "AnimationController");
+	return builtins_create(repository, repo_api, SK_ANIMATION_CONTROLLER_RESOURCE_TYPE_ID, uuid, scope, "AnimationController");
 }
 static sk_resource_asset_handler_t animation_controller_handler = {
 	.user_data = NULL,
@@ -283,9 +274,9 @@ static const_chr_t audio_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Audio Clip";
 }
-static sk_rid_t audio_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t audio_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_AUDIO_RESOURCE_TYPE_ID, uuid, scope, NULL);
+	return builtins_create(repository, repo_api, SK_AUDIO_RESOURCE_TYPE_ID, uuid, scope, NULL);
 }
 static const_chr_t audio_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -321,17 +312,19 @@ static const_chr_t csharp_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "C# Component";
 }
-static sk_rid_t csharp_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static sk_rid_t csharp_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
 	(void)user_data;
 	(void)asset;
 	char name[256];
 	if (sk_path_name(sk_str_view_cstr(absolute_path), name, (u32)sizeof(name)) < 0) {
 		name[0] = '\0';
 	}
-	return builtins_create(SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID, SK_UUID_ZERO, NULL, name);
+	return builtins_create(repository, repo_api, SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID, SK_UUID_ZERO, NULL, name);
 }
-static void csharp_save(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path) {
+static void csharp_save(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
 	(void)user_data;
+	(void)repository;
+	(void)repo_api;
 	(void)object;
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	if (fs->get_file_status(absolute_path) == SK_FILE_STATUS_FILE) {
@@ -353,9 +346,9 @@ static void csharp_save(void_ptr_t user_data, sk_rid_t object, const_chr_t absol
 	fs->write_file(file, body, strlen(body));
 	fs->close_file(file);
 }
-static sk_rid_t csharp_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t csharp_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID, uuid, scope, "Script");
+	return builtins_create(repository, repo_api, SK_CSHARP_SCRIPT_RESOURCE_TYPE_ID, uuid, scope, "Script");
 }
 static const_chr_t csharp_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -390,9 +383,9 @@ static const_chr_t dcc_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "DCC Asset";
 }
-static sk_rid_t dcc_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t dcc_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_DCC_ASSET_TYPE_ID, uuid, scope, NULL);
+	return builtins_create(repository, repo_api, SK_DCC_ASSET_TYPE_ID, uuid, scope, NULL);
 }
 static const_chr_t dcc_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -427,9 +420,9 @@ static const_chr_t entity_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Entity";
 }
-static sk_rid_t entity_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t entity_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_ENTITY_RESOURCE_TYPE_ID, uuid, scope, "Entity");
+	return builtins_create(repository, repo_api, SK_ENTITY_RESOURCE_TYPE_ID, uuid, scope, "Entity");
 }
 static sk_resource_asset_handler_t entity_handler = {
 	.user_data = NULL,
@@ -460,9 +453,9 @@ static const_chr_t font_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Font";
 }
-static sk_rid_t font_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t font_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_FONT_RESOURCE_TYPE_ID, uuid, scope, NULL);
+	return builtins_create(repository, repo_api, SK_FONT_RESOURCE_TYPE_ID, uuid, scope, NULL);
 }
 static const_chr_t font_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -497,10 +490,10 @@ static const_chr_t matgraph_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Material Graph";
 }
-static sk_rid_t matgraph_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t matgraph_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
 	/* Full node graph seed needs MaterialGraphNode types (later). Name only. */
-	return builtins_create(SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID, uuid, scope, "MaterialGraph");
+	return builtins_create(repository, repo_api, SK_MATERIAL_GRAPH_RESOURCE_TYPE_ID, uuid, scope, "MaterialGraph");
 }
 static const_chr_t matgraph_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -535,9 +528,9 @@ static const_chr_t mesh_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Mesh";
 }
-static sk_rid_t mesh_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t mesh_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_MESH_RESOURCE_TYPE_ID, uuid, scope, "Mesh");
+	return builtins_create(repository, repo_api, SK_MESH_RESOURCE_TYPE_ID, uuid, scope, "Mesh");
 }
 static sk_resource_asset_handler_t mesh_handler = {
 	.user_data = NULL,
@@ -557,13 +550,13 @@ static sk_resource_asset_handler_t mesh_handler = {
 };
 
 /* Rml UI document / style: content load/save. */
-static sk_rid_t content_load(sk_type_id_t type_id, const_chr_t absolute_path) {
+static sk_rid_t content_load(sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_type_id_t type_id, const_chr_t absolute_path) {
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	char name[256];
 	if (sk_path_name(sk_str_view_cstr(absolute_path), name, (u32)sizeof(name)) < 0) {
 		name[0] = '\0';
 	}
-	sk_rid_t rid = builtins_create(type_id, SK_UUID_ZERO, NULL, name);
+	sk_rid_t rid = builtins_create(repository, repo_api, type_id, SK_UUID_ZERO, NULL, name);
 	if (rid.id == 0u) {
 		return rid;
 	}
@@ -577,7 +570,7 @@ static sk_rid_t content_load(sk_type_id_t type_id, const_chr_t absolute_path) {
 		if (buf != NULL) {
 			fs->read_file(file, buf, size);
 			buf[size] = '\0';
-			builtins_set_content(rid, buf, NULL);
+			builtins_set_content(repository, repo_api, rid, buf, NULL);
 			sk_allocator_default()->free(sk_allocator_default()->instance, buf);
 		}
 	}
@@ -585,10 +578,10 @@ static sk_rid_t content_load(sk_type_id_t type_id, const_chr_t absolute_path) {
 	return rid;
 }
 
-static void content_save(sk_rid_t object, const_chr_t absolute_path) {
-	const sk_repository_api_t* repo = sk_repository_api();
+static void content_save(sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
+	const sk_repository_api_t* repo = repo_api;
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
-	sk_resource_object_t view = repo->read(builtins_repository, object);
+	sk_resource_object_t view = repo->read(repository, object);
 	const_chr_t content = repo->get_string(view, SK_NAMED_RESOURCE_FIELD_CONTENT);
 	if (content == NULL) {
 		content = "";
@@ -613,19 +606,19 @@ static const_chr_t rml_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "UI Document";
 }
-static sk_rid_t rml_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static sk_rid_t rml_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
 	(void)user_data;
 	(void)asset;
-	return content_load(SK_UI_DOCUMENT_RESOURCE_TYPE_ID, absolute_path);
+	return content_load(repository, repo_api, SK_UI_DOCUMENT_RESOURCE_TYPE_ID, absolute_path);
 }
-static void rml_save(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path) {
+static void rml_save(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
 	(void)user_data;
-	content_save(object, absolute_path);
+	content_save(repository, repo_api, object, absolute_path);
 }
-static sk_rid_t rml_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t rml_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	sk_rid_t rid = builtins_create(SK_UI_DOCUMENT_RESOURCE_TYPE_ID, uuid, scope, "Document");
-	builtins_set_content(rid, "<rml>\n<head>\n</head>\n<body>\n</body>\n</rml>\n", scope);
+	sk_rid_t rid = builtins_create(repository, repo_api, SK_UI_DOCUMENT_RESOURCE_TYPE_ID, uuid, scope, "Document");
+	builtins_set_content(repository, repo_api, rid, "<rml>\n<head>\n</head>\n<body>\n</body>\n</rml>\n", scope);
 	return rid;
 }
 static const_chr_t rml_icon(void_ptr_t user_data) {
@@ -661,19 +654,19 @@ static const_chr_t rcss_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "UI Style";
 }
-static sk_rid_t rcss_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static sk_rid_t rcss_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
 	(void)user_data;
 	(void)asset;
-	return content_load(SK_UI_STYLE_RESOURCE_TYPE_ID, absolute_path);
+	return content_load(repository, repo_api, SK_UI_STYLE_RESOURCE_TYPE_ID, absolute_path);
 }
-static void rcss_save(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path) {
+static void rcss_save(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
 	(void)user_data;
-	content_save(object, absolute_path);
+	content_save(repository, repo_api, object, absolute_path);
 }
-static sk_rid_t rcss_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t rcss_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	sk_rid_t rid = builtins_create(SK_UI_STYLE_RESOURCE_TYPE_ID, uuid, scope, "Style");
-	builtins_set_content(rid, "body\n{\n}\n", scope);
+	sk_rid_t rid = builtins_create(repository, repo_api, SK_UI_STYLE_RESOURCE_TYPE_ID, uuid, scope, "Style");
+	builtins_set_content(repository, repo_api, rid, "body\n{\n}\n", scope);
 	return rid;
 }
 static const_chr_t rcss_icon(void_ptr_t user_data) {
@@ -709,10 +702,10 @@ static const_chr_t scene_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Scene";
 }
-static sk_rid_t scene_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t scene_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
 	/* Prototype Lighting/PostProcessing entities need the package content system. */
-	return builtins_create(SK_SCENE_RESOURCE_TYPE_ID, uuid, scope, "Scene");
+	return builtins_create(repository, repo_api, SK_SCENE_RESOURCE_TYPE_ID, uuid, scope, "Scene");
 }
 static const_chr_t scene_icon(void_ptr_t user_data) {
 	(void)user_data;
@@ -736,10 +729,10 @@ static sk_resource_asset_handler_t scene_handler = {
 };
 
 /* Shader handlers share ShaderResource type; Load reads source as Content (no DXC). */
-static sk_rid_t shader_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static sk_rid_t shader_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
 	(void)user_data;
 	(void)asset;
-	return content_load(SK_SHADER_RESOURCE_TYPE_ID, absolute_path);
+	return content_load(repository, repo_api, SK_SHADER_RESOURCE_TYPE_ID, absolute_path);
 }
 static sk_type_id_t shader_type(void_ptr_t user_data) {
 	(void)user_data;
@@ -749,9 +742,9 @@ static const_chr_t shader_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Shader";
 }
-static sk_rid_t shader_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t shader_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_SHADER_RESOURCE_TYPE_ID, uuid, scope, "Shader");
+	return builtins_create(repository, repo_api, SK_SHADER_RESOURCE_TYPE_ID, uuid, scope, "Shader");
 }
 
 static const_chr_t raster_extension(void_ptr_t user_data) {
@@ -850,9 +843,9 @@ static const_chr_t texture_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Texture";
 }
-static sk_rid_t texture_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t texture_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	return builtins_create(SK_TEXTURE_RESOURCE_TYPE_ID, uuid, scope, NULL);
+	return builtins_create(repository, repo_api, SK_TEXTURE_RESOURCE_TYPE_ID, uuid, scope, NULL);
 }
 static sk_resource_asset_handler_t texture_handler = {
 	.user_data = NULL,
@@ -884,14 +877,13 @@ static const_chr_t imported_desc(void_ptr_t user_data) {
 	(void)user_data;
 	return "Imported Asset";
 }
-static sk_rid_t imported_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t imported_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	const sk_repository_api_t* repo = sk_repository_api();
-	const sk_resource_type_t* type = repo->find_type(builtins_repository, SK_RESOURCE_IMPORTED_ASSET_TYPE_ID);
+	const sk_resource_type_t* type = repo_api->find_type(repository, SK_RESOURCE_IMPORTED_ASSET_TYPE_ID);
 	if (type == NULL) {
 		return SK_RID_ZERO;
 	}
-	return repo->create_resource(builtins_repository, type, uuid, scope);
+	return repo_api->create_resource(repository, type, uuid, scope);
 }
 static sk_resource_asset_handler_t imported_asset_handler = {
 	.user_data = NULL,
@@ -949,7 +941,7 @@ static void audio_importer_cook(void_ptr_t user_data, sk_resource_cook_context_t
 	(void)user_data;
 	const_chr_t name = cook_source_name(ctx, "audio");
 	sk_rid_t audio = ctx->sub_resource(ctx, "main", SK_AUDIO_RESOURCE_TYPE_ID);
-	builtins_set_name(audio, name, ctx->scope);
+	builtins_set_name(ctx->repository, ctx->repo_api, audio, name, ctx->scope);
 	/* Bytes blob: no public set_blob accessor yet; name + sub-resource match main shape. */
 	(void)ctx->source_bytes;
 	(void)ctx->source_size;
@@ -991,7 +983,7 @@ static void font_importer_cook(void_ptr_t user_data, sk_resource_cook_context_t*
 	/* MSDF atlas gen deferred; create named FontResource shell. */
 	const_chr_t name = cook_source_name(ctx, "font");
 	sk_rid_t font = ctx->sub_resource(ctx, "main", SK_FONT_RESOURCE_TYPE_ID);
-	builtins_set_name(font, name, ctx->scope);
+	builtins_set_name(ctx->repository, ctx->repo_api, font, name, ctx->scope);
 }
 static sk_resource_asset_importer_t font_importer = {
 	.user_data = NULL,
@@ -1030,7 +1022,7 @@ static void texture_importer_cook(void_ptr_t user_data, sk_resource_cook_context
 	/* stb_image + GPU mip path deferred; named TextureResource shell. */
 	const_chr_t name = cook_source_name(ctx, "texture");
 	sk_rid_t tex = ctx->sub_resource(ctx, "main", SK_TEXTURE_RESOURCE_TYPE_ID);
-	builtins_set_name(tex, name, ctx->scope);
+	builtins_set_name(ctx->repository, ctx->repo_api, tex, name, ctx->scope);
 }
 static sk_resource_asset_importer_t texture_importer = {
 	.user_data = NULL,
@@ -1051,7 +1043,7 @@ static void dcc_root_cook(void_ptr_t user_data, sk_resource_cook_context_t* ctx)
 	(void)user_data;
 	const_chr_t name = cook_source_name(ctx, "model");
 	sk_rid_t dcc = ctx->sub_resource(ctx, "root", SK_DCC_ASSET_TYPE_ID);
-	builtins_set_name(dcc, name, ctx->scope);
+	builtins_set_name(ctx->repository, ctx->repo_api, dcc, name, ctx->scope);
 }
 
 static u32 fbx_importer_exts(void_ptr_t user_data, const_chr_t* out, u32 out_cap) {
@@ -1260,8 +1252,7 @@ static void bi_write(const_chr_t path, const_chr_t text) {
 	fs->close_file(file);
 }
 
-static sk_rid_t bi_find_asset(sk_repository_t* repository, sk_rid_t node, const_chr_t name, const_chr_t extension) {
-	const sk_repository_api_t* repo = sk_repository_api();
+static sk_rid_t bi_find_asset(sk_repository_t* repository, const sk_repository_api_t* repo, sk_rid_t node, const_chr_t name, const_chr_t extension) {
 	sk_resource_object_t view = repo->read(repository, node);
 	u32 count = 0u;
 	const sk_rid_t* children = repo->get_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
@@ -1276,21 +1267,33 @@ static sk_rid_t bi_find_asset(sk_repository_t* repository, sk_rid_t node, const_
 	return SK_RID_ZERO;
 }
 
+static const sk_repository_api_t* bi_repo_api(void) {
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
+	return api;
+}
+
+static const sk_resource_assets_api_t* bi_assets_api(void) {
+	sk_app_boot_t boot = sk_app_create();
+	const sk_resource_assets_api_t* api = boot.api->resource_assets_api(boot.context);
+	sk_app_shutdown(boot.context);
+	return api;
+}
+
 static void bi_setup(sk_repository_t** out_repo, sk_app_context_t** out_app, sk_resource_assets_context_t** out_ctx) {
-	const sk_repository_api_t* repo_api = sk_repository_api();
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* repo_api = boot.api->repository_api(boot.context);
 	sk_repository_t* repository = repo_api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repository);
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repository));
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_builtins_register_types(repository));
-	sk_resource_asset_builtins_bind_repository(repository);
-
-	sk_app_boot_t boot = sk_app_create();
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repository, repo_api));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_builtins_register_types(repository, repo_api));
 
 	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
 	sk_resource_asset_builtins_register_impls(app, boot.api);
 
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, boot.api, sk_allocator_default());
+	sk_resource_assets_context_t* ctx = boot.api->resource_assets_api(boot.context)->create(repository, app, boot.api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
 
 	*out_repo = repository;
@@ -1299,10 +1302,9 @@ static void bi_setup(sk_repository_t** out_repo, sk_app_context_t** out_app, sk_
 }
 
 static void bi_teardown(sk_repository_t* repository, sk_app_context_t* app, sk_resource_assets_context_t* ctx) {
-	sk_resource_assets_api()->destroy(ctx);
+	bi_assets_api()->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
-	sk_resource_asset_builtins_bind_repository(NULL);
+	bi_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_asset_builtins_register_handlers_and_importers) {
@@ -1310,7 +1312,7 @@ SK_TEST(resource_asset_builtins_register_handlers_and_importers) {
 	sk_app_context_t* app = NULL;
 	sk_resource_assets_context_t* ctx = NULL;
 	bi_setup(&repository, &app, &ctx);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* api = bi_assets_api();
 
 	/* Handlers by extension (inventory §1.3). Output extensions are remapped
 	 * to ImportedAssetHandler (main ReloadAssetHandlers). */
@@ -1373,8 +1375,8 @@ SK_TEST(resource_asset_builtins_create_via_handlers) {
 	sk_app_context_t* app = NULL;
 	sk_resource_assets_context_t* ctx = NULL;
 	bi_setup(&repository, &app, &ctx);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = bi_assets_api();
+	const sk_repository_api_t* repo = bi_repo_api();
 
 	char root[SK_FS_PATH_MAX];
 	char assets[SK_FS_PATH_MAX];
@@ -1418,19 +1420,18 @@ SK_TEST(resource_asset_builtins_create_via_handlers) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
-	sk_resource_asset_builtins_bind_repository(NULL);
+	bi_repo_api()->destroy(repository);
 	(void)fs->remove(assets);
 	(void)fs->remove(root);
 }
 
 static void bi_assert_import(sk_repository_t* repository, sk_resource_assets_context_t* ctx, sk_rid_t root_node, const_chr_t sample_path, const_chr_t asset_name,
 							 const_chr_t wrapper_ext, const_chr_t sub_id, sk_type_id_t sub_type) {
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = bi_assets_api();
+	const sk_repository_api_t* repo = bi_repo_api();
 
 	TEST_ASSERT_EQUAL_INT(0, api->import_asset(ctx, root_node, sample_path, NULL));
-	sk_rid_t asset = bi_find_asset(repository, root_node, asset_name, wrapper_ext);
+	sk_rid_t asset = bi_find_asset(repository, repo, root_node, asset_name, wrapper_ext);
 	TEST_ASSERT_TRUE(asset.id != 0u);
 
 	sk_resource_object_t asset_view = repo->read(repository, asset);
@@ -1465,7 +1466,7 @@ SK_TEST(resource_asset_builtins_import_samples_per_importer) {
 	sk_app_context_t* app = NULL;
 	sk_resource_assets_context_t* ctx = NULL;
 	bi_setup(&repository, &app, &ctx);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* api = bi_assets_api();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 
 	char temp[SK_FS_PATH_MAX];
@@ -1520,8 +1521,8 @@ SK_TEST(resource_asset_builtins_import_samples_per_importer) {
 	bi_assert_import(repository, ctx, root_node, path, "crate", ".dcc_asset", "root", SK_DCC_ASSET_TYPE_ID);
 	/* Obj mtllib dependency recorded. */
 	{
-		const sk_repository_api_t* repo = sk_repository_api();
-		sk_rid_t asset = bi_find_asset(repository, root_node, "crate", ".dcc_asset");
+		const sk_repository_api_t* repo = bi_repo_api();
+		sk_rid_t asset = bi_find_asset(repository, repo, root_node, "crate", ".dcc_asset");
 		sk_resource_object_t av = repo->read(repository, asset);
 		sk_rid_t wrapper = repo->get_subobject(av, SK_RESOURCE_ASSET_FIELD_IMPORTED_ASSET);
 		sk_resource_object_t wv = repo->read(repository, wrapper);

@@ -110,15 +110,11 @@ enum sk_named_resource_field_t {
 /**
  * Register minimal payload resource types (Name [+ Content/Bytes]) used by the
  * built-in handlers/importers into @p repository.
+ * @param repository Target repository (must not be NULL).
+ * @param repo_api   Repository function table (must not be NULL).
  * @return 0 on success, first register_type error otherwise.
  */
-i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository);
-
-/**
- * Bind the repository handlers use for Create / cook field writes.
- * Call after register_types, before create_asset or import_asset.
- */
-void sk_resource_asset_builtins_bind_repository(sk_repository_t* repository);
+i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository, const sk_repository_api_t* repo_api);
 
 /**
  * Register every concrete handler and importer via add_impl.

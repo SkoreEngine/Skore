@@ -39,7 +39,7 @@ typedef struct sk_editor_project_t sk_editor_project_t;
 sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t package_name, const_chr_t package_path);
 
 /**
- * Close project: destroy resource-assets engine and repository; unbind builtins.
+ * Close project: destroy resource-assets engine and repository.
  * Does not destroy the app context.
  */
 void sk_editor_project_close(sk_editor_project_t* project);

@@ -325,9 +325,9 @@ typedef struct sk_resource_object_t {
 #define SK_RESOURCE_OBJECT_IS_VALID(view) ((view).storage != NULL)
 
 /**
- * Global repository module API. One table, filled once in repository.c; call
- * sk_repository_api() to obtain it. Every entry takes an explicit
- * sk_repository_t* (or an allocator for create) — no process-global state.
+ * Repository module API. One immutable table, installed on `sk_app_context_t`
+ * at create (`app_api->repository_api(ctx)`). Every entry takes an explicit
+ * `sk_repository_t*` (or an allocator for create) — no process-global state.
  */
 typedef struct sk_repository_api_t {
 	/**
@@ -813,12 +813,6 @@ typedef struct sk_repository_api_t {
 	 */
 	const_chr_t (*undo_redo_scope_get_name)(const sk_undo_redo_scope_t* scope);
 } sk_repository_api_t;
-
-/**
- * The repository module's API table (static, filled once).
- * @return Non-NULL pointer to the process-wide sk_repository_api_t.
- */
-SK_API const sk_repository_api_t* sk_repository_api(void);
 
 #ifdef __cplusplus
 }

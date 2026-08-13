@@ -176,35 +176,40 @@ const_chr_t sk_resource_asset_handler_get_desc(const sk_resource_asset_handler_t
 	return (value != NULL) ? value : "";
 }
 
-sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path) {
+sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										const_chr_t absolute_path) {
 	if (handler->load == NULL) {
 		return SK_RID_ZERO;
 	}
-	return handler->load(handler->user_data, asset, absolute_path);
+	return handler->load(handler->user_data, repository, repo_api, asset, absolute_path);
 }
 
-void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_rid_t object, const_chr_t absolute_path) {
+void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object,
+									const_chr_t absolute_path) {
 	if (handler->save != NULL) {
-		handler->save(handler->user_data, object, absolute_path);
+		handler->save(handler->user_data, repository, repo_api, object, absolute_path);
 	}
 }
 
-sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid,
+										  sk_undo_redo_scope_t* scope) {
 	if (handler->create == NULL) {
 		return SK_RID_ZERO;
 	}
-	return handler->create(handler->user_data, uuid, scope);
+	return handler->create(handler->user_data, repository, repo_api, uuid, scope);
 }
 
-void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path) {
+void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										const_chr_t absolute_path) {
 	if (handler->reloaded != NULL) {
-		handler->reloaded(handler->user_data, asset, absolute_path);
+		handler->reloaded(handler->user_data, repository, repo_api, asset, absolute_path);
 	}
 }
 
-void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path) {
+void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset,
+										  const_chr_t old_absolute_path, const_chr_t new_absolute_path) {
 	if (handler->after_move != NULL) {
-		handler->after_move(handler->user_data, asset, old_absolute_path, new_absolute_path);
+		handler->after_move(handler->user_data, repository, repo_api, asset, old_absolute_path, new_absolute_path);
 	}
 }
 
@@ -279,6 +284,7 @@ typedef struct import_path_t {
 
 struct sk_resource_assets_context_t {
 	sk_repository_t* repository;
+	const sk_repository_api_t* repo_api;
 	sk_app_context_t* app_context;
 	const sk_app_api_t* app_api;
 	const sk_allocator_t* allocator;
@@ -313,12 +319,12 @@ struct sk_resource_assets_context_t {
 static void register_asset_by_type(sk_resource_assets_context_t* ctx, sk_rid_t asset);
 static void unregister_asset_by_type(sk_resource_assets_context_t* ctx, sk_rid_t asset);
 
-static const sk_repository_api_t* resource_repo_api(void) {
-	return sk_repository_api();
+static const sk_repository_api_t* resource_repo_api(const sk_resource_assets_context_t* ctx) {
+	return ctx->repo_api;
 }
 
 static sk_rid_t resource_create(sk_resource_assets_context_t* ctx, const sk_resource_type_t* type, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	return repo->create_resource(ctx->repository, type, SK_UUID_ZERO, scope);
 }
 
@@ -350,7 +356,7 @@ static sk_type_id_t resource_type_id_for_type(sk_resource_assets_context_t* ctx,
 	if (type == NULL) {
 		return SK_TYPE_ID_ZERO;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	for (u32 i = 0u; i < ctx->handlers.count; ++i) {
 		sk_type_id_t type_id = sk_resource_asset_handler_get_resource_type_id(ctx->handlers.items[i]);
 		if (repo->find_type(ctx->repository, type_id) == type) {
@@ -361,7 +367,7 @@ static sk_type_id_t resource_type_id_for_type(sk_resource_assets_context_t* ctx,
 }
 
 static sk_type_id_t resource_type_of(sk_resource_assets_context_t* ctx, sk_rid_t rid) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	return resource_type_id_for_type(ctx, repo->resource_type(ctx->repository, rid));
 }
 
@@ -486,11 +492,12 @@ static sk_resource_assets_context_t* resource_assets_create(sk_repository_t* rep
 	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->repository = repository;
+	ctx->repo_api = app_api->repository_api(app_context);
 	ctx->app_context = app_context;
 	ctx->app_api = app_api;
 	ctx->allocator = allocator;
 
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	ctx->package_type = repo->find_type(repository, SK_RESOURCE_ASSET_PACKAGE_TYPE_ID);
 	ctx->file_type = repo->find_type(repository, SK_RESOURCE_ASSET_FILE_TYPE_ID);
 	ctx->asset_type = repo->find_type(repository, SK_RESOURCE_ASSET_TYPE_ID);
@@ -537,7 +544,7 @@ static void resource_assets_destroy(sk_resource_assets_context_t* ctx) {
 /* ------------------------------------------------------------------ */
 
 static sk_rid_t scan_create_file(sk_resource_assets_context_t* ctx, sk_rid_t asset, const_chr_t absolute_path, const_chr_t relative_path, u64 persisted_version, u64 total_size) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_rid_t file = resource_create(ctx, ctx->file_type, NULL);
 	if (file.id == 0u) {
 		return SK_RID_ZERO;
@@ -554,7 +561,7 @@ static sk_rid_t scan_create_file(sk_resource_assets_context_t* ctx, sk_rid_t ass
 }
 
 static sk_rid_t scan_package_from_directory(sk_resource_assets_context_t* ctx, const_chr_t package_name, const_chr_t package_path) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 
 	resource_asset_list_t package_files;
@@ -812,7 +819,7 @@ static sk_rid_t scan_package_from_directory(sk_resource_assets_context_t* ctx, c
 /* ------------------------------------------------------------------ */
 
 static const_chr_t get_directory_path_id(sk_resource_assets_context_t* ctx, sk_rid_t directory) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_resource_object_t node_view = repo->read(ctx->repository, directory);
 	sk_rid_t directory_asset = repo->get_subobject(node_view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORY_ASSET);
 	if (directory_asset.id == 0u) {
@@ -848,7 +855,7 @@ static i32 create_unique_asset_name(sk_resource_assets_context_t* ctx, sk_rid_t 
 	if (parent.id == 0u) {
 		return -1;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_resource_object_t parent_view = repo->read(ctx->repository, parent);
 	u32 child_count = 0u;
 	const sk_rid_t* children = repo->get_subobject_list(parent_view, directory ? SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES : SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS,
@@ -886,7 +893,7 @@ static i32 create_unique_asset_name(sk_resource_assets_context_t* ctx, sk_rid_t 
 }
 
 static sk_rid_t create_asset(sk_resource_assets_context_t* ctx, sk_rid_t parent, sk_type_id_t type_id, const_chr_t desired_name, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_resource_asset_handler_t* handler = NULL;
 	if (handler_type_get(ctx, type_id, &handler) != 0 || handler == NULL) {
 		const sk_logger_api_t* logger_api = ctx->app_api->logger_api(ctx->app_context);
@@ -914,7 +921,7 @@ static sk_rid_t create_asset(sk_resource_assets_context_t* ctx, sk_rid_t parent,
 		return SK_RID_ZERO;
 	}
 
-	sk_rid_t payload = sk_resource_asset_handler_create(handler, SK_UUID_ZERO, scope);
+	sk_rid_t payload = sk_resource_asset_handler_create(handler, ctx->repository, ctx->repo_api, SK_UUID_ZERO, scope);
 	sk_rid_t rid = resource_create(ctx, ctx->asset_type, scope);
 	if (payload.id == 0u || rid.id == 0u) {
 		return SK_RID_ZERO;
@@ -939,7 +946,7 @@ static sk_rid_t create_asset(sk_resource_assets_context_t* ctx, sk_rid_t parent,
 }
 
 static sk_rid_t create_asset_directory(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	char name[256];
 	if (create_unique_asset_name(ctx, parent, desired_name, "", 1, name, (u32)sizeof(name)) < 0) {
 		return SK_RID_ZERO;
@@ -977,7 +984,7 @@ static sk_rid_t create_asset_directory(sk_resource_assets_context_t* ctx, sk_rid
 }
 
 static sk_rid_t create_asset_file(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, const_chr_t extension, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const_chr_t base_name = (desired_name != NULL && desired_name[0] != '\0') ? desired_name : "New File";
 	const_chr_t ext = (extension != NULL) ? extension : "";
 	char name[256];
@@ -1014,7 +1021,7 @@ static void move_asset(sk_resource_assets_context_t* ctx, sk_rid_t new_parent, s
 	if (new_parent.id == 0u || rid.id == 0u) {
 		return;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_rid_t old_parent = repo->get_parent(ctx->repository, rid);
 	if (old_parent.id == 0u || SK_RID_EQ(old_parent, new_parent)) {
 		return;
@@ -1072,7 +1079,7 @@ static void move_asset(sk_resource_assets_context_t* ctx, sk_rid_t new_parent, s
 /* ------------------------------------------------------------------ */
 
 static const_chr_t get_absolute_path(sk_resource_assets_context_t* ctx, sk_rid_t asset) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_rid_t resource_asset = asset;
 	if (repo->resource_type(ctx->repository, asset) != ctx->asset_type) {
 		resource_asset = repo->get_parent(ctx->repository, asset);
@@ -1090,7 +1097,7 @@ static const_chr_t get_absolute_path(sk_resource_assets_context_t* ctx, sk_rid_t
 }
 
 static const_chr_t get_path_id(sk_resource_assets_context_t* ctx, sk_rid_t asset) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_resource_object_t view = repo->read(ctx->repository, asset);
 	return repo->get_string(view, SK_RESOURCE_ASSET_FIELD_PATH_ID);
 }
@@ -1116,7 +1123,7 @@ static i32 get_absolute_path_from_path_id(sk_resource_assets_context_t* ctx, con
 }
 
 static sk_rid_t get_parent_asset(sk_resource_assets_context_t* ctx, sk_rid_t rid) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_resource_object_t view = repo->read(ctx->repository, rid);
 	if (SK_RESOURCE_OBJECT_IS_VALID(view) && repo->get_bool(view, SK_RESOURCE_ASSET_FIELD_DIRECTORY)) {
 		return repo->get_parent(ctx->repository, repo->get_parent(ctx->repository, rid));
@@ -1125,13 +1132,13 @@ static sk_rid_t get_parent_asset(sk_resource_assets_context_t* ctx, sk_rid_t rid
 }
 
 static i32 is_child_of(sk_resource_assets_context_t* ctx, sk_rid_t parent, sk_rid_t child) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	sk_resource_object_t view = repo->read(ctx->repository, parent);
 	return repo->has_on_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, child);
 }
 
 static sk_rid_t get_asset_payload(sk_resource_assets_context_t* ctx, sk_rid_t rid) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_resource_type_t* type = repo->resource_type(ctx->repository, rid);
 	sk_resource_object_t view = repo->read(ctx->repository, rid);
 	if (type == ctx->directory_type) {
@@ -1144,7 +1151,7 @@ static sk_rid_t get_asset_payload(sk_resource_assets_context_t* ctx, sk_rid_t ri
 }
 
 static const sk_resource_asset_handler_t* get_asset_handler(sk_resource_assets_context_t* ctx, sk_rid_t rid) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_resource_type_t* type = repo->resource_type(ctx->repository, rid);
 	if (type == ctx->asset_type) {
 		sk_resource_object_t view = repo->read(ctx->repository, rid);
@@ -1188,7 +1195,7 @@ static i32 get_asset_name(sk_resource_assets_context_t* ctx, sk_rid_t rid, char_
 	if (rid.id == 0u) {
 		return 0;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	if (repo->resource_type(ctx->repository, rid) == ctx->directory_type) {
 		sk_resource_object_t view = repo->read(ctx->repository, rid);
 		rid = repo->get_subobject(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORY_ASSET);
@@ -1237,7 +1244,7 @@ static sk_rid_t find_asset_on_directory(sk_resource_assets_context_t* ctx, sk_ri
 	if (directory.id == 0u) {
 		return SK_RID_ZERO;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_resource_asset_handler_t* handler = get_asset_handler_for_type(ctx, type_id);
 	char full_name[256];
 	if (handler != NULL && sk_resource_asset_handler_extension(handler) != NULL) {
@@ -1452,7 +1459,7 @@ static void compute_import_content_hash(const u8* source, u32 source_size, const
 }
 
 static void apply_ingest(sk_resource_assets_context_t* ctx, ingest_runtime_t* rt, sk_rid_t wrapper, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	resource_asset_list_t dependency_rids;
 	resource_asset_list_t sub_resource_rids;
 	sk_array_init(&dependency_rids, ctx->allocator);
@@ -1511,7 +1518,7 @@ typedef struct cook_runtime_t {
 
 static sk_rid_t cook_sub_resource(sk_resource_cook_context_t* ctx, const_chr_t sub_id, sk_type_id_t type) {
 	cook_runtime_t* rt = (cook_runtime_t*)ctx;
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(rt->engine);
 	const sk_resource_type_t* type_ptr = repo->find_type(rt->engine->repository, type);
 	if (type_ptr == NULL) {
 		return SK_RID_ZERO;
@@ -1535,7 +1542,7 @@ static sk_rid_t sub_allocator_create(const sk_sub_resource_allocator_t* allocato
 	if (engine == NULL) {
 		return SK_RID_ZERO;
 	}
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(engine);
 	const sk_resource_type_t* type_ptr = repo->find_type(engine->repository, type);
 	if (type_ptr == NULL) {
 		return SK_RID_ZERO;
@@ -1558,7 +1565,7 @@ static sk_sub_resource_allocator_t cook_allocator(sk_resource_cook_context_t* ct
 
 static sk_rid_t create_imported_asset_wrapper(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, const_chr_t extension, sk_uuid_t uuid,
 											  sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const_chr_t base_name = (desired_name != NULL && desired_name[0] != '\0') ? desired_name : "New Asset";
 	const_chr_t ext = (extension != NULL) ? extension : "";
 	char name[256];
@@ -1597,7 +1604,7 @@ static sk_rid_t create_imported_asset_wrapper(sk_resource_assets_context_t* ctx,
 }
 
 static i32 import_generic(sk_resource_assets_context_t* ctx, const sk_resource_asset_importer_t* importer, sk_rid_t parent, const_chr_t path, sk_undo_redo_scope_t* scope) {
-	const sk_repository_api_t* repo = resource_repo_api();
+	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_READ);
@@ -1652,6 +1659,8 @@ static i32 import_generic(sk_resource_assets_context_t* ctx, const sk_resource_a
 	rt.base.source_bytes = bytes;
 	rt.base.source_size = (u32)size_u64;
 	rt.base.scope = scope;
+	rt.base.repository = ctx->repository;
+	rt.base.repo_api = ctx->repo_api;
 	rt.base.declare_sub_resource = ingest_declare_sub_resource;
 	rt.base.add_dependency = ingest_add_dependency;
 	rt.base.has_dependency = ingest_has_dependency;
@@ -1674,6 +1683,8 @@ static i32 import_generic(sk_resource_assets_context_t* ctx, const sk_resource_a
 		cr.base.source_bytes = bytes;
 		cr.base.source_size = (u32)size_u64;
 		cr.base.scope = scope;
+		cr.base.repository = ctx->repository;
+		cr.base.repo_api = ctx->repo_api;
 		cr.base.sub_resource = cook_sub_resource;
 		cr.base.allocator = cook_allocator;
 		sk_array_init(&cr.produced, ctx->allocator);
@@ -1774,43 +1785,40 @@ static sk_rid_t get_root_directory(const sk_resource_assets_context_t* ctx) {
 	return ctx->root_directory;
 }
 
-SK_API const sk_resource_assets_api_t* sk_resource_assets_api(void) {
-	static const sk_resource_assets_api_t api = {
-		resource_assets_create,
-		resource_assets_destroy,
-		reload_handlers,
-		scan_package_from_directory,
-		get_package,
-		get_root_directory,
-		create_asset,
-		create_asset_directory,
-		create_asset_file,
-		move_asset,
-		get_absolute_path,
-		get_path_id,
-		get_absolute_path_from_path_id,
-		get_parent_asset,
-		is_child_of,
-		get_asset_payload,
-		get_asset_handler,
-		get_asset_handler_for_type,
-		get_asset_handler_for_extension,
-		get_importer,
-		import_asset,
-		open_asset,
-		register_asset_by_type,
-		unregister_asset_by_type,
-		get_assets,
-		create_unique_asset_name,
-		get_asset_name,
-		get_asset_full_name,
-		find_asset_on_directory,
-	};
-	return &api;
-}
+static const sk_resource_assets_api_t resource_assets_api = {
+	resource_assets_create,
+	resource_assets_destroy,
+	reload_handlers,
+	scan_package_from_directory,
+	get_package,
+	get_root_directory,
+	create_asset,
+	create_asset_directory,
+	create_asset_file,
+	move_asset,
+	get_absolute_path,
+	get_path_id,
+	get_absolute_path_from_path_id,
+	get_parent_asset,
+	is_child_of,
+	get_asset_payload,
+	get_asset_handler,
+	get_asset_handler_for_type,
+	get_asset_handler_for_extension,
+	get_importer,
+	import_asset,
+	open_asset,
+	register_asset_by_type,
+	unregister_asset_by_type,
+	get_assets,
+	create_unique_asset_name,
+	get_asset_name,
+	get_asset_full_name,
+	find_asset_on_directory,
+};
 
 void sk_resource_assets_install(sk_app_context_t* ctx) {
-	ctx->resource_assets_api = sk_resource_assets_api();
+	ctx->resource_assets_api = &resource_assets_api;
 }
 
 #ifdef SK_TESTS
@@ -1934,7 +1942,9 @@ static const_chr_t dummy_get_desc(void_ptr_t user_data) {
 	return "Dummy Asset";
 }
 
-static sk_rid_t dummy_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static sk_rid_t dummy_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
+	(void)repository;
+	(void)repo_api;
 	dummy_handler_state_t* s = (dummy_handler_state_t*)user_data;
 	s->load_calls += 1u;
 	s->last_asset = asset;
@@ -1942,14 +1952,18 @@ static sk_rid_t dummy_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t abs
 	return (sk_rid_t){42ull};
 }
 
-static void dummy_save(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path) {
+static void dummy_save(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
+	(void)repository;
+	(void)repo_api;
 	dummy_handler_state_t* s = (dummy_handler_state_t*)user_data;
 	s->save_calls += 1u;
 	s->last_object = object;
 	s->last_path = absolute_path;
 }
 
-static sk_rid_t dummy_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t dummy_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+	(void)repository;
+	(void)repo_api;
 	dummy_handler_state_t* s = (dummy_handler_state_t*)user_data;
 	s->create_calls += 1u;
 	s->last_uuid = uuid;
@@ -1957,14 +1971,19 @@ static sk_rid_t dummy_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_
 	return (sk_rid_t){7ull};
 }
 
-static void dummy_reloaded(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path) {
+static void dummy_reloaded(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t absolute_path) {
+	(void)repository;
+	(void)repo_api;
 	dummy_handler_state_t* s = (dummy_handler_state_t*)user_data;
 	s->reloaded_calls += 1u;
 	s->last_asset = asset;
 	s->last_path = absolute_path;
 }
 
-static void dummy_after_move(void_ptr_t user_data, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path) {
+static void dummy_after_move(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t old_absolute_path,
+							 const_chr_t new_absolute_path) {
+	(void)repository;
+	(void)repo_api;
 	dummy_handler_state_t* s = (dummy_handler_state_t*)user_data;
 	s->after_move_calls += 1u;
 	s->last_asset = asset;
@@ -2088,25 +2107,25 @@ SK_TEST(resource_asset_handler_add_impl_lookup_and_dispatch) {
 	TEST_ASSERT_EQUAL_UINT32(1u, state.open_asset_calls);
 	TEST_ASSERT_TRUE(SK_RID_EQ(state.last_asset, probe));
 
-	load_rid = sk_resource_asset_handler_load(found, probe, "/tmp/x.dummy");
+	load_rid = sk_resource_asset_handler_load(found, NULL, NULL, probe, "/tmp/x.dummy");
 	TEST_ASSERT_EQUAL_UINT32(1u, state.load_calls);
 	TEST_ASSERT_EQUAL_UINT64(42ull, load_rid.id);
 	TEST_ASSERT_EQUAL_STRING("/tmp/x.dummy", state.last_path);
 
-	sk_resource_asset_handler_save(found, (sk_rid_t){3ull}, "/tmp/y.dummy");
+	sk_resource_asset_handler_save(found, NULL, NULL, (sk_rid_t){3ull}, "/tmp/y.dummy");
 	TEST_ASSERT_EQUAL_UINT32(1u, state.save_calls);
 	TEST_ASSERT_EQUAL_UINT64(3ull, state.last_object.id);
 
-	create_rid = sk_resource_asset_handler_create(found, uuid, NULL);
+	create_rid = sk_resource_asset_handler_create(found, NULL, NULL, uuid, NULL);
 	TEST_ASSERT_EQUAL_UINT32(1u, state.create_calls);
 	TEST_ASSERT_EQUAL_UINT64(7ull, create_rid.id);
 	TEST_ASSERT_TRUE(SK_UUID_EQ(state.last_uuid, uuid));
 	TEST_ASSERT_NULL(state.last_scope);
 
-	sk_resource_asset_handler_reloaded(found, probe, "/tmp/z.dummy");
+	sk_resource_asset_handler_reloaded(found, NULL, NULL, probe, "/tmp/z.dummy");
 	TEST_ASSERT_EQUAL_UINT32(1u, state.reloaded_calls);
 
-	sk_resource_asset_handler_after_move(found, probe, "/old.dummy", "/new.dummy");
+	sk_resource_asset_handler_after_move(found, NULL, NULL, probe, "/old.dummy", "/new.dummy");
 	TEST_ASSERT_EQUAL_UINT32(1u, state.after_move_calls);
 	TEST_ASSERT_EQUAL_STRING("/old.dummy", state.last_old_path);
 	TEST_ASSERT_EQUAL_STRING("/new.dummy", state.last_new_path);
@@ -2175,15 +2194,15 @@ SK_TEST(resource_asset_handler_null_fp_dispatch_defaults) {
 	TEST_ASSERT_EQUAL_STRING("", sk_resource_asset_handler_get_icon(&empty));
 	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_ASSET_HANDLER_DEFAULT_LOAD_ORDER, sk_resource_asset_handler_get_load_order(&empty));
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_asset_handler_get_resource_type_id(&empty), SK_TYPE_ID_ZERO));
-	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_asset_handler_load(&empty, rid, "/x"), SK_RID_ZERO));
-	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_asset_handler_create(&empty, uuid, NULL), SK_RID_ZERO));
+	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_asset_handler_load(&empty, NULL, NULL, rid, "/x"), SK_RID_ZERO));
+	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_asset_handler_create(&empty, NULL, NULL, uuid, NULL), SK_RID_ZERO));
 	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_handler_get_asset_name(&empty, rid, name, (u32)sizeof(name)));
 
 	/* No-ops — must not crash. */
 	sk_resource_asset_handler_open_asset(&empty, rid);
-	sk_resource_asset_handler_save(&empty, rid, "/x");
-	sk_resource_asset_handler_reloaded(&empty, rid, "/x");
-	sk_resource_asset_handler_after_move(&empty, rid, "/a", "/b");
+	sk_resource_asset_handler_save(&empty, NULL, NULL, rid, "/x");
+	sk_resource_asset_handler_reloaded(&empty, NULL, NULL, rid, "/x");
+	sk_resource_asset_handler_after_move(&empty, NULL, NULL, rid, "/a", "/b");
 	sk_resource_asset_handler_export_object(&empty, rid, &writer);
 }
 
@@ -2232,33 +2251,41 @@ static const_chr_t ra_test_desc(void_ptr_t user_data) {
 	return "Test Material";
 }
 
-static sk_rid_t ra_test_load(void_ptr_t user_data, sk_rid_t asset, const_chr_t path) {
+static sk_rid_t ra_test_load(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t path) {
 	(void)user_data;
+	(void)repository;
+	(void)repo_api;
 	(void)path;
 	return asset;
 }
 
-static void ra_test_save(void_ptr_t user_data, sk_rid_t object, const_chr_t path) {
+static void ra_test_save(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t path) {
 	(void)user_data;
+	(void)repository;
+	(void)repo_api;
 	(void)object;
 	(void)path;
 }
 
-static sk_rid_t ra_test_create(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
+static sk_rid_t ra_test_create(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	(void)user_data;
-	const sk_repository_api_t* repo = sk_repository_api();
-	const sk_resource_type_t* type = repo->find_type(ra_test_payload_repo, RA_TEST_MATERIAL_TYPE);
-	return repo->create_resource(ra_test_payload_repo, type, uuid, scope);
+	(void)repository;
+	const sk_resource_type_t* type = repo_api->find_type(ra_test_payload_repo, RA_TEST_MATERIAL_TYPE);
+	return repo_api->create_resource(ra_test_payload_repo, type, uuid, scope);
 }
 
-static void ra_test_reloaded(void_ptr_t user_data, sk_rid_t asset, const_chr_t path) {
+static void ra_test_reloaded(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t path) {
 	(void)user_data;
+	(void)repository;
+	(void)repo_api;
 	(void)asset;
 	(void)path;
 }
 
-static void ra_test_after_move(void_ptr_t user_data, sk_rid_t asset, const_chr_t old_path, const_chr_t new_path) {
+static void ra_test_after_move(void_ptr_t user_data, sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t asset, const_chr_t old_path, const_chr_t new_path) {
 	(void)user_data;
+	(void)repository;
+	(void)repo_api;
 	(void)asset;
 	(void)old_path;
 	(void)new_path;
@@ -2406,11 +2433,18 @@ static const sk_resource_asset_importer_t ra_test_generic_importer = {
 	.import_asset = NULL,
 };
 
+static const sk_repository_api_t* ra_test_repo_api(void) {
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
+	return api;
+}
+
 static sk_repository_t* ra_test_repository(void) {
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = ra_test_repo_api();
 	sk_repository_t* repository = repo->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repository);
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repository));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repository, repo));
 	TEST_ASSERT_EQUAL_INT(0, repo->register_type(repository, &ra_test_resource_desc));
 	return repository;
 }
@@ -2427,7 +2461,7 @@ static sk_app_boot_t ra_test_app_context(void) {
 }
 
 static sk_resource_assets_context_t* ra_test_context(sk_repository_t* repository, sk_app_context_t* app, const sk_app_api_t* app_api) {
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, app_api, sk_allocator_default());
+	sk_resource_assets_context_t* ctx = resource_assets_api.create(repository, app, app_api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
 	return ctx;
 }
@@ -2505,7 +2539,7 @@ static void ra_test_temp_paths(char* root, u32 root_cap, char* assets, u32 asset
 }
 
 static sk_rid_t ra_test_asset_by_name_ext(sk_resource_assets_context_t* ctx, sk_rid_t node, const_chr_t name, const_chr_t extension) {
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = ra_test_repo_api();
 	sk_resource_object_t view = repo->read(ctx->repository, node);
 	u32 count = 0u;
 	const sk_rid_t* children = repo->get_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
@@ -2549,14 +2583,14 @@ SK_TEST(resource_assets_engine_context_lifecycle) {
 	sk_repository_t* repository = ra_test_repository();
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, app_boot.api, sk_allocator_default());
+	sk_resource_assets_context_t* ctx = resource_assets_api.create(repository, app, app_boot.api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
-	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_assets_api()->get_package(ctx), SK_RID_ZERO));
-	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_assets_api()->get_root_directory(ctx), SK_RID_ZERO));
-	TEST_ASSERT_EQUAL_UINT32(0u, sk_resource_assets_api()->get_assets(ctx, RA_TEST_MATERIAL_TYPE, NULL, 0u));
-	sk_resource_assets_api()->destroy(ctx);
+	TEST_ASSERT_TRUE(SK_RID_EQ(resource_assets_api.get_package(ctx), SK_RID_ZERO));
+	TEST_ASSERT_TRUE(SK_RID_EQ(resource_assets_api.get_root_directory(ctx), SK_RID_ZERO));
+	TEST_ASSERT_EQUAL_UINT32(0u, resource_assets_api.get_assets(ctx, RA_TEST_MATERIAL_TYPE, NULL, 0u));
+	resource_assets_api.destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_handler_discovery) {
@@ -2564,7 +2598,7 @@ SK_TEST(resource_assets_engine_handler_discovery) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
 
 	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler_for_extension(ctx, ".testmat"));
 	TEST_ASSERT_NULL(api->get_asset_handler_for_extension(ctx, ".nope"));
@@ -2576,7 +2610,7 @@ SK_TEST(resource_assets_engine_handler_discovery) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_scan_package) {
@@ -2584,8 +2618,8 @@ SK_TEST(resource_assets_engine_scan_package) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
+	const sk_repository_api_t* repo = ra_test_repo_api();
 
 	char root[SK_FS_PATH_MAX];
 	char assets[SK_FS_PATH_MAX];
@@ -2674,7 +2708,7 @@ SK_TEST(resource_assets_engine_scan_package) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 	ra_test_remove_tree(root, assets);
 }
 
@@ -2683,8 +2717,8 @@ SK_TEST(resource_assets_engine_create_and_unique_names) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
+	const sk_repository_api_t* repo = ra_test_repo_api();
 
 	sk_rid_t package = api->scan_package_from_directory(ctx, "Game", "/nonexistent_scan_root");
 	(void)package;
@@ -2722,7 +2756,7 @@ SK_TEST(resource_assets_engine_create_and_unique_names) {
 	TEST_ASSERT_EQUAL_PTR(repo->find_type(repository, RA_TEST_MATERIAL_TYPE), repo->resource_type(repository, payload));
 	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler(ctx, mat));
 	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler(ctx, payload));
-	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler(ctx, sk_resource_assets_api()->get_asset_payload(ctx, mat)));
+	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler(ctx, resource_assets_api.get_asset_payload(ctx, mat)));
 
 	/* create_asset with no handler for the type fails cleanly. */
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->create_asset(ctx, root_node, SK_RESOURCE_ASSET_TYPE_ID, "x", NULL), SK_RID_ZERO));
@@ -2736,7 +2770,7 @@ SK_TEST(resource_assets_engine_create_and_unique_names) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_move_asset) {
@@ -2744,8 +2778,8 @@ SK_TEST(resource_assets_engine_move_asset) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
+	const sk_repository_api_t* repo = ra_test_repo_api();
 
 	sk_rid_t package = api->scan_package_from_directory(ctx, "Game", "/nonexistent_scan_root");
 	(void)package;
@@ -2763,7 +2797,7 @@ SK_TEST(resource_assets_engine_move_asset) {
 
 	api->move_asset(ctx, folder_node, moved, NULL);
 	char dbg[256];
-	sk_resource_assets_api()->create_unique_asset_name(ctx, folder_node, "doc", ".txt", 0, dbg, (u32)sizeof(dbg));
+	resource_assets_api.create_unique_asset_name(ctx, folder_node, "doc", ".txt", 0, dbg, (u32)sizeof(dbg));
 	TEST_ASSERT_EQUAL_STRING("Game:/Folder/doc (1).txt", api->get_path_id(ctx, moved));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent_asset(ctx, moved), folder_node));
 	TEST_ASSERT_TRUE(SK_RID_EQ(ra_test_asset_by_name(ctx, root_node, "doc"), SK_RID_ZERO));
@@ -2785,7 +2819,7 @@ SK_TEST(resource_assets_engine_move_asset) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_register_by_type) {
@@ -2793,7 +2827,7 @@ SK_TEST(resource_assets_engine_register_by_type) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
 
 	sk_rid_t package = api->scan_package_from_directory(ctx, "Game", "/nonexistent_scan_root");
 	(void)package;
@@ -2828,7 +2862,7 @@ SK_TEST(resource_assets_engine_register_by_type) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_import_dispatch) {
@@ -2836,8 +2870,8 @@ SK_TEST(resource_assets_engine_import_dispatch) {
 	sk_app_boot_t app_boot = ra_test_app_context();
 	sk_app_context_t* app = app_boot.context;
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
-	const sk_resource_assets_api_t* api = sk_resource_assets_api();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_resource_assets_api_t* api = &resource_assets_api;
+	const sk_repository_api_t* repo = ra_test_repo_api();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 
 	char root[SK_FS_PATH_MAX];
@@ -2912,7 +2946,7 @@ SK_TEST(resource_assets_engine_import_dispatch) {
 
 	api->destroy(ctx);
 	sk_app_shutdown(app);
-	sk_repository_api()->destroy(repository);
+	ra_test_repo_api()->destroy(repository);
 	ra_test_remove_tree(root, assets);
 }
 

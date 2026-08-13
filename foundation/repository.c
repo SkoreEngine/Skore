@@ -2789,20 +2789,27 @@ static sk_rid_t repository_get_reference(sk_resource_object_t view, u32 index) {
 	return value;
 }
 
+/* Never-NULL fallback so inlined getters stay safe to index after a count check. */
+static const sk_rid_t sk_repo_empty_rids[1] = {{0ull}};
+
+static const sk_rid_t* sk_repo_rid_items_or_empty(const sk_rid_t* items) {
+	return items != NULL ? items : sk_repo_empty_rids;
+}
+
 static const sk_rid_t* repository_get_reference_array(sk_resource_object_t view, u32 index, u32* out_count) {
 	const sk_resource_field_t* field = NULL;
 	const u8* blob = sk_repo_get_field_blob(view, index, &field);
 	if (out_count != NULL) {
 		*out_count = 0u;
 	}
-	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
-		return NULL;
+	if (blob == NULL || field == NULL || field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
+		return sk_repo_empty_rids;
 	}
 	const sk_field_rid_array_t* arr = (const sk_field_rid_array_t*)(const_ptr_t)(blob + (size_t)field->offset);
 	if (out_count != NULL) {
 		*out_count = arr->count;
 	}
-	return arr->items;
+	return sk_repo_rid_items_or_empty(arr->items);
 }
 
 static sk_rid_t repository_get_subobject(sk_resource_object_t view, u32 index) {
@@ -2822,14 +2829,14 @@ static const sk_rid_t* repository_get_subobject_list(sk_resource_object_t view, 
 	if (out_count != NULL) {
 		*out_count = 0u;
 	}
-	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
-		return NULL;
+	if (blob == NULL || field == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return sk_repo_empty_rids;
 	}
 	const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(blob + (size_t)field->offset);
 	if (out_count != NULL) {
 		*out_count = list->count;
 	}
-	return list->items;
+	return sk_repo_rid_items_or_empty(list->items);
 }
 
 /* Clear a sub-object link on a write view (Resources::RemoveSubObject
@@ -3179,10 +3186,6 @@ static const sk_repository_api_t repository_api = {
 	repository_undo_redo_scope_get_name,
 };
 
-SK_API const sk_repository_api_t* sk_repository_api(void) {
-	return &repository_api;
-}
-
 void sk_repository_install(sk_app_context_t* ctx) {
 	ctx->repository_api = &repository_api;
 }
@@ -3237,7 +3240,7 @@ static sk_resource_type_desc_t test_int_desc(sk_type_id_t tid, const_chr_t name)
 }
 
 SK_TEST(repository_create_destroy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	TEST_ASSERT_NOT_NULL(api);
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
@@ -3248,7 +3251,7 @@ SK_TEST(repository_create_destroy) {
 }
 
 SK_TEST(repository_type_register_lookup_dupe) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
@@ -3287,7 +3290,7 @@ SK_TEST(repository_type_register_lookup_dupe) {
 }
 
 SK_TEST(repository_independent_instances) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo_a = api->create(sk_allocator_default());
 	sk_repository_t* repo_b = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo_a);
@@ -3324,7 +3327,7 @@ SK_TEST(repository_independent_instances) {
 }
 
 SK_TEST(repository_uuid_uniqueness) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
@@ -3350,7 +3353,7 @@ SK_TEST(repository_uuid_uniqueness) {
 }
 
 SK_TEST(repository_default_deep_copy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
@@ -3389,7 +3392,7 @@ SK_TEST(repository_default_deep_copy) {
 }
 
 SK_TEST(repository_multi_page_rids) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
@@ -3429,7 +3432,7 @@ SK_TEST(repository_multi_page_rids) {
 }
 
 SK_TEST(repository_path_uniqueness) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
@@ -3502,7 +3505,7 @@ static void_ptr_t test_fail_realloc(void_ptr_t instance, void_ptr_t ptr, size_t 
 }
 
 SK_TEST(repository_oom_safety) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	test_fail_alloc_t state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
 	sk_allocator_t fail_allocator = {&state, test_fail_alloc, test_fail_free, test_fail_realloc};
 
@@ -3591,7 +3594,7 @@ static const sk_resource_field_t rt_fields[6] = {
 };
 
 static sk_repository_t* rt_repo_full(const sk_allocator_t* allocator, const sk_resource_type_t** out_type, u64 tag) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(allocator);
 	TEST_ASSERT_NOT_NULL(repo);
 	sk_resource_type_desc_t desc;
@@ -3658,7 +3661,7 @@ static void rt_verify_mirror(const sk_repository_api_t* api, sk_repository_t* re
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_read_write_commit_discard) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 10u);
 
@@ -3710,7 +3713,7 @@ SK_TEST(repository_read_write_commit_discard) {
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_prototype_create_hierarchy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 20u);
 
@@ -3762,7 +3765,7 @@ SK_TEST(repository_prototype_create_hierarchy) {
 }
 
 SK_TEST(repository_prototype_scalar_inheritance_and_override) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 21u);
 
@@ -3800,7 +3803,7 @@ SK_TEST(repository_prototype_scalar_inheritance_and_override) {
 }
 
 SK_TEST(repository_prototype_string_inheritance) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 22u);
 
@@ -3841,7 +3844,7 @@ SK_TEST(repository_prototype_string_inheritance) {
 }
 
 SK_TEST(repository_prototype_chain_scalars) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 23u);
 
@@ -3894,7 +3897,7 @@ SK_TEST(repository_prototype_chain_scalars) {
 
 /* Parity with the main-branch Resource::SubObjectListPrototypes test. */
 SK_TEST(repository_subobject_list_prototypes) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 30u);
 
@@ -3976,7 +3979,7 @@ SK_TEST(repository_subobject_list_prototypes) {
 /* Parity with the main-branch Resource::SubObjectListPrototypePropagation
  * test: prototype SubObjectList edits mirror to every prototype instance. */
 SK_TEST(repository_subobject_list_prototype_propagation) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 31u);
 
@@ -4060,7 +4063,7 @@ SK_TEST(repository_subobject_list_prototype_propagation) {
 /* An instance that explicitly removes a prototype sub-object keeps that
  * removal (prototypeRemoved) across later prototype re-adds. */
 SK_TEST(repository_subobject_list_remove_override) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 32u);
 
@@ -4143,7 +4146,7 @@ SK_TEST(repository_subobject_list_remove_override) {
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_clone_deep_subtree_remap) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 40u);
 
@@ -4201,7 +4204,7 @@ SK_TEST(repository_clone_deep_subtree_remap) {
  * the main-branch DuplicateReference test); a reference to the clone root
  * stays pointing at the original root. */
 SK_TEST(repository_clone_reference_remap) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 41u);
 
@@ -4265,7 +4268,7 @@ SK_TEST(repository_clone_reference_remap) {
 
 /* A reference array into the cloned subtree is remapped entry by entry. */
 SK_TEST(repository_clone_reference_array_remap) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 42u);
 
@@ -4305,7 +4308,7 @@ SK_TEST(repository_clone_reference_array_remap) {
  * registered in the prototype's instance set, so later prototype edits
  * propagate to the clone on Commit. */
 SK_TEST(repository_clone_of_prototype_instance_propagation) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 43u);
 
@@ -4348,7 +4351,7 @@ SK_TEST(repository_clone_of_prototype_instance_propagation) {
 /* Clone with an explicit uuid registers it; a duplicate uuid fails the clone
  * and leaves no orphaned slots. */
 SK_TEST(repository_clone_uuid_uniqueness) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 44u);
 
@@ -4384,7 +4387,7 @@ SK_TEST(repository_clone_uuid_uniqueness) {
 
 /* Parity with the main-branch Resource::Subobjects test. */
 SK_TEST(repository_destroy_cascade) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 50u);
 
@@ -4458,7 +4461,7 @@ static void_ptr_t test_counting_realloc(void_ptr_t instance, void_ptr_t ptr, siz
 }
 
 SK_TEST(repository_garbage_collect_reclaims) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	test_counting_alloc_t state = {sk_allocator_default(), 0u};
 	sk_allocator_t counting_allocator = {&state, test_counting_alloc, test_counting_free, test_counting_realloc};
 
@@ -4498,7 +4501,7 @@ SK_TEST(repository_garbage_collect_reclaims) {
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_oom_clone_cleanup) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	test_fail_alloc_t state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
 	sk_allocator_t fail_allocator = {&state, test_fail_alloc, test_fail_free, test_fail_realloc};
 
@@ -4544,7 +4547,7 @@ SK_TEST(repository_oom_clone_cleanup) {
 }
 
 SK_TEST(repository_oom_create_from_prototype_cleanup) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	test_fail_alloc_t state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
 	sk_allocator_t fail_allocator = {&state, test_fail_alloc, test_fail_free, test_fail_realloc};
 
@@ -4584,7 +4587,7 @@ SK_TEST(repository_oom_create_from_prototype_cleanup) {
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_two_repositories_isolation) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type_a = NULL;
 	const sk_resource_type_t* type_b = NULL;
 	sk_repository_t* repo_a = rt_repo(&type_a, 60u);
@@ -4691,7 +4694,7 @@ static i32 rt_writer_thread(void_ptr_t arg) {
 }
 
 SK_TEST(repository_concurrent_readers_multi_commit) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 70u);
 
@@ -4750,7 +4753,7 @@ SK_TEST(repository_concurrent_readers_multi_commit) {
 /* Parity with the main-branch Resource::UndoRedo test: a scoped Commit pushes
  * a change whose Undo restores the previous published value. */
 SK_TEST(repository_undo_redo_scope_commit) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 80u);
 
@@ -4817,7 +4820,7 @@ SK_TEST(repository_undo_redo_scope_commit) {
 /* A scoped create's Undo releases the slot (uuid unregistered) and Redo
  * re-creates it with its value and uuid. */
 SK_TEST(repository_undo_redo_scope_create) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 81u);
 
@@ -4849,7 +4852,7 @@ SK_TEST(repository_undo_redo_scope_create) {
 /* A scoped destroy records the uuid / path / value; Undo re-creates the slot
  * with all of them and Redo releases it again. */
 SK_TEST(repository_undo_redo_scope_destroy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 82u);
 
@@ -4887,7 +4890,7 @@ SK_TEST(repository_undo_redo_scope_destroy) {
  * sub-objects (leaving the origin subtree intact) and Redo restores them with
  * their sub-object parent links. */
 SK_TEST(repository_undo_redo_scope_clone) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 83u);
 
@@ -4929,7 +4932,7 @@ SK_TEST(repository_undo_redo_scope_clone) {
 /* Scoped create_from_prototype records the instance and its sub-object mirrors;
  * Undo drops them and Redo restores the mirrors with their prototype link. */
 SK_TEST(repository_undo_redo_scope_create_from_prototype) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 84u);
 
@@ -4968,7 +4971,7 @@ SK_TEST(repository_undo_redo_scope_create_from_prototype) {
 /* Scope-owned snapshots survive garbage_collect and end_frame, and the scope
  * stays redoable/undoable after collection. */
 SK_TEST(repository_undo_redo_scope_gc_safety) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 85u);
 
@@ -4999,7 +5002,7 @@ SK_TEST(repository_undo_redo_scope_gc_safety) {
 /* Undo / redo of a destroyed parent cascade restores the whole sub-object
  * tree and re-links parents. */
 SK_TEST(repository_undo_redo_scope_destroy_cascade) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 86u);
 
@@ -5049,7 +5052,7 @@ SK_TEST(repository_undo_redo_scope_destroy_cascade) {
  * destroy under the same scope mix structural changes into the change record
  * so one Undo/Redo round restores the whole scoped edit. */
 SK_TEST(repository_undo_redo_scope_field_matrix) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 87u);
 
@@ -5184,7 +5187,7 @@ SK_TEST(repository_undo_redo_scope_field_matrix) {
 /* ------------------------------------------------------------------ */
 
 SK_TEST(repository_lifecycle_add_and_retrieve_by_handle_uuid_path) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 800u);
 
@@ -5210,7 +5213,7 @@ SK_TEST(repository_lifecycle_add_and_retrieve_by_handle_uuid_path) {
 }
 
 SK_TEST(repository_lifecycle_duplicate_uuid_and_path) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 801u);
 
@@ -5231,7 +5234,7 @@ SK_TEST(repository_lifecycle_duplicate_uuid_and_path) {
 }
 
 SK_TEST(repository_lifecycle_nonexistent_lookups) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 802u);
 
@@ -5257,7 +5260,7 @@ SK_TEST(repository_lifecycle_nonexistent_lookups) {
 }
 
 SK_TEST(repository_lifecycle_stale_handle_after_destroy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 803u);
 
@@ -5290,7 +5293,7 @@ SK_TEST(repository_lifecycle_stale_handle_after_destroy) {
 }
 
 SK_TEST(repository_lifecycle_replace_in_place_rid_stable) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 804u);
 
@@ -5320,7 +5323,7 @@ SK_TEST(repository_lifecycle_replace_in_place_rid_stable) {
 }
 
 SK_TEST(repository_lifecycle_reference_missing_and_self) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 805u);
 
@@ -5371,7 +5374,7 @@ SK_TEST(repository_lifecycle_reference_missing_and_self) {
 }
 
 SK_TEST(repository_lifecycle_ownership_subobject_vs_reference) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 806u);
 
@@ -5396,7 +5399,7 @@ SK_TEST(repository_lifecycle_ownership_subobject_vs_reference) {
 }
 
 SK_TEST(repository_lifecycle_clear_via_destroy_repository) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 807u);
 
@@ -5425,7 +5428,7 @@ SK_TEST(repository_lifecycle_no_enumeration_order_api) {
 	 * for_each / iterate_resources. RID assignment is sequential and never
 	 * recycled, but callers must not treat dense RID ranges as an enumerator
 	 * (gaps appear after destroy). Documented: no iteration-order guarantee. */
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 808u);
 
@@ -5447,7 +5450,7 @@ SK_TEST(repository_lifecycle_no_enumeration_order_api) {
 SK_TEST(repository_lifecycle_failed_create_leaves_repo_usable) {
 	/* OOM / failed structural ops must not leave half-registered state
 	 * (see repository_oom_safety). Also: failed set_path does not change maps. */
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 809u);
 
@@ -5505,7 +5508,7 @@ static const sk_resource_field_t ext_fields[9] = {
 };
 
 static sk_repository_t* ext_repo(const sk_resource_type_t** out_type, u64 tag) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 	sk_resource_type_desc_t desc;
@@ -5522,7 +5525,7 @@ static sk_repository_t* ext_repo(const sk_resource_type_t** out_type, u64 tag) {
 }
 
 SK_TEST(repository_extended_field_accessors) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = ext_repo(&type, 88u);
 
@@ -5760,7 +5763,7 @@ static const sk_resource_field_t buf_fields[2] = {
 };
 
 static sk_repository_t* buf_repo(const sk_resource_type_t** out_type, const sk_allocator_t* allocator, u64 tag) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	sk_repository_t* repo = api->create(allocator);
 	TEST_ASSERT_NOT_NULL(repo);
 	sk_resource_type_desc_t desc;
@@ -5777,7 +5780,7 @@ static sk_repository_t* buf_repo(const sk_resource_type_t** out_type, const sk_a
 }
 
 SK_TEST(repository_buffer_field_accessors) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = &repository_api;
 	/* Counting allocator proves overwrites / destroys release payloads. */
 	test_counting_alloc_t state = {sk_allocator_default(), 0u};
 	sk_allocator_t counting_allocator = {&state, test_counting_alloc, test_counting_free, test_counting_realloc};

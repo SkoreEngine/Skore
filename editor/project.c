@@ -39,17 +39,16 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 		return NULL;
 	}
 
-	const sk_repository_api_t* repo_api = sk_repository_api();
+	const sk_repository_api_t* repo_api = app_api->repository_api(app_context);
 	sk_repository_t* repository = repo_api->create(sk_allocator_default());
 	if (repository == NULL) {
 		return NULL;
 	}
 
-	if (sk_resource_assets_register_types(repository) != 0 || sk_resource_asset_builtins_register_types(repository) != 0) {
+	if (sk_resource_assets_register_types(repository, repo_api) != 0 || sk_resource_asset_builtins_register_types(repository, repo_api) != 0) {
 		repo_api->destroy(repository);
 		return NULL;
 	}
-	sk_resource_asset_builtins_bind_repository(repository);
 
 	/* New registration entry point: static tables via add_impl (core builtins).
 	 * Skip when this app context already has handlers (re-open / multi-call). */
@@ -57,10 +56,9 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 		sk_resource_asset_builtins_register_impls(app_context, app_api);
 	}
 
-	const sk_resource_assets_api_t* assets_api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* assets_api = app_api->resource_assets_api(app_context);
 	sk_resource_assets_context_t* assets = assets_api->create(repository, app_context, app_api, sk_allocator_default());
 	if (assets == NULL) {
-		sk_resource_asset_builtins_bind_repository(NULL);
 		repo_api->destroy(repository);
 		return NULL;
 	}
@@ -68,7 +66,6 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 	sk_rid_t package = assets_api->scan_package_from_directory(assets, package_name, package_path);
 	if (package.id == 0u) {
 		assets_api->destroy(assets);
-		sk_resource_asset_builtins_bind_repository(NULL);
 		repo_api->destroy(repository);
 		return NULL;
 	}
@@ -76,7 +73,6 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 	sk_editor_project_t* project = (sk_editor_project_t*)sk_allocator_default()->alloc(sk_allocator_default()->instance, sizeof(sk_editor_project_t));
 	if (project == NULL) {
 		assets_api->destroy(assets);
-		sk_resource_asset_builtins_bind_repository(NULL);
 		repo_api->destroy(repository);
 		return NULL;
 	}
@@ -95,9 +91,8 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 }
 
 void sk_editor_project_close(sk_editor_project_t* project) {
-	sk_resource_assets_api()->destroy(project->assets);
-	sk_resource_asset_builtins_bind_repository(NULL);
-	sk_repository_api()->destroy(project->repository);
+	project->app_api->resource_assets_api(project->app_context)->destroy(project->assets);
+	project->app_api->repository_api(project->app_context)->destroy(project->repository);
 	sk_allocator_default()->free(sk_allocator_default()->instance, project);
 }
 
@@ -114,15 +109,15 @@ sk_rid_t sk_editor_project_root_directory(const sk_editor_project_t* project) {
 }
 
 i32 sk_editor_project_import(sk_editor_project_t* project, const_chr_t path) {
-	return sk_resource_assets_api()->import_asset(project->assets, project->root_directory, path, NULL);
+	return project->app_api->resource_assets_api(project->app_context)->import_asset(project->assets, project->root_directory, path, NULL);
 }
 
 i32 sk_editor_project_import_into(sk_editor_project_t* project, sk_rid_t parent, const_chr_t path) {
-	return sk_resource_assets_api()->import_asset(project->assets, parent, path, NULL);
+	return project->app_api->resource_assets_api(project->app_context)->import_asset(project->assets, parent, path, NULL);
 }
 
 void sk_editor_project_open_asset(sk_editor_project_t* project, sk_rid_t rid) {
-	sk_resource_assets_api()->open_asset(project->assets, rid);
+	project->app_api->resource_assets_api(project->app_context)->open_asset(project->assets, rid);
 }
 
 /* ------------------------------------------------------------------ */
@@ -148,8 +143,7 @@ static void ed_write(const_chr_t path, const_chr_t text) {
 	fs->close_file(file);
 }
 
-static sk_rid_t ed_find_asset(sk_repository_t* repository, sk_rid_t node, const_chr_t name, const_chr_t extension) {
-	const sk_repository_api_t* repo = sk_repository_api();
+static sk_rid_t ed_find_asset(sk_repository_t* repository, const sk_repository_api_t* repo, sk_rid_t node, const_chr_t name, const_chr_t extension) {
 	sk_resource_object_t view = repo->read(repository, node);
 	u32 count = 0u;
 	const sk_rid_t* children = repo->get_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
@@ -203,7 +197,7 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	TEST_ASSERT_TRUE(sk_editor_project_root_directory(project).id != 0u);
 
 	/* Seeded mesh discovered by core scan (not by an editor-side registry). */
-	sk_rid_t seed = ed_find_asset(sk_editor_project_repository(project), sk_editor_project_root_directory(project), "seed", ".mesh");
+	sk_rid_t seed = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "seed", ".mesh");
 	TEST_ASSERT_TRUE(seed.id != 0u);
 
 	ed_path(samples, "tone.wav", path, (u32)sizeof(path));
@@ -213,9 +207,9 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	ed_path(samples, "hero.fbx", path, (u32)sizeof(path));
 	TEST_ASSERT_EQUAL_INT(0, sk_editor_project_import(project, path));
 
-	sk_rid_t audio = ed_find_asset(sk_editor_project_repository(project), sk_editor_project_root_directory(project), "tone", ".audio");
-	sk_rid_t texture = ed_find_asset(sk_editor_project_repository(project), sk_editor_project_root_directory(project), "wood", ".texture");
-	sk_rid_t dcc = ed_find_asset(sk_editor_project_repository(project), sk_editor_project_root_directory(project), "hero", ".dcc_asset");
+	sk_rid_t audio = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "tone", ".audio");
+	sk_rid_t texture = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "wood", ".texture");
+	sk_rid_t dcc = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "hero", ".dcc_asset");
 	TEST_ASSERT_TRUE(audio.id != 0u);
 	TEST_ASSERT_TRUE(texture.id != 0u);
 	TEST_ASSERT_TRUE(dcc.id != 0u);
@@ -224,7 +218,7 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	sk_editor_project_open_asset(project, audio);
 
 	/* Importers are resolved only through core engine maps. */
-	const sk_resource_assets_api_t* assets_api = sk_resource_assets_api();
+	const sk_resource_assets_api_t* assets_api = boot.api->resource_assets_api(app);
 	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".wav"));
 	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".png"));
 	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".fbx"));

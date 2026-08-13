@@ -315,8 +315,8 @@ static const u32 resource_asset_type_desc_count = (u32)(sizeof(resource_asset_ty
 /*  Registration entry                                                */
 /* ------------------------------------------------------------------ */
 
-i32 sk_resource_assets_register_types(sk_repository_t* repository) {
-	const sk_repository_api_t* api = sk_repository_api();
+i32 sk_resource_assets_register_types(sk_repository_t* repository, const sk_repository_api_t* repo_api) {
+	const sk_repository_api_t* api = repo_api;
 	for (u32 i = 0u; i < resource_asset_type_desc_count; ++i) {
 		i32 result = api->register_type(repository, resource_asset_type_descs[i]);
 		if (result != 0) {
@@ -327,6 +327,15 @@ i32 sk_resource_assets_register_types(sk_repository_t* repository) {
 }
 
 #ifdef SK_TESTS
+
+#include "app.h"
+
+static const sk_repository_api_t* ra_types_repo_api(void) {
+	sk_app_boot_t boot = sk_app_create();
+	const sk_repository_api_t* api = boot.api->repository_api(boot.context);
+	sk_app_shutdown(boot.context);
+	return api;
+}
 
 SK_TEST(resource_assets_types_type_ids_distinct) {
 	sk_type_id_t ids[] = {
@@ -344,11 +353,11 @@ SK_TEST(resource_assets_types_type_ids_distinct) {
 }
 
 SK_TEST(resource_assets_types_register_all) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = ra_types_repo_api();
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
 
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo, api));
 
 	/* Every type is discoverable by id and by name (names match main-branch). */
 	TEST_ASSERT_NOT_NULL(api->find_type(repo, SK_RESOURCE_ASSET_PACKAGE_TYPE_ID));
@@ -370,16 +379,16 @@ SK_TEST(resource_assets_types_register_all) {
 	TEST_ASSERT_EQUAL_PTR(api->find_type(repo, SK_RESOURCE_EXTRACTED_ENTRY_TYPE_ID), api->find_type_by_name(repo, "ResourceExtractedEntry"));
 
 	/* Re-registration fails cleanly (duplicate type id on the first type). */
-	TEST_ASSERT_NOT_EQUAL(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_NOT_EQUAL(0, sk_resource_assets_register_types(repo, api));
 
 	api->destroy(repo);
 }
 
 SK_TEST(resource_assets_types_directory_hierarchy) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = ra_types_repo_api();
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo, api));
 
 	const sk_resource_type_t* asset_type = api->find_type(repo, SK_RESOURCE_ASSET_TYPE_ID);
 	const sk_resource_type_t* directory_type = api->find_type(repo, SK_RESOURCE_ASSET_DIRECTORY_TYPE_ID);
@@ -459,10 +468,10 @@ SK_TEST(resource_assets_types_directory_hierarchy) {
 }
 
 SK_TEST(resource_assets_types_imported_asset) {
-	const sk_repository_api_t* api = sk_repository_api();
+	const sk_repository_api_t* api = ra_types_repo_api();
 	sk_repository_t* repo = api->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(repo);
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo, api));
 
 	sk_rid_t wrapper = api->create_resource(repo, api->find_type(repo, SK_RESOURCE_IMPORTED_ASSET_TYPE_ID), SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(wrapper.id != 0u);
