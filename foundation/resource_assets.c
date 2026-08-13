@@ -30,6 +30,23 @@
 /* Stack capacity for handler enumeration before falling back to heap. */
 #define SK_RESOURCE_ASSET_HANDLER_STACK_CAP 32u
 
+/*
+ * Asset path IDs are virtual, portable identifiers (stored in the repository
+ * and persisted in fixtures), so they always use '/' on every platform.
+ * sk_path_join emits the native separator on Windows; normalize it back.
+ */
+static void ra_canonicalize_path_id(char_ptr_t path) {
+	char_ptr_t c;
+	if (path == NULL) {
+		return;
+	}
+	for (c = path; *c != '\0'; ++c) {
+		if (*c == '\\') {
+			*c = '/';
+		}
+	}
+}
+
 /* ------------------------------------------------------------------ */
 /*  Registry: count / get_all / find                                   */
 /* ------------------------------------------------------------------ */
@@ -690,6 +707,7 @@ static sk_rid_t scan_package_from_directory(sk_resource_assets_context_t* ctx, c
 			if (sk_path_join(sk_str_view_cstr(scan.path), sk_str_view_cstr(file_name), path_id, (u32)sizeof(path_id)) < 0) {
 				continue;
 			}
+			ra_canonicalize_path_id(path_id);
 			{
 				size_t ext_len = strlen(extension);
 				size_t len = strlen(path_id);
@@ -842,6 +860,7 @@ static i32 join_asset_path(sk_resource_assets_context_t* ctx, sk_rid_t parent, c
 	if (n < 0) {
 		return -1;
 	}
+	ra_canonicalize_path_id(out);
 	size_t len = (size_t)n;
 	size_t ext_len = (extension != NULL) ? strlen(extension) : 0u;
 	if (len + ext_len + 1u > out_cap) {

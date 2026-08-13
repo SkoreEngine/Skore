@@ -15,7 +15,7 @@
  * at their default target or float at their default rect.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 #include "logger.h"
@@ -133,11 +133,17 @@ static i32 ui_dock_rect_contains(const sk_ui_rect_t* r, f32 x, f32 y) {
 }
 
 static sk_logger_t* ui_dock_logger(void) {
-	static sk_logger_t* log;
+	static sk_logger_t* log = NULL;
+	static sk_logger_context_t* log_ctx = NULL;
 	const sk_logger_api_t* api = ui_logger_api();
-	sk_logger_context_t* log_ctx = ui_logger_context();
-	if (log == NULL && api != NULL && log_ctx != NULL) {
-		log = api->create_logger(log_ctx, "ui.dock");
+	sk_logger_context_t* ctx = ui_logger_context();
+	if (api != NULL && ctx != NULL && (log == NULL || log_ctx != ctx)) {
+		/* The host logger context is destroyed at app teardown, so a logger
+		 * cached from an earlier boot is dead. Never touch the old context;
+		 * just bind a fresh logger to the current one (integration tests boot
+		 * the app repeatedly in one process). */
+		log_ctx = ctx;
+		log = api->create_logger(ctx, "ui.dock");
 	}
 	return log;
 }
