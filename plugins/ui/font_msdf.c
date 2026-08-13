@@ -1107,11 +1107,25 @@ i32 ui_font_msdf_dump_impl(sk_ui_font_t* font, const sk_filesystem_api_t* fs, co
 #include "test.h"
 #include "testdata/skore_test_font_ttf.h"
 
+/*
+ * Unity (via test.h) may define `noreturn` as `_Noreturn`. Windows UCRT
+ * <stdlib.h> uses `__declspec(noreturn)`; under clang-tidy that is invalid.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
+
 #include <errno.h>
 #include <stdlib.h>
 #if defined(_WIN32)
 #include <direct.h>
 #include <sys/stat.h>
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
 #else
 #include <sys/stat.h>
 #endif
