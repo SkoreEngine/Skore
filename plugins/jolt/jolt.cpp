@@ -574,42 +574,36 @@ void jolt_shutdown_impl() noexcept {
 }
 
 i32 jolt_init_impl(const sk_jolt_settings_t* settings) noexcept {
-	try {
-		/* Re-entrant: replace any live world (also cleans a half-built state). */
-		jolt_shutdown_impl();
+	/* Re-entrant: replace any live world (also cleans a half-built state). */
+	jolt_shutdown_impl();
 
-		/* Physics components register with the ECS once the entities plugin is
-		 * loaded; retry here for out-of-order plugin load orders. */
-		sk_jolt_components_register_all(g_jolt_app_context, g_jolt_app_api);
+	/* Physics components register with the ECS once the entities plugin is
+	 * loaded; retry here for out-of-order plugin load orders. */
+	sk_jolt_components_register_all(g_jolt_app_context, g_jolt_app_api);
 
-		sk_jolt_settings_t resolved;
-		jolt_settings_resolve(settings, &resolved);
+	sk_jolt_settings_t resolved;
+	jolt_settings_resolve(settings, &resolved);
 
-		const sk_logger_api_t* api = jolt_logger_api();
-		sk_logger_context_t* ctx = jolt_logger_context();
-		if (api != nullptr && ctx != nullptr) {
-			g_jolt_log = api->create_logger(ctx, "jolt");
-		}
-
-		/* Process-wide Jolt setup: allocator first (Jolt classes route new/
-		 * delete through JPH::Allocate, which is null until registered). */
-		JPH::RegisterDefaultAllocator();
-		JPH::Factory::sInstance = new JPH::Factory();
-		JPH::RegisterTypes();
-
-		g_jolt_world = new JoltWorld(resolved, jolt_thread_count());
-
-		if (g_jolt_log != nullptr && api != nullptr) {
-			sk_log_info(api, g_jolt_log, "jolt world init: gravity=(%.2f, %.2f, %.2f) dt=%.6f substeps=%u bodies=%u pairs=%u constraints=%u", (double)resolved.gravity[0],
-						(double)resolved.gravity[1], (double)resolved.gravity[2], (double)resolved.fixed_timestep, resolved.substeps, resolved.max_bodies, resolved.max_body_pairs,
-						resolved.max_constraints);
-		}
-		return 0;
-	} catch (...) {
-		/* Allocation failure mid-init: leave the module fully shut down. */
-		jolt_shutdown_impl();
-		return -1;
+	const sk_logger_api_t* api = jolt_logger_api();
+	sk_logger_context_t* ctx = jolt_logger_context();
+	if (api != nullptr && ctx != nullptr) {
+		g_jolt_log = api->create_logger(ctx, "jolt");
 	}
+
+	/* Process-wide Jolt setup: allocator first (Jolt classes route new/
+	 * delete through JPH::Allocate, which is null until registered). */
+	JPH::RegisterDefaultAllocator();
+	JPH::Factory::sInstance = new JPH::Factory();
+	JPH::RegisterTypes();
+
+	g_jolt_world = new JoltWorld(resolved, jolt_thread_count());
+
+	if (g_jolt_log != nullptr && api != nullptr) {
+		sk_log_info(api, g_jolt_log, "jolt world init: gravity=(%.2f, %.2f, %.2f) dt=%.6f substeps=%u bodies=%u pairs=%u constraints=%u", (double)resolved.gravity[0],
+					(double)resolved.gravity[1], (double)resolved.gravity[2], (double)resolved.fixed_timestep, resolved.substeps, resolved.max_bodies, resolved.max_body_pairs,
+					resolved.max_constraints);
+	}
+	return 0;
 }
 
 /* ---- runtime configuration ---- */

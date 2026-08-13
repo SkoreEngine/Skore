@@ -180,6 +180,13 @@ set_target_properties(jolt PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# CXX_STANDARD above only compiles this static lib as C++17. Consumers that
+# include <Jolt/...> (sk-jolt's jolt.cpp) must also be C++17 — MSVC's default
+# is C++14, which has no std::string_view / std::align_val_t and fails both
+# cl.exe and clang-tidy. PUBLIC compile features push /std:c++17 (or
+# -std=c++17) onto every linking target.
+target_compile_features(jolt PUBLIC cxx_std_17)
+
 # The library uses std::thread/atomic; upstream threads the -pthread flags
 # through to consumers on Unix (Jolt.cmake). Keep that contract so headers
 # and the static lib stay ABI-consistent with JPH_USE_* defaults.
