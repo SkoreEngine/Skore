@@ -390,6 +390,12 @@ static const sk_vulkan_render_device_api_t vulkan_loader_api = {
 	.vma_allocator_size = sk_vkrd_loader_vma_allocator_size,
 };
 
+/**
+ * Register this plugin's API tables on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	plugin_context = context;
 	plugin_app_api = app_api;

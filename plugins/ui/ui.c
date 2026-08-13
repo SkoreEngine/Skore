@@ -1613,6 +1613,12 @@ static const sk_ui_api_t ui_api = {
 	ui_test_engine_focus_impl,
 };
 
+/**
+ * Register the UI API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	app_api->set_api(context, SK_UI_API_TYPE_ID, (const_ptr_t)&ui_api);
 }

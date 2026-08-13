@@ -2666,14 +2666,6 @@ typedef struct sk_ui_api_t {
 	i32 (*test_engine_focus)(sk_ui_test_engine_t* engine, const_chr_t test_id);
 } sk_ui_api_t;
 
-/**
- * Register the static sk_ui_api_t on the app context.
- * Called from sk_plugin_entry_point.
- * @param context App context (must not be NULL).
- * @param app_api App module table (must not be NULL).
- */
-void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api);
-
 #ifdef __cplusplus
 }
 #endif

@@ -2,6 +2,9 @@
 #include "common.h"
 #include "profiler.h"
 
+/* Defined in profiler.c; registers the static API table on the app. */
+void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 /**
  * Plugin load entry: resolved via host platform lib_symbol after app init.
  *

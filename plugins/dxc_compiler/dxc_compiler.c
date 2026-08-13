@@ -562,6 +562,12 @@ static const sk_dxc_compiler_api_t dxc_compiler_api = {
 /* Registration                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Register the DXC compiler API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_dxc_compiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_dxc_compiler_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	dxc_state.platform = (const sk_platform_api_t*)app_api->get_api(context, SK_PLATFORM_API_TYPE_ID);
 	dxc_logger = sk_logger_api()->create_logger("dxc-compiler");

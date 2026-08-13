@@ -2,6 +2,9 @@
 #include "common.h"
 #include "vulkan_render_device.h"
 
+/* Defined in vulkan_render_device.c; registers the static API tables on the app. */
+void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 /**
  * Plugin load entry: resolved via host platform lib_symbol after app init.
  *
