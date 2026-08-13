@@ -1197,6 +1197,174 @@ typedef struct sk_ui_hist_assert_stats_t {
 	u32 measured_count[SK_UI_COLOR_HIST_MAX_ENTRIES];
 } sk_ui_hist_assert_stats_t;
 
+/* -------------------------------------------------------------------------- */
+/*  Docking (APX-287 spec; model + headless layout in APX-288)                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Stable dock-model handle (not a UI node). Same generation-handle rules as
+ * sk_ui_node_t: index 0 is invalid; recycled slots bump generation.
+ */
+typedef struct sk_ui_dock_node_t {
+	u32 index;
+	u32 generation;
+} sk_ui_dock_node_t;
+
+#define SK_UI_DOCK_NODE_INVALID ((sk_ui_dock_node_t){0u, 0u})
+
+SK_FINLINE i32 sk_ui_dock_node_is_valid(sk_ui_dock_node_t node) {
+	return node.index != 0u;
+}
+
+SK_FINLINE i32 sk_ui_dock_node_eq(sk_ui_dock_node_t a, sk_ui_dock_node_t b) {
+	return (a.index == b.index) && (a.generation == b.generation);
+}
+
+/**
+ * Split orientation. Numeric values match widget_dock_node "orientation"
+ * and widget_splitter "axis" (0 = row / vertical bar, 1 = column / horizontal bar).
+ */
+typedef enum sk_ui_dock_split_t {
+	SK_UI_DOCK_SPLIT_HORIZONTAL = 0, /**< Left | right. */
+	SK_UI_DOCK_SPLIT_VERTICAL = 1,	 /**< Top / bottom. */
+} sk_ui_dock_split_t;
+
+/**
+ * Dock insertion direction (ImGuiDir analogue). CENTER/NONE/TAB all mean
+ * "add as a tab on the target leaf".
+ */
+typedef enum sk_ui_dock_dir_t {
+	SK_UI_DOCK_DIR_NONE = 0,
+	SK_UI_DOCK_DIR_LEFT = 1,
+	SK_UI_DOCK_DIR_RIGHT = 2,
+	SK_UI_DOCK_DIR_UP = 3,
+	SK_UI_DOCK_DIR_DOWN = 4,
+	SK_UI_DOCK_DIR_CENTER = 5,
+	SK_UI_DOCK_DIR_TAB = 5, /**< Alias of CENTER. */
+} sk_ui_dock_dir_t;
+
+/** dockspace_begin / dockspace_create flags. */
+#define SK_UI_DOCKSPACE_NONE 0u
+#define SK_UI_DOCKSPACE_KEEP_CENTRAL (1u << 0)	  /**< Empty central leaf stays. */
+#define SK_UI_DOCKSPACE_NO_SPLIT (1u << 1)		  /**< Runtime split/dock-to-edge disabled. */
+#define SK_UI_DOCKSPACE_NO_UNDOCK (1u << 2)		  /**< Tabs cannot tear off. */
+#define SK_UI_DOCKSPACE_PASSTHRU_CENTER (1u << 3) /**< Empty central: pointer-events none. */
+#define SK_UI_DOCKSPACE_AUTO_APPLY (1u << 4)	  /**< layout() applies when dirty. */
+
+/** Per-node flags (leaf or split). */
+#define SK_UI_DOCK_NODE_NONE 0u
+#define SK_UI_DOCK_NODE_CENTRAL (1u << 0)
+#define SK_UI_DOCK_NODE_NO_TAB_BAR (1u << 1)
+#define SK_UI_DOCK_NODE_NO_SPLIT (1u << 2)
+#define SK_UI_DOCK_NODE_NO_UNDOCK (1u << 3)
+
+/** Max named dockspaces per context. */
+#define SK_UI_DOCKSPACE_MAX 8u
+/** Max tabs per leaf (editor workspaces stay well under this). */
+#define SK_UI_DOCK_LEAF_TABS_MAX 32u
+/** Max pending window-id binds per dockspace (create-then-dock / load-then-create). */
+#define SK_UI_DOCK_PENDING_MAX 64u
+/** Max host window ids registered for restore mismatch (defaults + drop). */
+#define SK_UI_DOCK_WINDOW_REG_MAX 64u
+
+/** Splitter band thickness along the split main axis (logical points). */
+#define SK_UI_DOCK_SPLITTER_PT 6.0f
+/** Minimum leftover allocated to each child when the parent span is large enough. */
+#define SK_UI_DOCK_NODE_MIN_PT 40.0f
+/**
+ * On-disk dock layout document version (integer at the JSON root).
+ * There is no major.minor. Version policy (see docs/ui-dock-layout-format.md):
+ * - version == SK_UI_DOCK_LAYOUT_VERSION: accept
+ * - version > SK_UI_DOCK_LAYOUT_VERSION (unknown/newer): reject, log the
+ *   encountered version, host falls back to the default layout
+ * - version < SK_UI_DOCK_LAYOUT_VERSION (older): reject, no migration; log
+ *   the encountered version and fall back to the default layout
+ */
+#define SK_UI_DOCK_LAYOUT_VERSION 1
+
+/** Max floating windows stored on one dock-layout document. */
+#define SK_UI_DOCK_LAYOUT_FLOAT_MAX 32u
+
+/**
+ * Node kind in the persisted binary dock tree.
+ * Numeric values match the live model (0 leaf, 1 split).
+ */
+typedef enum sk_ui_dock_layout_kind_t {
+	SK_UI_DOCK_LAYOUT_KIND_LEAF = 0,
+	SK_UI_DOCK_LAYOUT_KIND_SPLIT = 1,
+} sk_ui_dock_layout_kind_t;
+
+/**
+ * One floating window on a layout document: stable window identifier plus
+ * logical-point rect (x/y/w/h) and paint/hit z.
+ */
+typedef struct sk_ui_dock_layout_float_t {
+	const_chr_t window_id; /**< Host window id (node_set_id / factory id). */
+	f32 x;
+	f32 y;
+	f32 w;
+	f32 h;
+	i32 z;
+	u8 _pad0[4]; /**< Align struct to 8 bytes. */
+} sk_ui_dock_layout_float_t;
+
+/**
+ * One node in the persisted binary dock tree.
+ *
+ * Split: `axis` is the orientation (`sk_ui_dock_split_t`), `ratio` is the
+ * first-child fraction along the main axis, `child_a` / `child_b` are the
+ * two children (left/top and right/bottom).
+ *
+ * Leaf: `tabs[0..tab_count)` are window identifiers in tab order;
+ * `active_index` is the selected tab (0 when the leaf is empty).
+ *
+ * Runtime dock-node handles are never stored. `id` is an optional stable
+ * string label; when unset the writer uses a path such as `root/0/1`.
+ */
+typedef struct sk_ui_dock_layout_node_t {
+	sk_ui_dock_layout_kind_t kind;
+	u32 flags;
+	const_chr_t id;
+	sk_ui_dock_split_t axis;
+	f32 ratio;
+	struct sk_ui_dock_layout_node_t* child_a;
+	struct sk_ui_dock_layout_node_t* child_b;
+	const_chr_t tabs[SK_UI_DOCK_LEAF_TABS_MAX];
+	u32 tab_count;
+	u32 active_index;
+} sk_ui_dock_layout_node_t;
+
+/**
+ * On-disk dock layout document (JSON object, or archive map `"dock"`).
+ * `version` is the integer format version (SK_UI_DOCK_LAYOUT_VERSION).
+ */
+typedef struct sk_ui_dock_layout_t {
+	i32 version;
+	u32 flags;
+	const_chr_t id;
+	sk_ui_dock_layout_node_t* root;
+	sk_ui_dock_layout_float_t floating[SK_UI_DOCK_LAYOUT_FLOAT_MAX];
+	u32 floating_count;
+	u8 _pad0[4]; /**< Align after floating_count. */
+} sk_ui_dock_layout_t;
+
+/**
+ * 0 if @p version may be applied as-is (equals SK_UI_DOCK_LAYOUT_VERSION).
+ * Non-zero: reject the document, log @p version, and keep/restore the
+ * default layout. Older versions are not migrated.
+ */
+SK_FINLINE i32 sk_ui_dock_layout_version_supported(i32 version) {
+	return version == (i32)SK_UI_DOCK_LAYOUT_VERSION ? 0 : -1;
+}
+
+/**
+ * Tab close / undock notification. Host may destroy the editor_window.
+ * @param ctx        UI context.
+ * @param window_id  Stable window id (node id).
+ * @param user       Pointer from dock_set_tab_callback.
+ */
+typedef void (*sk_ui_dock_tab_fn)(sk_ui_context_t* ctx, const_chr_t window_id, void_ptr_t user);
+
 /* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
@@ -2698,6 +2866,256 @@ typedef struct sk_ui_api_t {
 	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
 	 */
 	i32 (*test_engine_focus)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/* ---- docking (retained model + apply; APX-287 / APX-288) ---- */
+
+	/**
+	 * Lookup-or-create a named dockspace under @p host (or context_root).
+	 * Sets the context "current" dockspace. Idempotent. Does not require a
+	 * matching end the same frame; end/apply flush projection.
+	 * @return Root dock node, or SK_UI_DOCK_NODE_INVALID on failure (OOM, cap).
+	 */
+	sk_ui_dock_node_t (*dockspace_begin)(sk_ui_context_t* ctx, sk_ui_node_t host, const_chr_t id, u32 flags);
+
+	/**
+	 * Apply **only the current** dockspace if dirty. Safe if begin was never
+	 * called (returns 0). Does not apply other named dockspaces.
+	 * @return 0 on success, non-zero on apply failure (OOM).
+	 */
+	i32 (*dockspace_end)(sk_ui_context_t* ctx);
+
+	/**
+	 * Explicit constructor (same effect as first dockspace_begin).
+	 * @return Root dock node, or SK_UI_DOCK_NODE_INVALID on failure.
+	 */
+	sk_ui_dock_node_t (*dockspace_create)(sk_ui_context_t* ctx, sk_ui_node_t host, const_chr_t id, u32 flags);
+
+	/**
+	 * Project the model for @p dockspace (or current if invalid) onto chrome
+	 * widgets. Reparents editor_windows; does not destroy them.
+	 * @return 0 on success.
+	 */
+	i32 (*dockspace_apply)(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+
+	/** Root model node for a named dockspace, or INVALID. */
+	sk_ui_dock_node_t (*dockspace_find)(const sk_ui_context_t* ctx, const_chr_t id);
+
+	/** Chrome widget_dock_space node for a dockspace root. */
+	sk_ui_node_t (*dockspace_host_node)(const sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+
+	/**
+	 * Destroy a named dockspace: reparent every widget=="editor_window"
+	 * descendant to stash (then overlay floats stay on the overlay), tear
+	 * projected chrome, free the model slot. Same id may begin again.
+	 * @return 0 on success, non-zero if id is unknown.
+	 */
+	i32 (*dockspace_destroy)(sk_ui_context_t* ctx, const_chr_t id);
+
+	/**
+	 * Dock @p window_id onto @p node. CENTER/NONE/TAB appends a tab (leaf, or
+	 * DFS CENTRAL descendant of a split). LEFT/RIGHT/UP/DOWN split using the
+	 * dir→index / model.ratio table. Missing window → pending bind (cap 64).
+	 * Runtime NO_SPLIT + edge dir → non-zero. Applies immediately unless a
+	 * builder session is open.
+	 * @return 0 on success, non-zero if window_id is empty / node dead / no central / flag.
+	 */
+	i32 (*dock_window_to_node)(sk_ui_context_t* ctx, const_chr_t window_id, sk_ui_dock_node_t node, sk_ui_dock_dir_t dir);
+
+	/**
+	 * Tear @p window_id out of the tree as a floating editor_window.
+	 * @return 0 on success, non-zero if not docked / unknown id.
+	 */
+	i32 (*dock_window_undock)(sk_ui_context_t* ctx, const_chr_t window_id);
+
+	/**
+	 * Remove the tab. Window is stashed (hidden); host callback fires.
+	 * Does not node_destroy the editor_window.
+	 * @return 0 on success, non-zero if unknown id.
+	 */
+	i32 (*dock_tab_close)(sk_ui_context_t* ctx, const_chr_t window_id);
+
+	/** Reorder tabs on a leaf. @return 0 on success. */
+	i32 (*dock_tab_reorder)(sk_ui_context_t* ctx, sk_ui_dock_node_t leaf, u32 from_index, u32 to_index);
+
+	/** Activate the tab for @p window_id. @return 0 on success. */
+	i32 (*dock_tab_set_active)(sk_ui_context_t* ctx, const_chr_t window_id);
+
+	/** Host hook for close (and optional undock). NULL clears. */
+	void (*dock_set_tab_callback)(sk_ui_context_t* ctx, sk_ui_dock_tab_fn fn, void_ptr_t user);
+
+	/* ---- dock builder (ImGui DockBuilder* analogue) ---- */
+
+	/**
+	 * Open a builder session on @p dockspace (INVALID = current).
+	 * Public mutators other than dock_builder_* mutate the model but do not
+	 * apply until finish. Nested begin is a programmer error: **debug assert
+	 * only** (no production non-zero).
+	 * @return 0 on success.
+	 */
+	i32 (*dock_builder_begin)(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+
+	/**
+	 * Split @p node. @p ratio is the fraction kept by the child toward @p dir
+	 * (ImGui size_ratio_for_node_at_dir). Converted to first-child model.ratio
+	 * via the dir table (LEFT/UP store r; RIGHT/DOWN store 1-r).
+	 * CENTER/NONE/TAB → non-zero. out_* may be NULL. @return 0 on success.
+	 */
+	i32 (*dock_builder_split_node)(sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_dock_dir_t dir, f32 ratio, sk_ui_dock_node_t* out_at_dir, sk_ui_dock_node_t* out_opposite);
+
+	/**
+	 * Tab-append @p window_id on a **leaf**. If @p node is a split, resolve to
+	 * the CENTRAL descendant or return non-zero. No dir parameter — edge
+	 * docking is split_node then dock_window on out_at_dir. @return 0 on success.
+	 */
+	i32 (*dock_builder_dock_window)(sk_ui_context_t* ctx, const_chr_t window_id, sk_ui_dock_node_t node);
+
+	/** Optional stable string id for persist / tests. Copies @p id. */
+	i32 (*dock_builder_set_node_id)(sk_ui_context_t* ctx, sk_ui_dock_node_t node, const_chr_t id);
+
+	i32 (*dock_builder_set_node_flags)(sk_ui_context_t* ctx, sk_ui_dock_node_t node, u32 flags);
+
+	/**
+	 * Close the session and dockspace_apply. @return 0 on success.
+	 */
+	i32 (*dock_builder_finish)(sk_ui_context_t* ctx);
+
+	/* ---- queries ---- */
+
+	/**
+	 * Leaf (or split host) under logical (x,y), plus suggested drop dir
+	 * (CENTER if inside the inner 60%, else nearest edge).
+	 * out_dir may be NULL.
+	 */
+	sk_ui_dock_node_t (*dock_node_at_point)(const sk_ui_context_t* ctx, f32 x, f32 y, sk_ui_dock_dir_t* out_dir);
+
+	/** Leaf that currently owns @p window_id, or INVALID if floating/unknown. */
+	sk_ui_dock_node_t (*dock_find_node_for_window)(const sk_ui_context_t* ctx, const_chr_t window_id);
+
+	/**
+	 * Copy up to @p max_out window ids from a leaf into @p out_ids (pointers
+	 * into model-owned strings; valid until next apply/destroy).
+	 * out_count / out_active may be NULL.
+	 * @return 0 on success, non-zero if @p leaf is not a live leaf.
+	 */
+	i32 (*dock_leaf_tabs)(const sk_ui_context_t* ctx, sk_ui_dock_node_t leaf, const_chr_t* out_ids, u32 max_out, u32* out_count, u32* out_active);
+
+	i32 (*dock_node_is_leaf)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+	i32 (*dock_node_is_split)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+	/**
+	 * Split axis. Dead or leaf @p node → SK_UI_DOCK_SPLIT_HORIZONTAL (0).
+	 * (i32 booleans match node_alive style.)
+	 */
+	sk_ui_dock_split_t (*dock_split_get_axis)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+	/**
+	 * First-child ratio. Dead or leaf @p node → 0.f.
+	 */
+	f32 (*dock_split_get_ratio)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+	/** Write model.ratio (clamped) and apply immediately unless builder open. */
+	i32 (*dock_split_set_ratio)(sk_ui_context_t* ctx, sk_ui_dock_node_t node, f32 ratio);
+	sk_ui_dock_node_t (*dock_split_child)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, u32 index);
+	sk_ui_node_t (*dock_node_host)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+
+	/** Non-zero if @p window_id is in a leaf (not floating / unknown). */
+	i32 (*dock_window_is_docked)(const sk_ui_context_t* ctx, const_chr_t window_id);
+
+	/**
+	 * Register a host window id for layout restore reconciliation.
+	 * @p default_target is a stable dock-node id (`dock_builder_set_node_id`)
+	 * used when the saved layout has no position for this window. NULL or
+	 * empty means float at @p default_rect (or 80,60,360,240 when NULL).
+	 * Re-registering the same id updates the defaults. Cap
+	 * SK_UI_DOCK_WINDOW_REG_MAX.
+	 * @return 0 on success, non-zero if @p window_id is empty or the table is full.
+	 */
+	i32 (*dock_window_register)(sk_ui_context_t* ctx, const_chr_t window_id, const_chr_t default_target, const sk_ui_rect_t* default_rect);
+
+	/* ---- persist (JSON save/restore. PR 5 may add archive pointers.) ---- */
+
+	/**
+	 * Emit pretty JSON for the named dockspace into @p out (null-terminated).
+	 * Schema: docs/ui-dock-layout-format.md (`sk_ui_dock_layout_t`).
+	 * Document root is a single object with integer "version"
+	 * (SK_UI_DOCK_LAYOUT_VERSION). Payload: tree structure, split axis/ratio,
+	 * per-leaf tab order + active_index, window id strings, and floating
+	 * window rects (x/y/w/h/z). @p out_len receives bytes written excluding NUL.
+	 * @return 0 on success, non-zero if the dockspace is unknown or @p out is too small.
+	 */
+	i32 (*dock_layout_save_json)(const sk_ui_context_t* ctx, const_chr_t dockspace_id, char* out, u32 cap, u32* out_len);
+
+	/**
+	 * Replace the named dockspace model from JSON. Rejects any version other
+	 * than SK_UI_DOCK_LAYOUT_VERSION (unknown/newer and older alike; older
+	 * documents are not migrated), logs the encountered version, and leaves
+	 * the live tree unchanged so the host can keep the default layout.
+	 * Unparseable documents also fail without mutating the live tree.
+	 * Serialized window ids that are neither live (`find_by_id`) nor
+	 * `dock_window_register`'d are dropped. Emptied leaves and splits
+	 * collapse so no empty tab group or empty split remains; leftover
+	 * sibling ratios are renormalized. Registered windows missing from the
+	 * document fall back to their declared default dock target, or float at
+	 * the declared rect when they have no target (or the target collapsed).
+	 * Registered-but-not-yet-created ids still become pending binds. Error
+	 * if a builder session is open. Does not destroy editor_window nodes
+	 * (teardown reparents first).
+	 * Rebuilds splits, tab order, the active tab index, and floating window
+	 * rects, then applies. Creates the named dockspace if it does not exist
+	 * yet (startup restore).
+	 * @return 0 on success, non-zero on parse / schema / builder-open error.
+	 */
+	i32 (*dock_layout_load_json)(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);
+
+	/* ---- headless layout solver (APX-288; no renderer / Clay required) ---- */
+
+	/**
+	 * Resolve the dock node tree into per-node screen rects for @p space.
+	 * Collapses empty nodes first, then writes leaf/split rects and the
+	 * 6pt splitter band between siblings. @p dockspace INVALID uses current.
+	 * @return 0 on success, non-zero if there is no live dockspace.
+	 */
+	i32 (*dockspace_layout)(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace, const sk_ui_rect_t* space);
+
+	/**
+	 * Last layout rect for @p node (same coordinate space as dockspace_layout).
+	 * @return 0 on success, non-zero if @p node is dead.
+	 */
+	i32 (*dock_node_get_rect)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
+
+	/**
+	 * Splitter band rect between the two children of a live split node.
+	 * @return 0 on success, non-zero if @p node is not a live split.
+	 */
+	i32 (*dock_split_get_splitter_rect)(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
+
+	/* ---- sample docking demo (fixed layout; APX-292) ---- */
+
+	/**
+	 * Register style classes used by the docking demo (fill colors + labels).
+	 * Idempotent. Called automatically by sample_dock_demo_build.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*sample_dock_demo_register_styles)(sk_ui_context_t* ctx);
+
+	/**
+	 * Build a hardcoded docked workspace under @p parent (or the context root
+	 * when @p parent is SK_UI_NODE_INVALID). Always resets the named
+	 * "dock-demo" dockspace first — never loads persist JSON / .ini.
+	 *
+	 * Layout (logical 1280 x 720):
+	 *   left leaf          — window "dock-demo-hierarchy"
+	 *   right column       — split vertically: "dock-demo-inspector" over
+	 *                        "dock-demo-console"
+	 *   central leaf       — tabs "dock-demo-scene" then "dock-demo-game"
+	 *
+	 * Each window content is a distinctly colored, labeled panel.
+	 * @return Workspace node, or SK_UI_NODE_INVALID on failure.
+	 */
+	sk_ui_node_t (*sample_dock_demo_build)(sk_ui_context_t* ctx, sk_ui_node_t parent);
+
+	/**
+	 * Logical size used by the docking demo and as the player host default
+	 * (1280 x 720). Either out pointer may be NULL.
+	 */
+	void (*sample_dock_demo_logical_size)(f32* out_width, f32* out_height);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

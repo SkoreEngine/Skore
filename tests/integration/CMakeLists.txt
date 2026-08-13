@@ -28,6 +28,7 @@ add_executable(sk-integration-tests
     ui_flexbox_vision.c
     ui_test_authoring.c
     ui_interaction_suite.c
+    ui_dock.c
     ui_text_screenshot.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
     render_graph.c
@@ -44,6 +45,7 @@ add_executable(sk-isolate-tests
     ui_flexbox_vision.c
     ui_test_authoring.c
     ui_interaction_suite.c
+    ui_dock.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
 )
 target_link_libraries(sk-isolate-tests PRIVATE sk-foundation sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
@@ -127,6 +129,20 @@ add_test(
 set_tests_properties(sk-ui-integration-suites PROPERTIES
     LABELS "ui;ui-integration;ui-vision"
     TIMEOUT 1800
+)
+
+# APX-291: docking public-API e2e (headless layout + input_dispatch).
+add_test(
+    NAME sk-ui-dock-integration
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_FILTER=ui_dock_*"
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-integration-tests>
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-ui-dock-integration PROPERTIES
+    LABELS "ui;ui-integration;ui-dock"
+    TIMEOUT 180
 )
 
 # APX-268: deterministic text rendering screenshot harness.

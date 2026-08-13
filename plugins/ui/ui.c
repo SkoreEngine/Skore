@@ -390,6 +390,7 @@ static void ui_free_node_recursive(sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 	/* Drop hover/active/focus/capture before the handle becomes stale. */
 	ui_input_on_node_destroy(ctx, node);
+	ui_dock_on_window_destroy(ctx, node);
 
 	/* Snapshot children first — recursive free mutates the tree. */
 	child_count = slot->children.count;
@@ -436,6 +437,8 @@ static i32 ui_init_impl(void) {
 }
 
 static void ui_shutdown_impl(void) {}
+
+static void ui_context_destroy(sk_ui_context_t* ctx);
 
 static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_ui_context_t* ctx;
@@ -493,6 +496,10 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	ctx->root = root;
 	/* Default widget styles so factories work without hand-styling. */
 	(void)ui_widgets_register_defaults_impl(ctx);
+	if (ui_dock_context_init(ctx) != 0) {
+		ui_context_destroy(ctx);
+		return NULL;
+	}
 	return ctx;
 }
 
@@ -539,6 +546,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
 	ui_clay_context_shutdown(ctx);
+	ui_dock_context_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -804,6 +812,7 @@ static i32 ui_node_set_id(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t i
 		return -1;
 	}
 	slot->id = copy;
+	ui_dock_on_node_set_id(ctx, node, slot->id);
 	return 0;
 }
 
@@ -1614,6 +1623,45 @@ static const sk_ui_api_t ui_api = {
 	ui_test_engine_type_impl,
 	ui_test_engine_scroll_impl,
 	ui_test_engine_focus_impl,
+	ui_dockspace_begin_impl,
+	ui_dockspace_end_impl,
+	ui_dockspace_create_impl,
+	ui_dockspace_apply_impl,
+	ui_dockspace_find_impl,
+	ui_dockspace_host_node_impl,
+	ui_dockspace_destroy_impl,
+	ui_dock_window_to_node_impl,
+	ui_dock_window_undock_impl,
+	ui_dock_tab_close_impl,
+	ui_dock_tab_reorder_impl,
+	ui_dock_tab_set_active_impl,
+	ui_dock_set_tab_callback_impl,
+	ui_dock_builder_begin_impl,
+	ui_dock_builder_split_node_impl,
+	ui_dock_builder_dock_window_impl,
+	ui_dock_builder_set_node_id_impl,
+	ui_dock_builder_set_node_flags_impl,
+	ui_dock_builder_finish_impl,
+	ui_dock_node_at_point_impl,
+	ui_dock_find_node_for_window_impl,
+	ui_dock_leaf_tabs_impl,
+	ui_dock_node_is_leaf_impl,
+	ui_dock_node_is_split_impl,
+	ui_dock_split_get_axis_impl,
+	ui_dock_split_get_ratio_impl,
+	ui_dock_split_set_ratio_impl,
+	ui_dock_split_child_impl,
+	ui_dock_node_host_impl,
+	ui_dock_window_is_docked_impl,
+	ui_dock_window_register_impl,
+	ui_dock_layout_save_json_impl,
+	ui_dock_layout_load_json_impl,
+	ui_dockspace_layout_impl,
+	ui_dock_node_get_rect_impl,
+	ui_dock_split_get_splitter_rect_impl,
+	ui_sample_dock_demo_register_styles_impl,
+	ui_sample_dock_demo_build_impl,
+	ui_sample_dock_demo_logical_size_impl,
 };
 
 /**

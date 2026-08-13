@@ -762,6 +762,31 @@ ui->sample_menu_logical_size(&mw, &mh); /* 320 x 240 */
 (void)menu;
 ```
 
+### 7.10 Docking demo (deterministic workspace)
+
+`sample_dock_demo_build` constructs a **fixed** editor-style dock layout on every call. It destroys any previous `"dock-demo"` dockspace first and **never** calls `dock_layout_load_json`. Use it for comparable screenshots.
+
+```c
+(void)ui->sample_dock_demo_register_styles(ctx); /* optional; also called from build */
+sk_ui_node_t workspace = ui->sample_dock_demo_build(ctx, ui->context_root(ctx));
+f32 dw = 0.0f, dh = 0.0f;
+ui->sample_dock_demo_logical_size(&dw, &dh); /* 1280 x 720 */
+(void)workspace;
+```
+
+Layout:
+
+- **Left** — Hierarchy (`dock-demo-hierarchy`)
+- **Center** — Scene + Game tabs (`dock-demo-scene`, `dock-demo-game`)
+- **Right** — Inspector over Console (`dock-demo-inspector`, `dock-demo-console`)
+
+Launch from the player host (fixed 1280×720 window, not resizable):
+
+```bash
+./build/bin/sk-player --dock-demo
+./build/bin/sk-player --dock-demo --dump-layout | grep '^dock-demo-layout:'
+```
+
 ---
 
 ## 8. Per-frame pipeline (host)
@@ -1035,5 +1060,5 @@ These are **not bugs** — they are out of scope for the basic UI system. Each r
 
 **Header:** `plugins/ui/ui.h`  
 **Plugin:** `plugins/ui/` (SHARED, statically links `sk-core`, FreeType for face load/metrics, msdf-atlas-c)  
-**Sample host:** `player/main.c` (`sample_menu_build`)  
+**Sample host:** `player/main.c` (`sample_menu_build`; `--dock-demo` → `sample_dock_demo_build`)  
 **Editor proof:** `editor/console_panel.c` + `editor/editor_ui_host.c`
