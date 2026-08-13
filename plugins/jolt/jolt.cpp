@@ -21,8 +21,16 @@
  *             start/stop repeatedly with the plugin enabled.
  *
  * A CollisionListener is deliberately NOT implemented (explicitly out of
- * scope for APX-305). Rigid bodies and character controllers remain empty
- * stubs until a later stage.
+ * scope for APX-305). Rigid bodies are implemented (APX-320): body_create()
+ * builds a Jolt body from the box/sphere/capsule shape descriptions with a
+ * static/kinematic/dynamic motion type, body_destroy() removes and destroys
+ * it, and the transform / velocity accessors round-trip position, rotation,
+ * linear velocity and angular velocity through POD structs (sk_jolt_vec3_t /
+ * sk_jolt_quat_t, layout-identical to the core math3d types). Every body
+ * handle is validated against the live-handle registry, so use-after-destroy
+ * (and use after world shutdown) returns an error code instead of crashing;
+ * handle records are module-owned and released at shutdown. Character
+ * controllers remain empty stubs until a later stage.
  *
  * Unit tests live in jolt_tests.c (C, like every other plugin's tests); this
  * TU only exposes SK_TESTS-only accessors for them.
@@ -40,13 +48,21 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Math/Vec3.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/EPhysicsUpdateError.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include <thread>
+#include <unordered_set>
+#include <vector>
 
 /* Defined in jolt_components.c (C TU of this plugin): registers the physics
  * ECS components with the entities API resolved from the app registry.
@@ -173,6 +189,59 @@ JoltWorld* g_jolt_world = nullptr;
 /** Plugin logger (created at init, destroyed at shutdown; NULL on failure). */
 sk_logger_t* g_jolt_log = nullptr;
 
+/* ---- rigid-body handle registry ---- */
+
+/**
+ * Opaque body handle record: the Jolt BodyID (index + sequence) that names
+ * the body inside the physics system. The public sk_jolt_body_t* handed to
+ * hosts IS the address of this record (the struct itself is never defined on
+ * the C side).
+ *
+ * Validation model (see jolt.h "Body handles"): g_live_bodies holds the
+ * public pointer VALUES of every live body of the current world. Accessors
+ * validate by set membership — comparing pointer values, never dereferencing
+ * the record — and short-circuit when the world is not initialized, so a
+ * stale handle (destroyed, double-destroyed, or left over from a previous
+ * world) is rejected without ever reading freed memory. Records themselves
+ * are freed only at world shutdown, so within a world a destroyed handle can
+ * never be aliased by a later body, and the whole registry is released by
+ * shutdown() (the module does not leak across init/shutdown cycles).
+ */
+struct JoltBodyHandle {
+	JPH::BodyID body_id = JPH::BodyID();
+};
+
+/** Handle records of the current world (live + destroyed); freed at shutdown. */
+std::vector<JoltBodyHandle*> g_body_handles;
+
+/** Public pointer values of the live bodies of the current world. */
+std::unordered_set<sk_jolt_body_t*> g_live_bodies;
+
+/**
+ * Resolve a public handle to its record, or nullptr when the handle is NULL,
+ * already destroyed, or the world is not initialized. The membership check
+ * compares pointer values only and never dereferences a non-live handle, so
+ * this is safe to call with any stale pointer.
+ */
+JoltBodyHandle* jolt_body_handle(sk_jolt_body_t* body) noexcept {
+	if (g_jolt_world == nullptr || body == nullptr) {
+		return nullptr;
+	}
+	if (g_live_bodies.find(body) == g_live_bodies.end()) {
+		return nullptr;
+	}
+	return reinterpret_cast<JoltBodyHandle*>(body);
+}
+
+/** Release every body record of the current world (world must be gone). */
+void jolt_body_registry_clear() noexcept {
+	for (JoltBodyHandle* record : g_body_handles) {
+		delete record;
+	}
+	g_body_handles.clear();
+	g_live_bodies.clear();
+}
+
 /* ---- settings helpers ---- */
 
 void jolt_settings_defaults(sk_jolt_settings_t* out) {
@@ -229,6 +298,12 @@ void jolt_shutdown_impl() noexcept {
 		delete g_jolt_world; /* PhysicsSystem → filters → job threads → temp allocator */
 		g_jolt_world = nullptr;
 	}
+	/* Body handles die with their world: the world is gone, so every handle
+	 * record is released here. Stale handles are still rejected afterwards —
+	 * accessors short-circuit on the null world before touching a record, and
+	 * after a later init a pointer from a previous world is not in the new
+	 * live-body set, so it fails validation without dereferencing anything. */
+	jolt_body_registry_clear();
 	if (JPH::Factory::sInstance != nullptr) {
 		JPH::UnregisterTypes();
 		delete JPH::Factory::sInstance;
@@ -350,13 +425,207 @@ void jolt_step_impl(f32 delta_time, sk_jolt_step_callback_fn callback, void_ptr_
 	}
 }
 
-/* ---- rigid body / character stubs (not implemented at this stage) ---- */
+/* ---- rigid bodies ---- */
 
-sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t*, sk_jolt_motion_type_t, u32) noexcept {
-	return nullptr;
+sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt_motion_type_t motion_type, u32 object_layer) noexcept {
+	if (g_jolt_world == nullptr || shape == nullptr) {
+		return nullptr;
+	}
+	if (motion_type != SK_JOLT_MOTION_TYPE_STATIC && motion_type != SK_JOLT_MOTION_TYPE_KINEMATIC && motion_type != SK_JOLT_MOTION_TYPE_DYNAMIC) {
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: invalid motion type %u", static_cast<unsigned>(motion_type));
+		}
+		return nullptr;
+	}
+	if (object_layer != SK_JOLT_OBJECT_LAYER_NON_MOVING && object_layer != SK_JOLT_OBJECT_LAYER_MOVING) {
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: invalid object layer %u", object_layer);
+		}
+		return nullptr;
+	}
+
+	/* Build the shape from the tagged description (kind selects the union
+	 * member); a failed Create() (invalid dimensions) fails creation. */
+	JPH::ShapeSettings::ShapeResult shape_result;
+	switch (shape->kind) {
+	case SK_JOLT_SHAPE_BOX: {
+		const JPH::BoxShapeSettings settings(JPH::Vec3(shape->shape.box.half_extent[0], shape->shape.box.half_extent[1], shape->shape.box.half_extent[2]));
+		shape_result = settings.Create();
+		break;
+	}
+	case SK_JOLT_SHAPE_SPHERE: {
+		const JPH::SphereShapeSettings settings(shape->shape.sphere.radius);
+		shape_result = settings.Create();
+		break;
+	}
+	case SK_JOLT_SHAPE_CAPSULE: {
+		const JPH::CapsuleShapeSettings settings(shape->shape.capsule.half_height, shape->shape.capsule.radius);
+		shape_result = settings.Create();
+		break;
+	}
+	default:
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: unknown shape kind %d", static_cast<int>(shape->kind));
+		}
+		return nullptr;
+	}
+	if (!shape_result.IsValid()) {
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: shape error: %s", shape_result.GetError().c_str());
+		}
+		return nullptr;
+	}
+
+	/* Bodies start at the origin with identity rotation and zero velocity;
+	 * hosts place them with the body_set_* accessors before stepping. The
+	 * material/motion properties use the Jolt BodyCreationSettings defaults
+	 * (friction 0.2, restitution 0.0, damping 0.05 each, gravity factor 1.0,
+	 * sleeping allowed). */
+	const JPH::BodyCreationSettings creation(shape_result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), static_cast<JPH::EMotionType>(motion_type),
+											 static_cast<JPH::ObjectLayer>(object_layer));
+	const JPH::BodyID id = g_jolt_world->physics_system.GetBodyInterface().CreateAndAddBody(creation, JPH::EActivation::Activate);
+	if (id.IsInvalid()) {
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: no free body slots (max_bodies=%u)", g_jolt_world->physics_system.GetMaxBodies());
+		}
+		return nullptr;
+	}
+
+	auto* record = new JoltBodyHandle{id};
+	g_body_handles.push_back(record);
+	sk_jolt_body_t* handle = reinterpret_cast<sk_jolt_body_t*>(record);
+	g_live_bodies.insert(handle);
+	return handle;
 }
 
-void jolt_body_destroy_impl(sk_jolt_body_t*) noexcept {}
+void jolt_body_destroy_impl(sk_jolt_body_t* body) noexcept {
+	/* NULL and already-destroyed handles are no-ops. After world shutdown the
+	 * registry is gone, so nothing to do (the world already freed the body). */
+	if (g_jolt_world == nullptr || body == nullptr || g_live_bodies.find(body) == g_live_bodies.end()) {
+		return;
+	}
+	auto* record = reinterpret_cast<JoltBodyHandle*>(body);
+	JPH::BodyInterface& body_interface = g_jolt_world->physics_system.GetBodyInterface();
+	/* Jolt requires the body to leave the broad phase (and deactivate) before
+	 * it can be destroyed: RemoveBody → DestroyBody, the canonical teardown. */
+	body_interface.RemoveBody(record->body_id);
+	body_interface.DestroyBody(record->body_id);
+	g_live_bodies.erase(body);
+}
+
+/* Body accessors: every entry validates the handle first (returns an error
+ * for NULL / destroyed handles and when the world is down) and zeroes its
+ * output on failure. The Jolt BodyInterface calls used here are all safe for
+ * static bodies (velocity getters report zero, velocity setters are ignored,
+ * position/rotation setters move the body and update the broad phase). */
+
+i32 jolt_body_get_position_impl(const sk_jolt_body_t* body, sk_jolt_vec3_t* out_position) noexcept {
+	if (out_position != nullptr) {
+		out_position->x = 0.0f;
+		out_position->y = 0.0f;
+		out_position->z = 0.0f;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_position == nullptr) {
+		return -1;
+	}
+	const JPH::RVec3 position = g_jolt_world->physics_system.GetBodyInterface().GetPosition(record->body_id);
+	out_position->x = position.GetX();
+	out_position->y = position.GetY();
+	out_position->z = position.GetZ();
+	return 0;
+}
+
+i32 jolt_body_set_position_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* position) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || position == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().SetPosition(record->body_id, JPH::RVec3(position->x, position->y, position->z), JPH::EActivation::Activate);
+	return 0;
+}
+
+i32 jolt_body_get_rotation_impl(const sk_jolt_body_t* body, sk_jolt_quat_t* out_rotation) noexcept {
+	if (out_rotation != nullptr) {
+		out_rotation->x = 0.0f;
+		out_rotation->y = 0.0f;
+		out_rotation->z = 0.0f;
+		out_rotation->w = 1.0f;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_rotation == nullptr) {
+		return -1;
+	}
+	const JPH::Quat rotation = g_jolt_world->physics_system.GetBodyInterface().GetRotation(record->body_id);
+	out_rotation->x = rotation.GetX();
+	out_rotation->y = rotation.GetY();
+	out_rotation->z = rotation.GetZ();
+	out_rotation->w = rotation.GetW();
+	return 0;
+}
+
+i32 jolt_body_set_rotation_impl(sk_jolt_body_t* body, const sk_jolt_quat_t* rotation) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || rotation == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().SetRotation(record->body_id, JPH::Quat(rotation->x, rotation->y, rotation->z, rotation->w), JPH::EActivation::Activate);
+	return 0;
+}
+
+i32 jolt_body_get_linear_velocity_impl(const sk_jolt_body_t* body, sk_jolt_vec3_t* out_velocity) noexcept {
+	if (out_velocity != nullptr) {
+		out_velocity->x = 0.0f;
+		out_velocity->y = 0.0f;
+		out_velocity->z = 0.0f;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_velocity == nullptr) {
+		return -1;
+	}
+	const JPH::Vec3 velocity = g_jolt_world->physics_system.GetBodyInterface().GetLinearVelocity(record->body_id);
+	out_velocity->x = velocity.GetX();
+	out_velocity->y = velocity.GetY();
+	out_velocity->z = velocity.GetZ();
+	return 0;
+}
+
+i32 jolt_body_set_linear_velocity_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* velocity) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || velocity == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().SetLinearVelocity(record->body_id, JPH::Vec3(velocity->x, velocity->y, velocity->z));
+	return 0;
+}
+
+i32 jolt_body_get_angular_velocity_impl(const sk_jolt_body_t* body, sk_jolt_vec3_t* out_velocity) noexcept {
+	if (out_velocity != nullptr) {
+		out_velocity->x = 0.0f;
+		out_velocity->y = 0.0f;
+		out_velocity->z = 0.0f;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_velocity == nullptr) {
+		return -1;
+	}
+	const JPH::Vec3 velocity = g_jolt_world->physics_system.GetBodyInterface().GetAngularVelocity(record->body_id);
+	out_velocity->x = velocity.GetX();
+	out_velocity->y = velocity.GetY();
+	out_velocity->z = velocity.GetZ();
+	return 0;
+}
+
+i32 jolt_body_set_angular_velocity_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* velocity) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || velocity == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().SetAngularVelocity(record->body_id, JPH::Vec3(velocity->x, velocity->y, velocity->z));
+	return 0;
+}
+
+/* ---- character stubs (not implemented at this stage) ---- */
 
 sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
 	return nullptr;
@@ -379,6 +648,14 @@ const sk_jolt_api_t jolt_api = {
 	jolt_step_impl,
 	jolt_body_create_impl,
 	jolt_body_destroy_impl,
+	jolt_body_get_position_impl,
+	jolt_body_set_position_impl,
+	jolt_body_get_rotation_impl,
+	jolt_body_set_rotation_impl,
+	jolt_body_get_linear_velocity_impl,
+	jolt_body_set_linear_velocity_impl,
+	jolt_body_get_angular_velocity_impl,
+	jolt_body_set_angular_velocity_impl,
 	jolt_character_create_impl,
 	jolt_character_destroy_impl,
 };
@@ -406,6 +683,12 @@ void sk_jolt_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
  * type must stay a plain C enum. */
 static_assert(std::is_trivial<sk_jolt_shape_desc_t>::value && std::is_standard_layout<sk_jolt_shape_desc_t>::value);
 static_assert(std::is_trivial<sk_jolt_settings_t>::value && std::is_standard_layout<sk_jolt_settings_t>::value);
+/* The transform accessors cross the C boundary through these POD structs, so
+ * they must stay trivial/standard-layout for a C host. (sk_jolt_vec3_t /
+ * sk_jolt_quat_t carry the exact field layout of core/math3d.h sk_vec3_t /
+ * sk_quat_t by construction — same fields, same order, same types.) */
+static_assert(std::is_trivial<sk_jolt_vec3_t>::value && std::is_standard_layout<sk_jolt_vec3_t>::value);
+static_assert(std::is_trivial<sk_jolt_quat_t>::value && std::is_standard_layout<sk_jolt_quat_t>::value);
 static_assert(std::is_enum<sk_jolt_motion_type_t>::value && std::is_trivial<sk_jolt_motion_type_t>::value);
 
 /* Motion type values mirror JPH::EMotionType; layer/group constants mirror

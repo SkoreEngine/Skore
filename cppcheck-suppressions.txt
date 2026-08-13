@@ -23,3 +23,7 @@ unmatchedSuppression
 # Known false positives (branch analysis / buffer confusion).
 uninitvar:app/filesystem_unix.c
 arrayIndexOutOfBoundsCond:app/platform_unix.c
+# jolt plugin test helper: cppcheck cannot see that the C++ body_create
+# implementation consumes the shape description synchronously, so it models
+# the call as retaining the caller's local desc (opaque API boundary).
+returnDanglingLifetime:plugins/jolt/jolt_tests.c

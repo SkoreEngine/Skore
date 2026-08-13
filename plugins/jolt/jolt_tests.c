@@ -11,8 +11,14 @@
  * Coverage: API registration, settings defaults/resolution, world init →
  * step → shutdown cycles (the leak/ASan surface — every Jolt allocation must
  * be released per cycle), fixed-step rate enforcement via the step callback,
- * the giant-frame spiral-of-death clamp, and the still-stubbed body /
- * character entry points.
+ * the giant-frame spiral-of-death clamp, and the rigid-body integration
+ * (APX-320): create/destroy for every shape × motion-type combination,
+ * transform/velocity accessor round-trips, handle validation (NULL,
+ * use-after-destroy and stale-across-shutdown handles return errors, never
+ * crash), and the three motion-type behaviors — a dynamic body falls under
+ * gravity and rests on a static floor within a bounded step count, a static
+ * body never moves, and a kinematic body holds an explicitly set transform.
+ * Character controllers are still stubbed.
  */
 
 /* Release builds strip every symbol below (SK_TESTS undefined); keep the TU
@@ -353,7 +359,7 @@ SK_TEST(jolt_step_before_init_noop) {
 	TEST_ASSERT_EQUAL_FLOAT(0.0f, api->get_fixed_timestep());
 }
 
-SK_TEST(jolt_body_character_stubs) {
+SK_TEST(jolt_character_stubs) {
 	const sk_jolt_api_t* api = NULL;
 	sk_app_context_t* context = NULL;
 	const sk_app_api_t* app_api = NULL;
@@ -361,23 +367,359 @@ SK_TEST(jolt_body_character_stubs) {
 	jolt_tests_resolve(&api, &context, &app_api);
 	TEST_ASSERT_NOT_NULL(api);
 
-	/* Stub create entry points report "not implemented" via NULL; destroy
+	/* Character controllers are still stubs: create reports NULL, destroy
 	 * tolerates NULL. (Union members are set explicitly: only the first union
 	 * member can be brace-initialized portably.) */
-	sk_jolt_shape_desc_t box = {0};
-	box.kind = SK_JOLT_SHAPE_BOX;
-	box.shape.box.half_extent[0] = 0.5f;
-	box.shape.box.half_extent[1] = 0.5f;
-	box.shape.box.half_extent[2] = 0.5f;
-	TEST_ASSERT_NULL(api->body_create(&box, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING));
-	api->body_destroy(NULL);
-
 	sk_jolt_shape_desc_t capsule = {0};
 	capsule.kind = SK_JOLT_SHAPE_CAPSULE;
 	capsule.shape.capsule.half_height = 0.75f;
 	capsule.shape.capsule.radius = 0.3f;
 	TEST_ASSERT_NULL(api->character_create(&capsule, SK_JOLT_OBJECT_LAYER_MOVING));
 	api->character_destroy(NULL);
+}
+
+/* ---- rigid bodies (APX-320) ---- */
+
+static sk_jolt_body_t* jolt_test_body_box(const sk_jolt_api_t* api, sk_jolt_motion_type_t motion, u32 layer, f32 half) {
+	sk_jolt_shape_desc_t desc = {0};
+	desc.kind = SK_JOLT_SHAPE_BOX;
+	desc.shape.box.half_extent[0] = half;
+	desc.shape.box.half_extent[1] = half;
+	desc.shape.box.half_extent[2] = half;
+	return api->body_create(&desc, motion, layer);
+}
+
+static sk_jolt_vec3_t jolt_test_vec3(f32 x, f32 y, f32 z) {
+	sk_jolt_vec3_t v;
+	v.x = x;
+	v.y = y;
+	v.z = z;
+	return v;
+}
+
+/* Component-wise |a-b| <= eps on every axis. */
+static i32 jolt_test_vec3_near(const sk_jolt_vec3_t* a, const sk_jolt_vec3_t* b, f32 eps) {
+	return (a->x - b->x <= eps && b->x - a->x <= eps) && (a->y - b->y <= eps && b->y - a->y <= eps) && (a->z - b->z <= eps && b->z - a->z <= eps);
+}
+
+static f32 jolt_test_vec3_len_sq(const sk_jolt_vec3_t* v) {
+	return v->x * v->x + v->y * v->y + v->z * v->z;
+}
+
+/* Every shape kind × motion-type combination creates a body; invalid
+ * parameters fail creation; destroy is idempotent. */
+SK_TEST(jolt_body_create_and_destroy) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_shape_desc_t desc = {0};
+	const sk_jolt_motion_type_t motions[3] = {SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_MOTION_TYPE_KINEMATIC, SK_JOLT_MOTION_TYPE_DYNAMIC};
+	u32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	desc.kind = SK_JOLT_SHAPE_BOX;
+	desc.shape.box.half_extent[0] = 0.5f;
+	desc.shape.box.half_extent[1] = 0.5f;
+	desc.shape.box.half_extent[2] = 0.5f;
+	for (i = 0u; i < 3u; ++i) {
+		sk_jolt_body_t* body = api->body_create(&desc, motions[i], SK_JOLT_OBJECT_LAYER_MOVING);
+		TEST_ASSERT_NOT_NULL(body);
+		api->body_destroy(body);
+	}
+
+	desc.kind = SK_JOLT_SHAPE_SPHERE;
+	desc.shape.sphere.radius = 0.5f;
+	for (i = 0u; i < 3u; ++i) {
+		sk_jolt_body_t* body = api->body_create(&desc, motions[i], SK_JOLT_OBJECT_LAYER_MOVING);
+		TEST_ASSERT_NOT_NULL(body);
+		api->body_destroy(body);
+	}
+
+	desc.kind = SK_JOLT_SHAPE_CAPSULE;
+	desc.shape.capsule.half_height = 0.75f;
+	desc.shape.capsule.radius = 0.3f;
+	for (i = 0u; i < 3u; ++i) {
+		sk_jolt_body_t* body = api->body_create(&desc, motions[i], SK_JOLT_OBJECT_LAYER_MOVING);
+		TEST_ASSERT_NOT_NULL(body);
+		api->body_destroy(body);
+	}
+
+	/* Invalid parameters fail creation instead of asserting or crashing. */
+	TEST_ASSERT_NULL(api->body_create(NULL, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING));
+	TEST_ASSERT_NULL(api->body_create(&desc, (sk_jolt_motion_type_t)42, SK_JOLT_OBJECT_LAYER_MOVING));
+	TEST_ASSERT_NULL(api->body_create(&desc, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_INVALID));
+	api->shutdown();
+}
+
+/* Position / rotation / linear + angular velocity round-trip through the POD
+ * accessors on a dynamic body. */
+SK_TEST(jolt_body_transform_accessors) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* body = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING, 0.5f);
+	TEST_ASSERT_NOT_NULL(body);
+
+	/* Created at the origin with identity rotation and zero velocity. */
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_quat_t rot = {0.0f, 0.0f, 0.0f, 0.0f};
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&pos, &(sk_jolt_vec3_t){0.0f, 0.0f, 0.0f}, 1.0e-6f));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_rotation(body, &rot));
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.0f, rot.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.0f, rot.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.0f, rot.z);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 1.0f, rot.w);
+
+	/* Set everything, read everything back. */
+	const sk_jolt_vec3_t want_pos = jolt_test_vec3(1.0f, 2.0f, 3.0f);
+	const sk_jolt_quat_t want_rot = {0.0f, 0.70710678f, 0.0f, 0.70710678f}; /* 180° about Y */
+	const sk_jolt_vec3_t want_lv = jolt_test_vec3(4.0f, 5.0f, 6.0f);
+	const sk_jolt_vec3_t want_av = jolt_test_vec3(0.5f, 0.0f, -0.25f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(body, &want_pos));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_rotation(body, &want_rot));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_linear_velocity(body, &want_lv));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_angular_velocity(body, &want_av));
+
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&want_pos, &pos, 1.0e-4f));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_rotation(body, &rot));
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, want_rot.x, rot.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, want_rot.y, rot.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, want_rot.z, rot.z);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, want_rot.w, rot.w);
+	sk_jolt_vec3_t lv = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t av = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_linear_velocity(body, &lv));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&want_lv, &lv, 1.0e-4f));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_angular_velocity(body, &av));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&want_av, &av, 1.0e-4f));
+
+	api->body_destroy(body);
+	api->shutdown();
+}
+
+/* A dynamic body created above a static floor must fall under gravity and
+ * come to rest on the floor within a bounded number of fixed steps. */
+SK_TEST(jolt_dynamic_body_falls_and_rests) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vel = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t floor_pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	i32 i;
+	i32 settled = 0;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.fixed_timestep = 1.0f / 60.0f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	/* Floor: static box 20×2×20 centered at y=-1 → top surface at y=0. */
+	sk_jolt_shape_desc_t floor_desc = {0};
+	floor_desc.kind = SK_JOLT_SHAPE_BOX;
+	floor_desc.shape.box.half_extent[0] = 10.0f;
+	floor_desc.shape.box.half_extent[1] = 1.0f;
+	floor_desc.shape.box.half_extent[2] = 10.0f;
+	sk_jolt_body_t* floor = api->body_create(&floor_desc, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING);
+	TEST_ASSERT_NOT_NULL(floor);
+	const sk_jolt_vec3_t floor_start = jolt_test_vec3(0.0f, -1.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(floor, &floor_start));
+
+	/* Dropped box: dynamic 1×1×1, center at y=5 (4.5 above the floor). */
+	sk_jolt_body_t* box = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING, 0.5f);
+	TEST_ASSERT_NOT_NULL(box);
+	const sk_jolt_vec3_t drop_start = jolt_test_vec3(0.0f, 5.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(box, &drop_start));
+
+	/* It must fall: after 1 s of simulation it is well below the drop height. */
+	for (i = 0; i < 60; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(box, &pos));
+	TEST_ASSERT_TRUE(pos.y < 4.0f);
+
+	/* ...and come to rest on the floor (box center ≈ 0.5 above the floor top)
+	 * within a bounded number of fixed steps (30 s = 1800 steps; generous). */
+	for (i = 0; i < 1800; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+		TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(box, &pos));
+		TEST_ASSERT_EQUAL_INT32(0, api->body_get_linear_velocity(box, &vel));
+		if (pos.y > 0.4f && pos.y < 0.6f && jolt_test_vec3_len_sq(&vel) < 0.05f * 0.05f) {
+			settled = 1;
+			break;
+		}
+	}
+	TEST_ASSERT_TRUE(settled);
+	TEST_ASSERT_TRUE(pos.y > 0.4f && pos.y < 0.6f);
+	TEST_ASSERT_TRUE(jolt_test_vec3_len_sq(&vel) < 0.1f * 0.1f);
+
+	/* The floor itself never moved. */
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(floor, &floor_pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&floor_start, &floor_pos, 1.0e-4f));
+
+	api->body_destroy(box);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* A static body does not move: gravity and stepping leave its transform
+ * untouched, and a repositioned static body stays where it was put. */
+SK_TEST(jolt_static_body_does_not_move) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vel = jolt_test_vec3(1.0f, 1.0f, 1.0f);
+	i32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* body = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING, 1.0f);
+	TEST_ASSERT_NOT_NULL(body);
+	const sk_jolt_vec3_t start = jolt_test_vec3(1.0f, 2.0f, 3.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(body, &start));
+
+	/* 2 s of gravity do not move it. */
+	for (i = 0; i < 120; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&start, &pos, 1.0e-4f));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_linear_velocity(body, &vel));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&vel, &(sk_jolt_vec3_t){0.0f, 0.0f, 0.0f}, 1.0e-6f));
+
+	/* Repositioned static bodies hold the new transform too (no fall). */
+	const sk_jolt_vec3_t moved = jolt_test_vec3(0.0f, 10.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(body, &moved));
+	for (i = 0; i < 60; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&moved, &pos, 1.0e-4f));
+
+	api->body_destroy(body);
+	api->shutdown();
+}
+
+/* A kinematic body follows an explicitly set transform: it holds the given
+ * position/rotation across steps (no gravity response), including a
+ * mid-simulation reposition. */
+SK_TEST(jolt_kinematic_body_follows_set_transform) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_quat_t rot = {0.0f, 0.0f, 0.0f, 0.0f};
+	i32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* body = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_KINEMATIC, SK_JOLT_OBJECT_LAYER_MOVING, 0.5f);
+	TEST_ASSERT_NOT_NULL(body);
+
+	const sk_jolt_vec3_t pos_a = jolt_test_vec3(3.0f, 4.0f, -2.0f);
+	const sk_jolt_quat_t rot_a = {0.0f, 0.0f, 0.70710678f, 0.70710678f}; /* 90° about Z */
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(body, &pos_a));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_rotation(body, &rot_a));
+
+	/* 1 s of simulation (gravity included) leaves the transform untouched. */
+	for (i = 0; i < 60; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&pos_a, &pos, 1.0e-4f));
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_rotation(body, &rot));
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, rot_a.x, rot.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, rot_a.y, rot.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, rot_a.z, rot.z);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, rot_a.w, rot.w);
+
+	/* Mid-simulation reposition: the new transform is held from then on. */
+	const sk_jolt_vec3_t pos_b = jolt_test_vec3(-1.0f, -2.0f, 5.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(body, &pos_b));
+	for (i = 0; i < 30; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&pos_b, &pos, 1.0e-4f));
+
+	api->body_destroy(body);
+	api->shutdown();
+}
+
+/* Handles are validated on every accessor: NULL, use-after-destroy, and
+ * stale handles from a previous world return an error instead of crashing
+ * (no reading freed records, no aliasing another body). */
+SK_TEST(jolt_body_handle_validation) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_vec3_t v = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_quat_t q = {0.0f, 0.0f, 0.0f, 1.0f};
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* body = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING, 0.5f);
+	TEST_ASSERT_NOT_NULL(body);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(body, &v));
+
+	/* NULL handles and NULL pointer arguments fail cleanly. */
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_position(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_position(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_rotation(NULL, &q));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_rotation(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_rotation(NULL, &q));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_rotation(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_linear_velocity(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_linear_velocity(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_linear_velocity(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_linear_velocity(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_angular_velocity(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_angular_velocity(body, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_angular_velocity(NULL, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_angular_velocity(body, NULL));
+
+	/* Use after destroy: every accessor errors instead of crashing. */
+	api->body_destroy(body);
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(body, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_rotation(body, &q));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_linear_velocity(body, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_angular_velocity(body, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_position(body, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_rotation(body, &q));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_linear_velocity(body, &v));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_set_angular_velocity(body, &v));
+	/* Destroying an already-destroyed handle or NULL is a no-op. */
+	api->body_destroy(body);
+	api->body_destroy(NULL);
+
+	/* A stale handle from a previous world stays invalid after re-init. */
+	api->shutdown();
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(body, &v));
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->body_get_position(body, &v));
+	api->shutdown();
 }
 
 SK_TEST(jolt_shape_desc_layout) {
