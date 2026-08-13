@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "id": "leaf-space",
+    "flags": 1,
+    "root": {
+        "kind": "leaf",
+        "id": "root",
+        "flags": 1,
+        "tabs": [
+            "console"
+        ],
+        "active": "console"
+    },
+    "floating": []
+}

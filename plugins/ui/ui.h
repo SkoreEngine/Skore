@@ -1257,6 +1257,11 @@ typedef enum sk_ui_dock_dir_t {
 #define SK_UI_DOCK_SPLITTER_PT 6.0f
 /** Minimum leftover allocated to each child when the parent span is large enough. */
 #define SK_UI_DOCK_NODE_MIN_PT 40.0f
+/**
+ * On-disk dock layout document version (integer at the JSON root).
+ * Load must reject any other value. There is no major.minor.
+ */
+#define SK_UI_DOCK_LAYOUT_VERSION 1
 
 /**
  * Tab close / undock notification. Host may destroy the editor_window.
@@ -2897,19 +2902,24 @@ typedef struct sk_ui_api_t {
 	/** Non-zero if @p window_id is in a leaf (not floating / unknown). */
 	i32 (*dock_window_is_docked)(const sk_ui_context_t* ctx, const_chr_t window_id);
 
-	/* ---- persist (PR 2: JSON only. PR 5 may add archive pointers.) ---- */
+	/* ---- persist (JSON writer now; restore is a follow-on. PR 5 may add archive pointers.) ---- */
 
 	/**
-	 * Emit pretty JSON for the dockspace into @p out (null-terminated).
-	 * @p out_len receives bytes written excluding NUL. @return 0 on success.
+	 * Emit pretty JSON for the named dockspace into @p out (null-terminated).
+	 * Document root is a single object with integer "version"
+	 * (SK_UI_DOCK_LAYOUT_VERSION). Payload: tree structure, split axis/ratio,
+	 * per-leaf tab order + active window id, window id strings, and floating
+	 * window rects (x/y/w/h/z). @p out_len receives bytes written excluding NUL.
+	 * @return 0 on success, non-zero if the dockspace is unknown or @p out is too small.
 	 */
 	i32 (*dock_layout_save_json)(const sk_ui_context_t* ctx, const_chr_t dockspace_id, char* out, u32 cap, u32* out_len);
 
 	/**
-	 * Replace the named dockspace model from JSON. Fails if version != 1.
-	 * Missing windows become pending binds. Error if a builder session is open.
-	 * Does not destroy editor_window nodes (teardown reparents first).
-	 * @return 0 on success, non-zero on parse / schema error.
+	 * Replace the named dockspace model from JSON. Fails if version !=
+	 * SK_UI_DOCK_LAYOUT_VERSION. Missing windows become pending binds. Error if
+	 * a builder session is open. Does not destroy editor_window nodes
+	 * (teardown reparents first). Restore is not implemented yet (always fails).
+	 * @return 0 on success, non-zero on parse / schema error / not implemented.
 	 */
 	i32 (*dock_layout_load_json)(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);
 
