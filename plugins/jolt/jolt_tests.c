@@ -248,6 +248,66 @@ SK_TEST(jolt_step_callback_rate) {
 	api->shutdown();
 }
 
+/* The fixed-step driver must be run-to-run deterministic: identical input
+ * frame sequences across two independent init → step → shutdown cycles
+ * produce identical step counts, physics clocks, and step indices (the
+ * physics world is rebuilt from scratch by init each time, so this also
+ * re-verifies the full Jolt teardown/rebuild path per cycle). */
+SK_TEST(jolt_step_deterministic_across_runs) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	u64 count_a = 0u;
+	u64 count_b = 0u;
+	u64 index_a = 0u;
+	u64 index_b = 0u;
+	f64 time_a = 0.0;
+	f64 time_b = 0.0;
+	i32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.fixed_timestep = 0.01f;
+
+	/* Run A: 50 frames of 0.02 s = 1.0 s at 10 ms/step (100 steps), then a
+	 * partial 0.005 s frame that must only accumulate, not step. */
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+	g_jolt_step_callbacks = 0u;
+	for (i = 0; i < 50; ++i) {
+		api->step(0.02f, jolt_test_count_steps, NULL);
+	}
+	api->step(0.005f, jolt_test_count_steps, NULL);
+	count_a = g_jolt_step_callbacks;
+	index_a = g_jolt_last_step_index;
+	time_a = g_jolt_last_physics_time;
+	api->shutdown();
+
+	/* Run B: identical inputs against a freshly constructed world. */
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+	g_jolt_step_callbacks = 0u;
+	for (i = 0; i < 50; ++i) {
+		api->step(0.02f, jolt_test_count_steps, NULL);
+	}
+	api->step(0.005f, jolt_test_count_steps, NULL);
+	count_b = g_jolt_step_callbacks;
+	index_b = g_jolt_last_step_index;
+	time_b = g_jolt_last_physics_time;
+	api->shutdown();
+
+	/* Identical step counts and identical physics clocks across runs. */
+	TEST_ASSERT_EQUAL_UINT64(count_a, count_b);
+	TEST_ASSERT_EQUAL_UINT64(index_a, index_b);
+	TEST_ASSERT_EQUAL_FLOAT((f32)time_a, (f32)time_b);
+	/* Exact values: 100 steps simulated (the 0.005 s tail stays banked in
+	 * the accumulator for the next frame, exactly like run A). */
+	TEST_ASSERT_EQUAL_UINT64(100ull, count_b);
+	TEST_ASSERT_EQUAL_UINT64(100ull, index_b);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 1.0f, (f32)time_b);
+}
+
 /* Huge host frame deltas must be clamped (no spiral of death): 1000 s of
  * input at 10 ms/step must not queue 100000 steps. */
 SK_TEST(jolt_step_clamps_giant_delta) {
