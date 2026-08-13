@@ -1259,9 +1259,89 @@ typedef enum sk_ui_dock_dir_t {
 #define SK_UI_DOCK_NODE_MIN_PT 40.0f
 /**
  * On-disk dock layout document version (integer at the JSON root).
- * Load must reject any other value. There is no major.minor.
+ * There is no major.minor. Version policy (see docs/ui-dock-layout-format.md):
+ * - version == SK_UI_DOCK_LAYOUT_VERSION: accept
+ * - version > SK_UI_DOCK_LAYOUT_VERSION (unknown/newer): reject, log the
+ *   encountered version, host falls back to the default layout
+ * - version < SK_UI_DOCK_LAYOUT_VERSION (older): reject, no migration; log
+ *   the encountered version and fall back to the default layout
  */
 #define SK_UI_DOCK_LAYOUT_VERSION 1
+
+/** Max floating windows stored on one dock-layout document. */
+#define SK_UI_DOCK_LAYOUT_FLOAT_MAX 32u
+
+/**
+ * Node kind in the persisted binary dock tree.
+ * Numeric values match the live model (0 leaf, 1 split).
+ */
+typedef enum sk_ui_dock_layout_kind_t {
+	SK_UI_DOCK_LAYOUT_KIND_LEAF = 0,
+	SK_UI_DOCK_LAYOUT_KIND_SPLIT = 1,
+} sk_ui_dock_layout_kind_t;
+
+/**
+ * One floating window on a layout document: stable window identifier plus
+ * logical-point rect (x/y/w/h) and paint/hit z.
+ */
+typedef struct sk_ui_dock_layout_float_t {
+	const_chr_t window_id; /**< Host window id (node_set_id / factory id). */
+	f32 x;
+	f32 y;
+	f32 w;
+	f32 h;
+	i32 z;
+	u8 _pad0[4]; /**< Align struct to 8 bytes. */
+} sk_ui_dock_layout_float_t;
+
+/**
+ * One node in the persisted binary dock tree.
+ *
+ * Split: `axis` is the orientation (`sk_ui_dock_split_t`), `ratio` is the
+ * first-child fraction along the main axis, `child_a` / `child_b` are the
+ * two children (left/top and right/bottom).
+ *
+ * Leaf: `tabs[0..tab_count)` are window identifiers in tab order;
+ * `active_index` is the selected tab (0 when the leaf is empty).
+ *
+ * Runtime dock-node handles are never stored. `id` is an optional stable
+ * string label; when unset the writer uses a path such as `root/0/1`.
+ */
+typedef struct sk_ui_dock_layout_node_t {
+	sk_ui_dock_layout_kind_t kind;
+	u32 flags;
+	const_chr_t id;
+	sk_ui_dock_split_t axis;
+	f32 ratio;
+	struct sk_ui_dock_layout_node_t* child_a;
+	struct sk_ui_dock_layout_node_t* child_b;
+	const_chr_t tabs[SK_UI_DOCK_LEAF_TABS_MAX];
+	u32 tab_count;
+	u32 active_index;
+} sk_ui_dock_layout_node_t;
+
+/**
+ * On-disk dock layout document (JSON object, or archive map `"dock"`).
+ * `version` is the integer format version (SK_UI_DOCK_LAYOUT_VERSION).
+ */
+typedef struct sk_ui_dock_layout_t {
+	i32 version;
+	u32 flags;
+	const_chr_t id;
+	sk_ui_dock_layout_node_t* root;
+	sk_ui_dock_layout_float_t floating[SK_UI_DOCK_LAYOUT_FLOAT_MAX];
+	u32 floating_count;
+	u8 _pad0[4]; /**< Align after floating_count. */
+} sk_ui_dock_layout_t;
+
+/**
+ * 0 if @p version may be applied as-is (equals SK_UI_DOCK_LAYOUT_VERSION).
+ * Non-zero: reject the document, log @p version, and keep/restore the
+ * default layout. Older versions are not migrated.
+ */
+SK_FINLINE i32 sk_ui_dock_layout_version_supported(i32 version) {
+	return version == (i32)SK_UI_DOCK_LAYOUT_VERSION ? 0 : -1;
+}
 
 /**
  * Tab close / undock notification. Host may destroy the editor_window.
@@ -2906,21 +2986,25 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Emit pretty JSON for the named dockspace into @p out (null-terminated).
+	 * Schema: docs/ui-dock-layout-format.md (`sk_ui_dock_layout_t`).
 	 * Document root is a single object with integer "version"
 	 * (SK_UI_DOCK_LAYOUT_VERSION). Payload: tree structure, split axis/ratio,
-	 * per-leaf tab order + active window id, window id strings, and floating
+	 * per-leaf tab order + active_index, window id strings, and floating
 	 * window rects (x/y/w/h/z). @p out_len receives bytes written excluding NUL.
 	 * @return 0 on success, non-zero if the dockspace is unknown or @p out is too small.
 	 */
 	i32 (*dock_layout_save_json)(const sk_ui_context_t* ctx, const_chr_t dockspace_id, char* out, u32 cap, u32* out_len);
 
 	/**
-	 * Replace the named dockspace model from JSON. Fails if version !=
-	 * SK_UI_DOCK_LAYOUT_VERSION. Missing windows become pending binds. Error if
-	 * a builder session is open. Does not destroy editor_window nodes
-	 * (teardown reparents first). Rebuilds splits, tab order, the active tab,
-	 * and floating window rects, then applies. Creates the named dockspace if
-	 * it does not exist yet (startup restore).
+	 * Replace the named dockspace model from JSON. Rejects any version other
+	 * than SK_UI_DOCK_LAYOUT_VERSION (unknown/newer and older alike; older
+	 * documents are not migrated), logs the encountered version, and leaves
+	 * the live tree unchanged so the host can keep the default layout.
+	 * Missing windows become pending binds. Error if a builder session is
+	 * open. Does not destroy editor_window nodes (teardown reparents first).
+	 * Rebuilds splits, tab order, the active tab index, and floating window
+	 * rects, then applies. Creates the named dockspace if it does not exist
+	 * yet (startup restore).
 	 * @return 0 on success, non-zero on parse / schema / builder-open error.
 	 */
 	i32 (*dock_layout_load_json)(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);

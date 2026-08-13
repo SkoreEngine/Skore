@@ -2849,6 +2849,7 @@ i32 ui_dock_split_get_splitter_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_
 
 /* -------------------------------------------------------------------------- */
 /* Persist format v1 (JSON via sk_json_archive_writer / reader)               */
+/* Schema: docs/ui-dock-layout-format.md + sk_ui_dock_layout_* in ui.h        */
 /*                                                                            */
 /* Root object:                                                               */
 /*   version: integer (SK_UI_DOCK_LAYOUT_VERSION)                             */
@@ -2860,12 +2861,12 @@ i32 ui_dock_split_get_splitter_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_
 /*   kind: "leaf" | "split"                                                   */
 /*   id:   builder stable id, else path "root" / "root/0/1"                   */
 /*   flags: node flags                                                        */
-/*   leaf:  tabs: [window ids], active: window id                             */
+/*   leaf:  tabs: [window ids], active_index, optional active window id       */
 /*   split: axis (0 horiz / 1 vert), ratio (first-child), a, b                */
 /* -------------------------------------------------------------------------- */
 
 #define UI_DOCK_LAYOUT_PATH_MAX 128u
-#define UI_DOCK_LAYOUT_FLOAT_MAX 32u
+#define UI_DOCK_LAYOUT_FLOAT_MAX SK_UI_DOCK_LAYOUT_FLOAT_MAX
 #define UI_DOCK_LAYOUT_DEPTH_MAX 32u
 
 typedef struct ui_dock_layout_float_t {
@@ -2888,6 +2889,7 @@ typedef struct ui_dock_layout_node_t {
 	struct ui_dock_layout_node_t* b;
 	char* tabs[SK_UI_DOCK_LEAF_TABS_MAX];
 	u32 tab_count;
+	u32 active_index;
 	char* active;
 } ui_dock_layout_node_t;
 
@@ -2945,6 +2947,7 @@ static void ui_dock_layout_write_leaf_body(sk_archive_writer_t* w, const ui_dock
 		}
 	}
 	w->end_seq(w->instance);
+	w->write_uint(w->instance, sk_str_view_cstr("active_index"), slot != NULL ? (u64)slot->active_index : 0u);
 	if (slot != NULL && slot->tab_count > 0u && slot->active_index < slot->tab_count && slot->tabs[slot->active_index] != NULL) {
 		w->write_string(w->instance, sk_str_view_cstr("active"), sk_str_view_cstr(slot->tabs[slot->active_index]));
 	}
@@ -3182,6 +3185,7 @@ static i32 ui_dock_layout_fill_node(sk_archive_reader_t* r, const sk_allocator_t
 		}
 		r->end_seq(r->instance);
 	}
+	node->active_index = (u32)r->read_uint(r->instance, sk_str_view_cstr("active_index"));
 	active = r->read_string(r->instance, sk_str_view_cstr("active"));
 	if (active.size > 0u) {
 		node->active = ui_dock_sv_dup(a, active);
@@ -3433,6 +3437,9 @@ static i32 ui_dock_layout_fill_live(sk_ui_context_t* ctx, ui_dockspace_t* space,
 			return -1;
 		}
 	}
+	if (src->tab_count > 0u && src->active_index < src->tab_count) {
+		slot->active_index = src->active_index;
+	}
 	if (src->active != NULL && src->active[0] != '\0') {
 		i32 idx = ui_dock_leaf_index_of(slot, src->active);
 		if (idx >= 0) {
@@ -3567,7 +3574,12 @@ i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id
 	if (ui_dock_layout_parse_json(ctx->allocator, json, len, &doc) != 0) {
 		return -1;
 	}
-	if (doc.version != SK_UI_DOCK_LAYOUT_VERSION || doc.root == NULL) {
+	if (sk_ui_dock_layout_version_supported(doc.version) != 0) {
+		sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock layout version %d unsupported (want %d); reject and keep default layout", doc.version, (i32)SK_UI_DOCK_LAYOUT_VERSION);
+		ui_dock_layout_doc_free(ctx->allocator, &doc);
+		return -1;
+	}
+	if (doc.root == NULL) {
 		ui_dock_layout_doc_free(ctx->allocator, &doc);
 		return -1;
 	}
@@ -4583,6 +4595,7 @@ static void ui_dock_assert_live_matches_doc(const sk_ui_api_t* ui, const sk_ui_c
 				TEST_ASSERT_EQUAL_STRING(ids[i], fr.doc->tabs[i]);
 			}
 			if (count > 0u) {
+				TEST_ASSERT_EQUAL_UINT(active, fr.doc->active_index);
 				TEST_ASSERT_NOT_NULL(fr.doc->active);
 				TEST_ASSERT_EQUAL_STRING(ids[active], fr.doc->active);
 			}
@@ -4737,6 +4750,51 @@ SK_TEST(ui_dock_layout_save_workspace_golden_and_roundtrip) {
 
 	TEST_ASSERT_TRUE(ui->dock_layout_save_json(ctx, "missing-space", json, (u32)sizeof(json), &len) != 0);
 	TEST_ASSERT_TRUE(ui->dock_layout_save_json(ctx, "editor-main", json, 8u, &len) != 0);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_version_policy) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* newer = "{\n"
+						"    \"version\": 99,\n"
+						"    \"id\": \"leaf-space\",\n"
+						"    \"flags\": 0,\n"
+						"    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 0, \"tabs\": [\"other\"], \"active_index\": 0 },\n"
+						"    \"floating\": []\n"
+						"}";
+	const char* older = "{\n"
+						"    \"version\": 0,\n"
+						"    \"id\": \"leaf-space\",\n"
+						"    \"flags\": 0,\n"
+						"    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 0, \"tabs\": [\"other\"], \"active_index\": 0 },\n"
+						"    \"floating\": []\n"
+						"}";
+
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_dock_layout_version_supported(SK_UI_DOCK_LAYOUT_VERSION));
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_dock_layout_version_supported(1));
+	TEST_ASSERT_TRUE(sk_ui_dock_layout_version_supported(0) != 0);
+	TEST_ASSERT_TRUE(sk_ui_dock_layout_version_supported(99) != 0);
+	TEST_ASSERT_TRUE(sk_ui_dock_layout_version_supported(-1) != 0);
+
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "leaf-space", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "console", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+
+	TEST_ASSERT_TRUE(ui->dock_layout_load_json(ctx, "leaf-space", newer, (u32)strlen(newer)) != 0);
+	TEST_ASSERT_TRUE(ui->dock_layout_load_json(ctx, "leaf-space", older, (u32)strlen(older)) != 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, ui->dockspace_find(ctx, "leaf-space"), ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
+	TEST_ASSERT_EQUAL_UINT(0u, active);
 
 	ui->context_destroy(ctx);
 }

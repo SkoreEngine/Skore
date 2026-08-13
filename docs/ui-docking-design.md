@@ -731,6 +731,12 @@ typedef void (*sk_ui_dock_tab_fn)(sk_ui_context_t* ctx, const_chr_t window_id, v
 
 ### Persist format (high level)
 
+Normative schema: `docs/ui-dock-layout-format.md` and the types
+`sk_ui_dock_layout_t` / `sk_ui_dock_layout_node_t` / `sk_ui_dock_layout_float_t`
+in `plugins/ui/ui.h`. Version policy: unknown/newer and older documents are
+**rejected** (no migration); load logs the encountered version and the host
+falls back to the default layout.
+
 JSON object (yyjson via `sk_json_archive_writer_*` in `core/serialization.h`):
 
 ```json
