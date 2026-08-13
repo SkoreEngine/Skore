@@ -21,20 +21,8 @@
 #define SK_TEST_DATA_DIR ""
 #endif
 
-/* Relative root under tests/data/ */
-static const char fixture_subdir[] = "resource_object";
-
-static const sk_resource_fixture_desc_t fixture_catalog[SK_RESOURCE_FIXTURE_COUNT] = {
-	{SK_RESOURCE_FIXTURE_BUFFER_SMALL, "buffer_small", "buffer_small.json", "buffer_small.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_PRESENT, SK_RESOURCE_FIXTURE_SMALL_SIZE},
-	{SK_RESOURCE_FIXTURE_BUFFER_LARGE, "buffer_large", "buffer_large.json", "buffer_large.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_PRESENT, SK_RESOURCE_FIXTURE_LARGE_SIZE},
-	{SK_RESOURCE_FIXTURE_BUFFER_EMPTY, "buffer_empty", "buffer_empty.json", "buffer_empty.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_EMPTY, 0u},
-	{SK_RESOURCE_FIXTURE_BUFFER_ABSENT, "buffer_absent", "buffer_absent.json", NULL, SK_RESOURCE_FIXTURE_BUFFER_STATE_ABSENT, 0u},
-};
-
-const sk_resource_fixture_desc_t* sk_resource_fixture_desc(sk_resource_fixture_id_t id) {
-	return &fixture_catalog[(u32)id < (u32)SK_RESOURCE_FIXTURE_COUNT ? (u32)id : 0u];
-}
-
+/* Validate a candidate fixture root: it must exist and contain a manifest so
+ * a wrong folder (or a parent dir that merely exists) does not win. */
 static i32 fixture_dir_is_valid(const_chr_t dir) {
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	char probe[SK_FS_PATH_MAX];
@@ -51,7 +39,7 @@ static i32 fixture_dir_is_valid(const_chr_t dir) {
 	return fs->get_file_status(probe) == SK_FILE_STATUS_FILE ? 1 : 0;
 }
 
-static i32 try_join_fixture_root(const_chr_t base, const_chr_t mid, char* out, u32 out_cap) {
+static i32 try_join_fixture_root(const_chr_t base, const_chr_t mid, const_chr_t subdir, char* out, u32 out_cap) {
 	char step[SK_FS_PATH_MAX];
 	if (base == NULL || base[0] == '\0') {
 		return -1;
@@ -60,27 +48,31 @@ static i32 try_join_fixture_root(const_chr_t base, const_chr_t mid, char* out, u
 		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(mid), step, (u32)sizeof(step)) < 0) {
 			return -1;
 		}
-		if (sk_path_join(sk_str_view_cstr(step), sk_str_view_cstr(fixture_subdir), out, out_cap) < 0) {
+		if (sk_path_join(sk_str_view_cstr(step), sk_str_view_cstr(subdir), out, out_cap) < 0) {
 			return -1;
 		}
 	} else {
-		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(fixture_subdir), out, out_cap) < 0) {
+		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr(subdir), out, out_cap) < 0) {
 			return -1;
 		}
 	}
 	return fixture_dir_is_valid(out) ? 0 : -1;
 }
 
-i32 sk_resource_fixture_dir(char* out, u32 out_cap) {
+/* Shared fixture-root resolution for every tests/data/<subdir> fixture set
+ * (resource_object, entities, ...). Works when the test binary runs from
+ * {build}/bin (CTest default) via SK_TEST_DATA_DIR and relative fallbacks
+ * from app_folder / cwd. The candidate must contain a manifest.json. */
+i32 sk_resource_fixture_dir_for_subdir(const_chr_t subdir, char* out, u32 out_cap) {
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	char base[SK_FS_PATH_MAX];
 
 	/* 1) Compile-time source-tree path: ${CMAKE_SOURCE_DIR}/tests/data */
 	if (SK_TEST_DATA_DIR[0] != '\0') {
-		if (try_join_fixture_root(SK_TEST_DATA_DIR, NULL, out, out_cap) == 0) {
+		if (try_join_fixture_root(SK_TEST_DATA_DIR, NULL, subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		/* SK_TEST_DATA_DIR may already point at tests/data/resource_object */
+		/* SK_TEST_DATA_DIR may already point at tests/data/<subdir> */
 		if (fixture_dir_is_valid(SK_TEST_DATA_DIR)) {
 			size_t n = strlen(SK_TEST_DATA_DIR);
 			if (n + 1u > (size_t)out_cap) {
@@ -93,34 +85,52 @@ i32 sk_resource_fixture_dir(char* out, u32 out_cap) {
 
 	/* 2) Relative to the running executable (…/build/bin → source tree) */
 	if (fs->app_folder(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
-		if (try_join_fixture_root(base, "tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		if (try_join_fixture_root(base, "../tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "../tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		if (try_join_fixture_root(base, "../../tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "../../tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
 	}
 
 	/* 3) Relative to cwd (ctest WORKING_DIRECTORY is usually {build}/bin) */
 	if (fs->current_dir(base, (u32)sizeof(base)) == 0 && base[0] != '\0') {
-		if (try_join_fixture_root(base, "tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		if (try_join_fixture_root(base, "../tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "../tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		if (try_join_fixture_root(base, "../../tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "../../tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
-		if (try_join_fixture_root(base, "../../../tests/data", out, out_cap) == 0) {
+		if (try_join_fixture_root(base, "../../../tests/data", subdir, out, out_cap) == 0) {
 			return 0;
 		}
 	}
 
 	return -1;
+}
+
+/* Relative root under tests/data/ */
+static const char fixture_subdir[] = "resource_object";
+
+static const sk_resource_fixture_desc_t fixture_catalog[SK_RESOURCE_FIXTURE_COUNT] = {
+	{SK_RESOURCE_FIXTURE_BUFFER_SMALL, "buffer_small", "buffer_small.json", "buffer_small.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_PRESENT, SK_RESOURCE_FIXTURE_SMALL_SIZE},
+	{SK_RESOURCE_FIXTURE_BUFFER_LARGE, "buffer_large", "buffer_large.json", "buffer_large.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_PRESENT, SK_RESOURCE_FIXTURE_LARGE_SIZE},
+	{SK_RESOURCE_FIXTURE_BUFFER_EMPTY, "buffer_empty", "buffer_empty.json", "buffer_empty.bin", SK_RESOURCE_FIXTURE_BUFFER_STATE_EMPTY, 0u},
+	{SK_RESOURCE_FIXTURE_BUFFER_ABSENT, "buffer_absent", "buffer_absent.json", NULL, SK_RESOURCE_FIXTURE_BUFFER_STATE_ABSENT, 0u},
+};
+
+const sk_resource_fixture_desc_t* sk_resource_fixture_desc(sk_resource_fixture_id_t id) {
+	return &fixture_catalog[(u32)id < (u32)SK_RESOURCE_FIXTURE_COUNT ? (u32)id : 0u];
+}
+
+i32 sk_resource_fixture_dir(char* out, u32 out_cap) {
+	return sk_resource_fixture_dir_for_subdir(fixture_subdir, out, out_cap);
 }
 
 i32 sk_resource_fixture_path(const_chr_t relative_name, char* out, u32 out_cap) {

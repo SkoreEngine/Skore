@@ -72,7 +72,7 @@
  * | Non-finite Float (NaN / Inf) | not representable | Standard JSON has no NaN/Inf; serialize returns non-zero |
  * | Non-UTF-8 String payloads | unsupported | Use Blob for arbitrary bytes |
  * | SubObject ownership cycles | unsupported | Hierarchy parent chain assumes a tree/DAG; soft REFERENCE cycles are fine |
- * | Vectors / quats / mat / color / enum | not used by asset types | Generic kinds reserved; not required for APX-186 types |
+ * | Vectors / quats / mat / color / enum | JSON float arrays / uint | Component payload types (APX-300) use these kinds; vec2/3/4, quat, mat4, color serialize as arrays of 2/3/4/4/16 floats, enum as a uint (APX-301) |
  * | Concurrent multi-thread (de)serialize | unsupported | Single-thread / external lock only (see Threading) |
  */
 
