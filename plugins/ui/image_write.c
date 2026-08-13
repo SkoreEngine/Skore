@@ -517,7 +517,23 @@ SK_TEST(ui_test_artifact_png_path_in_subdir) {
 
 	/* Nested: root/text-screenshot/msdf/name.png — file component clean. */
 	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "text-screenshot/msdf", "pangram", nested, (u32)sizeof(nested)));
-	TEST_ASSERT_TRUE(strncmp(nested, root, strlen(root)) == 0);
+	/* Prefix equals root modulo separator style: root keeps '/' from
+	 * SK_TEST_ARTIFACT_DIR while sk_path_join normalizes to SK_PATH_SEPARATOR
+	 * ('\\' on Windows), so '/' and '\\' must compare equal here. */
+	{
+		const char* a = nested;
+		const char* b = root;
+		i32 prefix_matches = 1;
+		while (*b != '\0') {
+			if (*a == '\0' || (sk_path_is_sep(*a) ? !sk_path_is_sep(*b) : (*a != *b))) {
+				prefix_matches = 0;
+				break;
+			}
+			++a;
+			++b;
+		}
+		TEST_ASSERT_TRUE(prefix_matches);
+	}
 	TEST_ASSERT_TRUE(strstr(nested, "text-screenshot") != NULL);
 	TEST_ASSERT_TRUE(strstr(nested, "msdf") != NULL);
 	TEST_ASSERT_TRUE(strstr(nested, "pangram.png") != NULL);
