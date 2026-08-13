@@ -117,6 +117,16 @@ enum sk_entity_resource_field_t {
 	SK_ENTITY_RESOURCE_FIELD_CHILDREN = 2,
 };
 
+/* SceneResource fields (APX-297, resource-to-ECS mapping contract §4.1).
+ * Name stays at index 0 so existing JSON envelopes stay valid; Roots is an
+ * owned SubObjectList of root entity_resource payloads (each root carries its
+ * own Components + Children). The scene does not invent an implicit ECS
+ * scene entity. */
+enum sk_scene_resource_field_t {
+	SK_SCENE_RESOURCE_FIELD_NAME = 0,
+	SK_SCENE_RESOURCE_FIELD_ROOTS = 1,
+};
+
 /**
  * Register the payload resource types used by the built-in handlers/importers
  * (Name [+ Content/Bytes]) plus the built-in ECS component payload types
