@@ -261,3 +261,22 @@ add_subdirectory(editor)
 add_subdirectory(player)
 add_subdirectory(plugins)
 add_subdirectory(tests)
+
+# ---------------------------------------------------------------------------
+# APX-275: engine header install/package rule — public headers only.
+#
+# The engine's exported header surface is foundation/ + plugins/. Every *.h
+# under those trees is installed EXCEPT the internal-only *.internal.h
+# extension and the internal/ subdirectories (foundation/internal, etc.).
+# This is a pattern rule, not a filename list: a new public header is picked
+# up automatically, and a new internal header is excluded automatically.
+# Internal headers stay compile-time-only (plugin PRIVATE include dirs) and
+# are never installed, packaged, or exported.
+# If you add another header install/export site, apply the same
+# "*.internal.h" / "internal/" exclusion patterns there.
+# ---------------------------------------------------------------------------
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/foundation
+                  ${CMAKE_CURRENT_SOURCE_DIR}/plugins
+        DESTINATION include/skore
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.internal.h" EXCLUDE PATTERN "internal" EXCLUDE)
+

@@ -1,4 +1,6 @@
 file(GLOB_RECURSE SKORE_PLATFORM_WINDOW_SOURCES *.h *.c)
+# APX-275: exclude the internal-only extension (*.internal.h) — pattern rule, never exported/installed.
+list(FILTER SKORE_PLATFORM_WINDOW_SOURCES EXCLUDE REGEX "\\.internal\\.h$")
 
 sk_add_plugin(platform-window SOURCES ${SKORE_PLATFORM_WINDOW_SOURCES})
 

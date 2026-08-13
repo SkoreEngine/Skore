@@ -11,7 +11,7 @@
  */
 
 #include "ui.h"
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 
@@ -1663,6 +1663,12 @@ static const sk_ui_api_t ui_api = {
 	ui_sample_dock_demo_build_impl,
 	ui_sample_dock_demo_logical_size_impl,
 };
+
+/**
+ * Register the UI API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 static const sk_logger_api_t* g_ui_logger_api;
 static sk_logger_context_t* g_ui_log_ctx;

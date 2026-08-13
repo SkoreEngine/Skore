@@ -7,7 +7,7 @@
  * solid/rounded rects, borders, textured quads, glyph quads, and clip push/pop.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

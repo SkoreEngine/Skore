@@ -903,6 +903,12 @@ static const sk_profiler_api_t profiler_api = {
 
 /* ---- registration (called from sk_plugin_entry_point) ---- */
 
+/**
+ * Register the profiler API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_profiler_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	app_context = context;
 	app_api_table = app_api;

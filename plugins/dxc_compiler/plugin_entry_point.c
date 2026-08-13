@@ -2,6 +2,9 @@
 #include "common.h"
 #include "dxc_compiler.h"
 
+/* Defined in dxc_compiler.c; registers the static API table on the app. */
+void sk_dxc_compiler_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 /**
  * Plugin load entry: resolved via host platform lib_symbol after app init.
  *

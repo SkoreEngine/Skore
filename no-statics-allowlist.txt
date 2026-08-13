@@ -166,6 +166,8 @@ plugins/profiler/core/profiler_core.c:thread_ctx_owner
 # ---------------------------------------------------------------------------
 # plugins — SK_TESTS-only test scaffolding
 # ---------------------------------------------------------------------------
+plugins/entities/entities.c:fake_load_probe
+plugins/ui/dock.c:ui_dock_test_close_id
 plugins/profiler/core/profiler_core_tests.c:test_clock_now
 plugins/ui/test_engine.c:g_te_click_button
 plugins/ui/test_engine.c:g_te_click_count

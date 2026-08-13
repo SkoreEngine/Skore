@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file vulkan_render_device_internal.h
+ * @file vulkan_render_device.internal.h
  * @brief Private types for the Vulkan render device plugin (APX-50).
  *
  * Full struct definitions for every backend object live here (a private

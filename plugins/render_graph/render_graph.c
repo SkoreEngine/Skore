@@ -3677,6 +3677,12 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_get_barrier_info_impl,
 };
 
+/**
+ * Register the render-graph API on the app context.
+ * Called from sk_plugin_entry_point; not part of the public host surface.
+ */
+void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_rg_app_context = context;
 	g_rg_app_api = app_api;

@@ -15,7 +15,7 @@
  * pointers; never free them with free()).
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 #include "path.h"
