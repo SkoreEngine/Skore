@@ -18,6 +18,10 @@
  * crash), and the three motion-type behaviors — a dynamic body falls under
  * gravity and rests on a static floor within a bounded step count, a static
  * body never moves, and a kinematic body holds an explicitly set transform.
+ * The layer/collision-filter contract (APX-321) is verified end to end:
+ * two dynamic bodies on layers configured not to collide interpenetrate
+ * freely, the same bodies on colliding layers resolve contact, and a body
+ * on the ghost SENSOR layer falls through the static floor.
  * Character controllers are still stubbed.
  */
 
@@ -451,6 +455,16 @@ SK_TEST(jolt_body_create_and_destroy) {
 	TEST_ASSERT_NULL(api->body_create(NULL, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_MOVING));
 	TEST_ASSERT_NULL(api->body_create(&desc, (sk_jolt_motion_type_t)42, SK_JOLT_OBJECT_LAYER_MOVING));
 	TEST_ASSERT_NULL(api->body_create(&desc, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_INVALID));
+
+	/* Every documented object layer is accepted at creation (the pair and
+	 * broad-phase filters index their mask tables by layer; see the matrix
+	 * in jolt.h). */
+	sk_jolt_body_t* sensor_body = api->body_create(&desc, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_SENSOR);
+	TEST_ASSERT_NOT_NULL(sensor_body);
+	api->body_destroy(sensor_body);
+	sk_jolt_body_t* static_geom = api->body_create(&desc, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING);
+	TEST_ASSERT_NOT_NULL(static_geom);
+	api->body_destroy(static_geom);
 	api->shutdown();
 }
 
@@ -565,6 +579,171 @@ SK_TEST(jolt_dynamic_body_falls_and_rests) {
 	TEST_ASSERT_TRUE(settled);
 	TEST_ASSERT_TRUE(pos.y > 0.4f && pos.y < 0.6f);
 	TEST_ASSERT_TRUE(jolt_test_vec3_len_sq(&vel) < 0.1f * 0.1f);
+
+	/* The floor itself never moved. */
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(floor, &floor_pos));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&floor_start, &floor_pos, 1.0e-4f));
+
+	api->body_destroy(box);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* ---- layer / collision-filter behavior (APX-321) ---- */
+
+/* Shared scenario for the layer filter tests: two dynamic 1 m cubes with
+ * centers 2 m apart, A moving toward B at 5 m/s under zero gravity; runs
+ * 1 s (60 fixed steps) and reports the resulting centers and B's velocity.
+ * Returns 0 on success (non-zero when any accessor failed). */
+static i32 jolt_test_run_body_pair(const sk_jolt_api_t* api, u32 layer_a, u32 layer_b, sk_jolt_vec3_t* out_a, sk_jolt_vec3_t* out_b, sk_jolt_vec3_t* out_vel_b) {
+	sk_jolt_body_t* a = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, layer_a, 0.5f);
+	sk_jolt_body_t* b = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, layer_b, 0.5f);
+	sk_jolt_vec3_t pos_a = jolt_test_vec3(-1.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t pos_b = jolt_test_vec3(1.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vel_a = jolt_test_vec3(5.0f, 0.0f, 0.0f);
+	i32 i;
+	i32 rc;
+	if (a == NULL || b == NULL) {
+		return -1;
+	}
+	rc = api->body_set_position(a, &pos_a);
+	rc |= api->body_set_position(b, &pos_b);
+	rc |= api->body_set_linear_velocity(a, &vel_a);
+	if (rc != 0) {
+		api->body_destroy(a);
+		api->body_destroy(b);
+		return -1;
+	}
+	for (i = 0; i < 60; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	rc = api->body_get_position(a, out_a);
+	rc |= api->body_get_position(b, out_b);
+	rc |= api->body_get_linear_velocity(b, out_vel_b);
+	api->body_destroy(a);
+	api->body_destroy(b);
+	return rc;
+}
+
+/* The documented collision matrix (jolt.h) is real in the object-layer pair
+ * filter: two dynamic bodies on layers configured not to collide
+ * interpenetrate freely. Here A is on MOVING and B on SENSOR — the matrix
+ * says MOVING-vs-SENSOR never collides — so A passes straight through B
+ * without transferring any momentum, and B never moves. The same pair on
+ * the SENSOR layer (SENSOR-vs-SENSOR) behaves identically. */
+SK_TEST(jolt_layers_non_colliding_bodies_interpenetrate) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	sk_jolt_vec3_t pa = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t pb = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vb = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t rest = jolt_test_vec3(1.0f, 0.0f, 0.0f);
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.gravity[0] = 0.0f;
+	s.gravity[1] = 0.0f;
+	s.gravity[2] = 0.0f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	/* MOVING vs SENSOR: no collision. */
+	TEST_ASSERT_EQUAL_INT32(0, jolt_test_run_body_pair(api, SK_JOLT_OBJECT_LAYER_MOVING, SK_JOLT_OBJECT_LAYER_SENSOR, &pa, &pb, &vb));
+	/* A crossed through B (its center is now beyond B's plus half a cube)... */
+	TEST_ASSERT_TRUE(pa.x > pb.x + 1.0f);
+	/* ...and B stayed exactly where it was: no contact, no momentum. */
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&rest, &pb, 1.0e-3f));
+	TEST_ASSERT_TRUE(jolt_test_vec3_len_sq(&vb) < 1.0e-6f);
+
+	/* SENSOR vs SENSOR (both bodies on the same non-colliding layer). */
+	TEST_ASSERT_EQUAL_INT32(0, jolt_test_run_body_pair(api, SK_JOLT_OBJECT_LAYER_SENSOR, SK_JOLT_OBJECT_LAYER_SENSOR, &pa, &pb, &vb));
+	TEST_ASSERT_TRUE(pa.x > pb.x + 1.0f);
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&rest, &pb, 1.0e-3f));
+
+	api->shutdown();
+}
+
+/* The same two dynamic bodies on colliding layers (both MOVING) resolve
+ * contact: A's impact pushes B forward, A stays behind B, and the cubes
+ * never interpenetrate (centers stay at least one cube width apart). */
+SK_TEST(jolt_layers_colliding_bodies_resolve_contact) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	sk_jolt_vec3_t pa = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t pb = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vb = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.gravity[0] = 0.0f;
+	s.gravity[1] = 0.0f;
+	s.gravity[2] = 0.0f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	TEST_ASSERT_EQUAL_INT32(0, jolt_test_run_body_pair(api, SK_JOLT_OBJECT_LAYER_MOVING, SK_JOLT_OBJECT_LAYER_MOVING, &pa, &pb, &vb));
+	/* B was at rest at x=1; the collision transferred momentum to it. */
+	TEST_ASSERT_TRUE(pb.x > 1.1f);
+	TEST_ASSERT_TRUE(vb.x > 0.5f);
+	/* A never passed through B: B stays ahead of A... */
+	TEST_ASSERT_TRUE(pa.x < pb.x);
+	/* ...and the cubes never interpenetrate (centers >= 2 * half = 1.0). */
+	TEST_ASSERT_TRUE(pb.x - pa.x >= 1.0f - 5.0e-2f);
+
+	api->shutdown();
+}
+
+/* A body on a non-colliding layer with the static floor falls through it:
+ * the SENSOR layer does not collide with NON_MOVING, so a dynamic cube
+ * dropped onto the static floor keeps falling instead of resting on it (the
+ * control — the same drop on MOVING — rests on the floor, see
+ * jolt_dynamic_body_falls_and_rests above). */
+SK_TEST(jolt_layer_sensor_falls_through_static_floor) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t vel = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	sk_jolt_vec3_t floor_pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	i32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL)); /* default gravity */
+
+	/* Floor: static box 20×2×20 centered at y=-1 → top surface at y=0. */
+	sk_jolt_shape_desc_t floor_desc = {0};
+	floor_desc.kind = SK_JOLT_SHAPE_BOX;
+	floor_desc.shape.box.half_extent[0] = 10.0f;
+	floor_desc.shape.box.half_extent[1] = 1.0f;
+	floor_desc.shape.box.half_extent[2] = 10.0f;
+	sk_jolt_body_t* floor = api->body_create(&floor_desc, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING);
+	TEST_ASSERT_NOT_NULL(floor);
+	const sk_jolt_vec3_t floor_start = jolt_test_vec3(0.0f, -1.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(floor, &floor_start));
+
+	/* Ghost box: dynamic 1×1×1 on the SENSOR layer, dropped from y=5. */
+	sk_jolt_body_t* box = jolt_test_body_box(api, SK_JOLT_MOTION_TYPE_DYNAMIC, SK_JOLT_OBJECT_LAYER_SENSOR, 0.5f);
+	TEST_ASSERT_NOT_NULL(box);
+	const sk_jolt_vec3_t drop_start = jolt_test_vec3(0.0f, 5.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_set_position(box, &drop_start));
+
+	/* 2 s of free fall from 5 m puts the center at y ≈ -14 (with the default
+	 * linear damping ≈ -14); it must be well below the floor's bottom face
+	 * at y=-2 — the floor never touched it. */
+	for (i = 0; i < 120; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(box, &pos));
+	TEST_ASSERT_TRUE(pos.y < -3.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->body_get_linear_velocity(box, &vel));
+	TEST_ASSERT_TRUE(vel.y < 0.0f); /* still falling */
 
 	/* The floor itself never moved. */
 	TEST_ASSERT_EQUAL_INT32(0, api->body_get_position(floor, &floor_pos));

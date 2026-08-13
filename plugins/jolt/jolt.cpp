@@ -108,7 +108,26 @@ constexpr f32 kAccumulatorEpsilon = 1.0e-4f;
 
 /* ---- object-layer / broad-phase-layer collision model ---- */
 
-/** Maps the two 16-bit object layers onto the two 8-bit broad-phase layers. */
+/**
+ * Layer collision masks: bit N = collides with object layer N. These ARE the
+ * SK_JOLT_COLLISION_MASK_* constants from jolt.h (the documented filter
+ * matrix); the object-layer pair filter below is driven straight from this
+ * table, so the header's matrix and the running filter can never drift
+ * apart. The matrix is symmetric, so every mask pair agrees in both
+ * directions.
+ */
+constexpr u32 kLayerCollisionMasks[SK_JOLT_OBJECT_LAYER_COUNT] = {
+	SK_JOLT_COLLISION_MASK_NON_MOVING,
+	SK_JOLT_COLLISION_MASK_MOVING,
+	SK_JOLT_COLLISION_MASK_SENSOR,
+};
+
+/**
+ * Maps the object layers onto the two 8-bit broad-phase layers: static
+ * geometry lives in its own layer (0); every moving object layer (MOVING
+ * bodies and SENSOR ghosts) shares the moving layer (1), so moving-vs-static
+ * pairs still get broad-phase candidates.
+ */
 class BroadPhaseLayerInterfaceImpl : public JPH::BroadPhaseLayerInterface {
 public:
 	JPH::uint GetNumBroadPhaseLayers() const override {
@@ -116,36 +135,58 @@ public:
 	}
 
 	JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override {
-		return (inLayer == SK_JOLT_OBJECT_LAYER_MOVING) ? kBroadPhaseMoving : kBroadPhaseNonMoving;
+		switch (inLayer) {
+		case SK_JOLT_OBJECT_LAYER_MOVING:
+		case SK_JOLT_OBJECT_LAYER_SENSOR:
+			return kBroadPhaseMoving;
+		default: /* NON_MOVING (and unknown layers; body_create validates) */
+			return kBroadPhaseNonMoving;
+		}
 	}
 };
 
 /**
- * Object layer vs broad-phase layer: static geometry (object layer 0) only
- * collides with the MOVING broad-phase layer; moving bodies collide with
- * both. Mirrors the reference ObjectVsBroadPhaseLayerFilterImpl.
+ * Object layer vs broad-phase layer: mirrors the collision matrix so the
+ * coarse broad-phase pass never admits a pair the object-layer pair filter
+ * rejects. Concretely:
+ *   - NON_MOVING (static geometry) only reaches the MOVING broad-phase
+ *     layer (static-vs-static pairs never collide);
+ *   - MOVING reaches both broad-phase layers (static + moving);
+ *   - SENSOR reaches neither (ghost bodies pass through everything).
  */
 class ObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
 	bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override {
-		if (inLayer1 == SK_JOLT_OBJECT_LAYER_NON_MOVING) {
+		switch (inLayer1) {
+		case SK_JOLT_OBJECT_LAYER_MOVING:
+			return true;
+		case SK_JOLT_OBJECT_LAYER_NON_MOVING:
 			return inLayer2 == kBroadPhaseMoving;
+		default: /* SENSOR (and unknown layers): ghost, no broad-phase pairs */
+			return false;
 		}
-		return true;
 	}
 };
 
 /**
- * Object layer pair filter: static-vs-static pairs never collide; every
- * other combination does. Mirrors the reference ObjectLayerPairFilterImpl.
+ * Object layer pair filter: a body on layer A collides with layer B iff
+ * both collision masks agree — bit B set in mask A and bit A set in mask B.
+ * Implemented straight from the SK_JOLT_COLLISION_MASK_* constants (see
+ * kLayerCollisionMasks), so the matrix documented in jolt.h is the single
+ * source of truth:
+ *
+ *                     NON_MOVING   MOVING   SENSOR
+ *   NON_MOVING            no         yes      no
+ *   MOVING                yes        yes      no
+ *   SENSOR                no         no       no
  */
 class ObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter {
 public:
 	bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override {
-		if (inObject1 == SK_JOLT_OBJECT_LAYER_NON_MOVING && inObject2 == SK_JOLT_OBJECT_LAYER_NON_MOVING) {
+		if (inObject1 >= SK_JOLT_OBJECT_LAYER_COUNT || inObject2 >= SK_JOLT_OBJECT_LAYER_COUNT) {
 			return false;
 		}
-		return true;
+		return (kLayerCollisionMasks[inObject1] & (1u << inObject2)) != 0u && (kLayerCollisionMasks[inObject2] & (1u << inObject1)) != 0u;
 	}
 };
 
@@ -437,7 +478,9 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 		}
 		return nullptr;
 	}
-	if (object_layer != SK_JOLT_OBJECT_LAYER_NON_MOVING && object_layer != SK_JOLT_OBJECT_LAYER_MOVING) {
+	/* The object layer must be one of the documented layers (the pair and
+	 * broad-phase filters index their mask tables by it). */
+	if (object_layer >= SK_JOLT_OBJECT_LAYER_COUNT) {
 		if (g_jolt_log != nullptr) {
 			sk_log_warn(sk_logger_api(), g_jolt_log, "body create failed: invalid object layer %u", object_layer);
 		}
@@ -694,7 +737,18 @@ static_assert(std::is_enum<sk_jolt_motion_type_t>::value && std::is_trivial<sk_j
 /* Motion type values mirror JPH::EMotionType; layer/group constants mirror
  * the vendored Jolt defaults so later integration maps 1:1. */
 static_assert((int)SK_JOLT_MOTION_TYPE_STATIC == 0 && (int)SK_JOLT_MOTION_TYPE_KINEMATIC == 1 && (int)SK_JOLT_MOTION_TYPE_DYNAMIC == 2);
+static_assert(SK_JOLT_OBJECT_LAYER_NON_MOVING == 0u && SK_JOLT_OBJECT_LAYER_MOVING == 1u && SK_JOLT_OBJECT_LAYER_SENSOR == 2u);
+static_assert(SK_JOLT_OBJECT_LAYER_COUNT == 3u);
 static_assert(SK_JOLT_OBJECT_LAYER_INVALID == 0xFFFFu);
+/* The per-layer collision masks must stay the bits of the layers they
+ * collide with (the pair filter is driven from them; see the header
+ * matrix). The matrix is symmetric, so each mask pair agrees both ways. */
+static_assert(SK_JOLT_COLLISION_MASK_NON_MOVING == (1u << SK_JOLT_OBJECT_LAYER_MOVING));
+static_assert(SK_JOLT_COLLISION_MASK_MOVING == ((1u << SK_JOLT_OBJECT_LAYER_NON_MOVING) | (1u << SK_JOLT_OBJECT_LAYER_MOVING)));
+static_assert(SK_JOLT_COLLISION_MASK_SENSOR == 0u);
+static_assert((SK_JOLT_COLLISION_MASK_NON_MOVING & (1u << SK_JOLT_OBJECT_LAYER_NON_MOVING)) == 0u);
+static_assert((SK_JOLT_COLLISION_MASK_MOVING & (1u << SK_JOLT_OBJECT_LAYER_SENSOR)) == 0u);
+static_assert((SK_JOLT_COLLISION_MASK_SENSOR & SK_JOLT_COLLISION_MASK_MOVING) == 0u);
 static_assert(SK_JOLT_COLLISION_GROUP_INVALID == 0xFFFFFFFFu && SK_JOLT_COLLISION_MASK_ALL == 0xFFFFFFFFu);
 
 #ifdef SK_TESTS

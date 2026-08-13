@@ -17,7 +17,7 @@
  * lives in .cpp translation units that link the vendored Jolt library
  * (thirdparty/jolt) behind this boundary.
  *
- * Current stage (APX-320): the physics world lifecycle and the fixed-step
+ * Current stage (APX-321): the physics world lifecycle and the fixed-step
  * simulation loop are implemented — Jolt Factory/RegisterTypes setup, a
  * 10 MiB TempAllocator, a JobSystemThreadPool, the broad-phase layer
  * interface, the object-vs-broad-phase and object-layer pair filters, a
@@ -27,14 +27,22 @@
  * construction order with no leaks; repeated engine start/stop cycles are
  * supported (verified by plugin tests). Rigid bodies are implemented:
  * body_create() builds a Jolt body from the box/sphere/capsule shape
- * descriptions with static/kinematic/dynamic motion types, body_destroy()
- * removes and destroys it, and the position / rotation / linear + angular
- * velocity accessors get and set the body state through POD structs
- * (sk_jolt_vec3_t / sk_jolt_quat_t). Every body handle is validated on access, so
- * using a handle after destroy (or after world shutdown) returns an error
- * instead of crashing. A CollisionListener is deliberately **not**
- * implemented (explicitly out of scope); character controllers remain
- * empty stubs (character_create returns NULL) until a later stage.
+ * descriptions with static/kinematic/dynamic motion types and an explicit
+ * object layer, body_destroy() removes and destroys it, and the position /
+ * rotation / linear + angular velocity accessors get and set the body state
+ * through POD structs (sk_jolt_vec3_t / sk_jolt_quat_t). Every body handle is
+ * validated on access, so using a handle after destroy (or after world
+ * shutdown) returns an error instead of crashing.
+ *
+ * The layer and collision-filter constants below are wired to the filters:
+ * the object-layer pair filter is driven straight from the per-layer
+ * SK_JOLT_COLLISION_MASK_* masks (the documented matrix is the single
+ * source of truth), the object-vs-broad-phase filter mirrors the same
+ * matrix, and the layer set includes the ghost SK_JOLT_OBJECT_LAYER_SENSOR
+ * (collides with nothing — passes through floors and bodies). A
+ * CollisionListener is deliberately **not** implemented (explicitly out of
+ * scope); character controllers remain empty stubs (character_create
+ * returns NULL) until a later stage.
  *
  * # Body handles
  *
@@ -68,10 +76,19 @@
  *
  * # Layer / collision-filter model
  *
- * Two object layers (non-moving static geometry, moving bodies) map 1:1 onto
- * two broad-phase layers, the classic Jolt HelloWorld setup; characters use
- * their own collision group so the pair filter can later separate dynamic
- * bodies from character probes without changing the layer set.
+ * Three object layers implement the documented collision matrix (see the
+ * constants below): NON_MOVING static geometry never collides with other
+ * static geometry; MOVING bodies collide with static geometry and with each
+ * other; SENSOR ghost bodies collide with nothing (they fall through the
+ * floor and pass through other bodies — triggers/probes). The object-layer
+ * pair filter is driven straight from the per-layer SK_JOLT_COLLISION_MASK_*
+ * constants and the object-vs-broad-phase filter mirrors the same matrix, so
+ * the header is the single source of truth for the filter behavior.
+ * NON_MOVING maps to broad-phase layer 0; MOVING and SENSOR (both can move)
+ * share broad-phase layer 1. Collision groups are a separate mechanism:
+ * characters use their own collision group so the group filter can later
+ * separate dynamic bodies from character probes without changing the layer
+ * set.
  *
  * # Thread model / lifecycle
  *
@@ -205,11 +222,40 @@ typedef struct sk_jolt_shape_desc_t {
 /*  Layers and collision-filter constants                             */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Object-layer collision matrix — the documented filter contract. A pair of
+ * bodies collides iff the matrix entry for their two object layers is
+ * "yes" (the matrix is symmetric). The same contract is encoded in the
+ * SK_JOLT_COLLISION_MASK_* per-layer masks below and implemented by the
+ * object-layer pair filter in jolt.cpp; the object-vs-broad-phase filter
+ * mirrors it so the coarse broad-phase pass never admits a pair the pair
+ * filter would reject.
+ *
+ *                     NON_MOVING   MOVING   SENSOR
+ *   NON_MOVING (static)    no        yes       no
+ *   MOVING (dynamic)       yes       yes       no
+ *   SENSOR (ghost)         no        no        no
+ *
+ *   NON_MOVING  Static world geometry (floors, walls). Never moves and
+ *               never collides with other static geometry.
+ *   MOVING      Dynamic/kinematic bodies. Collide with static geometry and
+ *               with each other.
+ *   SENSOR      Ghost bodies. Collide with nothing: they pass through the
+ *               static floor and through every other body (triggers,
+ *               probes, or bodies that must never block).
+ */
+
 /** Object layer (Jolt ObjectLayer, 16-bit) of static, non-moving geometry. */
 #define SK_JOLT_OBJECT_LAYER_NON_MOVING 0u
 
 /** Object layer (Jolt ObjectLayer, 16-bit) of dynamic/kinematic bodies. */
 #define SK_JOLT_OBJECT_LAYER_MOVING 1u
+
+/** Object layer (Jolt ObjectLayer, 16-bit) of ghost bodies: collide with nothing. */
+#define SK_JOLT_OBJECT_LAYER_SENSOR 2u
+
+/** Number of object layers (size of the collision-mask / broad-phase tables). */
+#define SK_JOLT_OBJECT_LAYER_COUNT 3u
 
 /** Invalid object layer (Jolt cObjectLayerInvalid with 16-bit layers). */
 #define SK_JOLT_OBJECT_LAYER_INVALID 0xFFFFu
@@ -222,6 +268,37 @@ typedef struct sk_jolt_shape_desc_t {
 
 /** Number of broad-phase layers (Jolt BroadPhaseLayerInterface size). */
 #define SK_JOLT_BROAD_PHASE_LAYER_COUNT 2u
+
+/*
+ * Collision-filter masks: one bit per object layer (bit N = object layer N,
+ * i.e. 1u << SK_JOLT_OBJECT_LAYER_<N>). A body on layer L collides with
+ * layer M iff bit M is set in SK_JOLT_COLLISION_MASK_<L>; the matrix is
+ * symmetric, so both masks must agree (the pair filter requires both
+ * directions). These masks ARE the matrix above — the object-layer pair
+ * filter is driven straight from them, so the header stays the single
+ * source of truth.
+ */
+
+/** Collision-filter mask of NON_MOVING: collides with MOVING bodies only. */
+#define SK_JOLT_COLLISION_MASK_NON_MOVING (1u << SK_JOLT_OBJECT_LAYER_MOVING)
+
+/** Collision-filter mask of MOVING: collides with static geometry and MOVING bodies. */
+#define SK_JOLT_COLLISION_MASK_MOVING ((1u << SK_JOLT_OBJECT_LAYER_NON_MOVING) | (1u << SK_JOLT_OBJECT_LAYER_MOVING))
+
+/** Collision-filter mask of SENSOR: collides with nothing. */
+#define SK_JOLT_COLLISION_MASK_SENSOR 0u
+
+/*
+ * Collision groups (Jolt CollisionGroup::GroupID, 32-bit) are a separate
+ * filter mechanism from the object layers above: layers are resolved by the
+ * broad-phase / object-layer pair filters, groups by the per-body
+ * GroupFilter during pair processing. Bodies currently carry the Jolt
+ * default (no group filter, cInvalidGroup), which collides with everything;
+ * the character stage will give character probes their own group so the
+ * group filter can separate them from dynamic bodies without changing the
+ * layer set — SK_JOLT_COLLISION_GROUP_DEFAULT / _CHARACTER are that
+ * contract.
+ */
 
 /** Collision group (Jolt CollisionGroup::GroupID, 32-bit) for regular bodies. */
 #define SK_JOLT_COLLISION_GROUP_DEFAULT 1u
@@ -406,7 +483,8 @@ typedef struct sk_jolt_api_t {
 	 * @param motion_type  Motion type (see sk_jolt_motion_type_t); must be one of
 	 *                     the three documented values.
 	 * @param object_layer Object layer the body is placed on
-	 *                     (SK_JOLT_OBJECT_LAYER_*; one of the two documented layers).
+	 *                     (SK_JOLT_OBJECT_LAYER_*; one of the documented layers —
+	 *                     see the filter matrix above).
 	 * @return New body handle (valid until body_destroy or shutdown), or NULL
 	 *         when the world is not initialized or creation failed.
 	 */
