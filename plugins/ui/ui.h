@@ -1252,6 +1252,8 @@ typedef enum sk_ui_dock_dir_t {
 #define SK_UI_DOCK_LEAF_TABS_MAX 32u
 /** Max pending window-id binds per dockspace (create-then-dock / load-then-create). */
 #define SK_UI_DOCK_PENDING_MAX 64u
+/** Max host window ids registered for restore mismatch (defaults + drop). */
+#define SK_UI_DOCK_WINDOW_REG_MAX 64u
 
 /** Splitter band thickness along the split main axis (logical points). */
 #define SK_UI_DOCK_SPLITTER_PT 6.0f
@@ -2982,6 +2984,17 @@ typedef struct sk_ui_api_t {
 	/** Non-zero if @p window_id is in a leaf (not floating / unknown). */
 	i32 (*dock_window_is_docked)(const sk_ui_context_t* ctx, const_chr_t window_id);
 
+	/**
+	 * Register a host window id for layout restore reconciliation.
+	 * @p default_target is a stable dock-node id (`dock_builder_set_node_id`)
+	 * used when the saved layout has no position for this window. NULL or
+	 * empty means float at @p default_rect (or 80,60,360,240 when NULL).
+	 * Re-registering the same id updates the defaults. Cap
+	 * SK_UI_DOCK_WINDOW_REG_MAX.
+	 * @return 0 on success, non-zero if @p window_id is empty or the table is full.
+	 */
+	i32 (*dock_window_register)(sk_ui_context_t* ctx, const_chr_t window_id, const_chr_t default_target, const sk_ui_rect_t* default_rect);
+
 	/* ---- persist (JSON save/restore. PR 5 may add archive pointers.) ---- */
 
 	/**
@@ -3000,7 +3013,13 @@ typedef struct sk_ui_api_t {
 	 * than SK_UI_DOCK_LAYOUT_VERSION (unknown/newer and older alike; older
 	 * documents are not migrated), logs the encountered version, and leaves
 	 * the live tree unchanged so the host can keep the default layout.
-	 * Missing windows become pending binds. Error if a builder session is
+	 * Unparseable documents also fail without mutating the live tree.
+	 * Serialized window ids that are neither live (`find_by_id`) nor
+	 * `dock_window_register`'d are dropped and empty leaves collapse
+	 * (cascading through nested splits). Registered windows missing from the
+	 * document fall back to their declared default dock target, or float at
+	 * the declared rect when they have no target. Registered-but-not-yet-
+	 * created ids still become pending binds. Error if a builder session is
 	 * open. Does not destroy editor_window nodes (teardown reparents first).
 	 * Rebuilds splits, tab order, the active tab index, and floating window
 	 * rects, then applies. Creates the named dockspace if it does not exist

@@ -136,6 +136,16 @@ typedef struct ui_dock_pending_t {
 	sk_ui_dock_dir_t dir;
 } ui_dock_pending_t;
 
+/** Host window catalog: restore drop / default placement. */
+typedef struct ui_dock_window_reg_t {
+	char* id;
+	char* default_target; /**< Stable dock-node id, or NULL to float. */
+	f32 x;
+	f32 y;
+	f32 w;
+	f32 h;
+} ui_dock_window_reg_t;
+
 typedef struct ui_dockspace_t {
 	char* id;
 	u32 flags;
@@ -226,8 +236,13 @@ struct sk_ui_context_t {
 	sk_ui_dock_node_t dock_builder_root;
 	i32 dock_builder_open;
 	i32 dock_applying;
+	u8 dock_restoring;		 /**< Non-zero while dock_layout_load_json rebuilds the tree. */
+	u8 _dock_restore_pad[3]; /**< Align after dock_restoring. */
 	ui_dock_window_map_t dock_window_map;
 	ui_dock_tab_map_t dock_tab_nodes;
+	ui_dock_window_reg_t dock_regs[SK_UI_DOCK_WINDOW_REG_MAX];
+	u32 dock_reg_count;
+	u8 _dock_reg_pad[4]; /**< Align after dock_reg_count. */
 	sk_ui_dock_tab_fn dock_tab_cb;
 	void_ptr_t dock_tab_user;
 	u32 dock_leaf_count;
@@ -703,6 +718,7 @@ i32 ui_dock_split_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t node, f
 sk_ui_dock_node_t ui_dock_split_child_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, u32 index);
 sk_ui_node_t ui_dock_node_host_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
 i32 ui_dock_window_is_docked_impl(const sk_ui_context_t* ctx, const_chr_t window_id);
+i32 ui_dock_window_register_impl(sk_ui_context_t* ctx, const_chr_t window_id, const_chr_t default_target, const sk_ui_rect_t* default_rect);
 
 i32 ui_dock_layout_save_json_impl(const sk_ui_context_t* ctx, const_chr_t dockspace_id, char* out, u32 cap, u32* out_len);
 i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);

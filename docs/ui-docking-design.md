@@ -765,10 +765,12 @@ JSON object (yyjson via `sk_json_archive_writer_*` in `core/serialization.h`):
 }
 ```
 
-- `version` is a single integer. Load **fails** (non-zero) if `version != 1`. There is no major.minor.
+- `version` is a single integer. Load **fails** (non-zero) if `version != 1`. There is no major.minor. Newer and older versions are **rejected** (no migration); corrupt JSON is rejected the same way. The live tree is left unchanged so the host keeps the default layout. See the table in `docs/ui-dock-layout-format.md`.
 - `tabs` / `active` are **window id strings**, not handles.
-- Missing windows become pending binds (`ui_dock_pending_t`, cap 64).
-- Extra fields ignored (forward compatible).
+- Serialized ids that are neither live nor `dock_window_register`'d are **dropped** and empty leaves **collapse** (parent split → surviving sibling; cascade through nested empties).
+- Registered windows missing from the document use their declared default dock target, or float at the declared rect when they have no target.
+- Registered-but-not-yet-created ids that *are* in the document become pending binds (`ui_dock_pending_t`, cap 64).
+- Extra fields ignored (forward compatible) **within** the current version.
 - PR 5 archive helpers write the same fields inside a self-contained named map `"dock"`.
 
 ---

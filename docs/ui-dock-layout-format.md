@@ -21,23 +21,24 @@ The document root has an explicit integer field:
 
 Writers always emit `version: SK_UI_DOCK_LAYOUT_VERSION`.
 
-### Unknown or newer versions (`version > SK_UI_DOCK_LAYOUT_VERSION`)
+### Version policy (normative)
 
-**Reject.** Do not apply the document. Log a warning that includes the
-**encountered version** (and the version this build understands). Leave the
-live dock tree unchanged so the host keeps or rebuilds the **default layout**
-(`dock_builder_*` / first-run workspace). Extra JSON keys are ignored for
-forward field growth; a bumped `version` is not extra-key compatible.
+There is no major.minor and no silent field reinterpretation across versions.
 
-### Older versions (`version < SK_UI_DOCK_LAYOUT_VERSION`)
-
-**Reject. Do not migrate.** v1 is the first published format; there is no
-v0 reader and no upgrade path. Log the encountered version the same way as
-for newer documents and fall back to the default layout.
+| Encountered `version` | Action | Live tree | Notes |
+| --- | --- | --- | --- |
+| `== SK_UI_DOCK_LAYOUT_VERSION` (1) | Accept | Replaced by the document | Then run mismatch reconciliation (below). |
+| `> SK_UI_DOCK_LAYOUT_VERSION` (unknown / newer) | **Reject** | Unchanged (default layout) | Log encountered version and this build's version. Extra JSON keys are ignored only *within* a matching version; a bumped `version` is not extra-key compatible. |
+| `< SK_UI_DOCK_LAYOUT_VERSION` (older) | **Reject. Do not migrate.** | Unchanged (default layout) | v1 is the first published format; there is no v0 reader and no upgrade path. |
+| missing `version` key | Treat as `0` → older → **reject** | Unchanged | Same log + default-layout fallback. |
+| unparseable / corrupt JSON | **Reject** | Unchanged | Non-zero return; do not crash; do not apply a partial tree. |
 
 `sk_ui_dock_layout_version_supported(version)` returns `0` only when
-`version == SK_UI_DOCK_LAYOUT_VERSION`. A missing `version` key reads as `0`
-and is therefore older → reject.
+`version == SK_UI_DOCK_LAYOUT_VERSION`.
+
+When a future integer is published, add a row here: either a migrator
+(`1 → 2`) or an explicit reject. Until that row exists, older documents stay
+rejected.
 
 ---
 
@@ -168,8 +169,20 @@ Each `floating[]` entry:
 3. Hosts treat that non-zero as “use the default layout”: keep the in-memory
    workspace, or run the first-run `dock_builder_*` path. Do not apply a
    partial tree.
+4. **Mismatch — dropped window.** A serialized window id that is neither a
+   live `editor_window` (`find_by_id`) nor `dock_window_register`'d is
+   dropped. Its tab is omitted. An emptied leaf is collapsed: the parent
+   split is replaced by the surviving sibling, remaining sibling ratios stay
+   as stored, and collapse cascades when that replacement empties the next
+   parent. Floating entries for the same unknown id are skipped.
+5. **Mismatch — unsaved window.** After the saved tree is applied, each
+   `dock_window_register`'d id that has no saved position is placed at its
+   declared default dock target (stable node id, CENTER tab). If it declares
+   no target, or the target node is gone, it floats at its declared default
+   rect (or `80,60,360,240` when the rect was omitted).
+6. Registered-but-not-yet-created ids that *are* named in the document still
+   become pending binds (cap 64) so load-then-create works.
 
-Missing windows named in `tabs` or `floating` become pending binds (cap 64).
 A builder session that is still open is an error (session stays open).
 Apply never `node_destroy`s host `editor_window` nodes.
 

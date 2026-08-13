@@ -1650,6 +1650,7 @@ static const sk_ui_api_t ui_api = {
 	ui_dock_split_child_impl,
 	ui_dock_node_host_impl,
 	ui_dock_window_is_docked_impl,
+	ui_dock_window_register_impl,
 	ui_dock_layout_save_json_impl,
 	ui_dock_layout_load_json_impl,
 	ui_dockspace_layout_impl,

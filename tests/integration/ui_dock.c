@@ -486,4 +486,213 @@ SK_TEST(ui_dock_restore_golden_workspace_fixture) {
 	uidock_shutdown(&env);
 }
 
+SK_TEST(ui_dock_restore_drop_collapses_split) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t a;
+	sk_ui_dock_node_t b;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"mismatch\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.3,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"gone-side\", \"flags\": 0, \"tabs\": [\"gone\"], \"active_index\": 0 },\n"
+					   "        \"b\": {\n"
+					   "            \"kind\": \"split\",\n"
+					   "            \"axis\": 1,\n"
+					   "            \"ratio\": 0.6,\n"
+					   "            \"id\": \"inner\",\n"
+					   "            \"flags\": 0,\n"
+					   "            \"a\": { \"kind\": \"leaf\", \"id\": \"top\", \"flags\": 0, \"tabs\": [\"keep-a\"], \"active_index\": 0 },\n"
+					   "            \"b\": { \"kind\": \"leaf\", \"id\": \"bot\", \"flags\": 0, \"tabs\": [\"keep-b\"], \"active_index\": 0 }\n"
+					   "        }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock mismatch)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "A", "keep-a");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "B", "keep-b");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "mismatch", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "mismatch");
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, root));
+	TEST_ASSERT_EQUAL_INT((int)SK_UI_DOCK_SPLIT_VERTICAL, (int)ui->dock_split_get_axis(ctx, root));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.6f, ui->dock_split_get_ratio(ctx, root));
+	a = ui->dock_split_child(ctx, root, 0u);
+	b = ui->dock_split_child(ctx, root, 1u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, a, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("keep-a", tabs[0]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, b, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("keep-b", tabs[0]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone"));
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_restore_drop_cascades_nested) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"cascade\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.25,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": {\n"
+					   "            \"kind\": \"split\",\n"
+					   "            \"axis\": 1,\n"
+					   "            \"ratio\": 0.4,\n"
+					   "            \"id\": \"dead\",\n"
+					   "            \"flags\": 0,\n"
+					   "            \"a\": { \"kind\": \"leaf\", \"id\": \"gone-a\", \"flags\": 0, \"tabs\": [\"gone-1\"], \"active_index\": 0 },\n"
+					   "            \"b\": { \"kind\": \"leaf\", \"id\": \"gone-b\", \"flags\": 0, \"tabs\": [\"gone-2\"], \"active_index\": 0 }\n"
+					   "        },\n"
+					   "        \"b\": { \"kind\": \"leaf\", \"id\": \"keep\", \"flags\": 0, \"tabs\": [\"keep\"], \"active_index\": 0 }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock cascade)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Keep", "keep");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "cascade", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "cascade");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("keep", tabs[0]);
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_restore_unsaved_default_dock_and_float) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_node_t profiler;
+	sk_ui_rect_t def;
+	sk_ui_layout_style_t st;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"unsaved\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.25,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"left\", \"flags\": 0, \"tabs\": [\"hierarchy\"], \"active_index\": 0 },\n"
+					   "        \"b\": { \"kind\": \"leaf\", \"id\": \"center\", \"flags\": 1, \"tabs\": [\"scene\"], \"active_index\": 0 }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock unsaved)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	def.x = 88.0f;
+	def.y = 66.0f;
+	def.width = 320.0f;
+	def.height = 200.0f;
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Hierarchy", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Scene", "scene");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Inspector", "inspector");
+	profiler = ui->widget_editor_window(ctx, ui->context_root(ctx), "Profiler", "profiler");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "inspector", "left", NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "profiler", NULL, &def));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "unsaved", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "unsaved");
+	left = ui->dock_split_child(ctx, root, 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, left, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("hierarchy", tabs[0]);
+	TEST_ASSERT_EQUAL_STRING("inspector", tabs[1]);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "inspector"));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "profiler"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, profiler, &st));
+	TEST_ASSERT_EQUAL_INT((int)SK_UI_POSITION_ABSOLUTE, (int)st.position);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, uidock_len_pt(st.left, 0.0f), def.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, uidock_len_pt(st.top, 0.0f), def.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, uidock_len_pt(st.width, 360.0f), def.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, uidock_len_pt(st.height, 240.0f), def.height);
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_restore_future_version_and_corrupt_fallback) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* newer = "{\n"
+						"    \"version\": 99,\n"
+						"    \"id\": \"leaf-space\",\n"
+						"    \"flags\": 0,\n"
+						"    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 0, \"tabs\": [\"other\"], \"active_index\": 0 },\n"
+						"    \"floating\": []\n"
+						"}";
+	const char* corrupt = "{ not json at all [[[";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock version fallback)");
+	}
+	ui = env.ui;
+	TEST_ASSERT_TRUE(sk_ui_dock_layout_version_supported(99) != 0);
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "leaf-space", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "console", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	TEST_ASSERT_TRUE(ui->dock_layout_load_json(ctx, "leaf-space", newer, (u32)strlen(newer)) != 0);
+	TEST_ASSERT_TRUE(ui->dock_layout_load_json(ctx, "leaf-space", corrupt, (u32)strlen(corrupt)) != 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, ui->dockspace_find(ctx, "leaf-space"), ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
 #endif /* SK_TESTS */
