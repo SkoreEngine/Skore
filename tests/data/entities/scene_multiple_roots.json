@@ -1,0 +1,202 @@
+{
+  "format": "sk.resource_package",
+  "format_version": 1,
+  "root_uuid": "0000000000006201-0000000000006201",
+  "resources": [
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "SceneResource",
+      "uuid": "0000000000006201-0000000000006201",
+      "fields": {
+        "Name": "MultiRootLevel",
+        "Roots": [
+          "0000000000006202-0000000000006202",
+          "0000000000006203-0000000000006203",
+          "0000000000006204-0000000000006204"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006202-0000000000006202",
+      "fields": {
+        "Name": "RootA",
+        "Components": [
+          "0000000000006211-0000000000006211",
+          "0000000000006212-0000000000006212"
+        ],
+        "Children": [
+          "0000000000006205-0000000000006205"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006203-0000000000006203",
+      "fields": {
+        "Name": "RootB",
+        "Components": [
+          "0000000000006213-0000000000006213",
+          "0000000000006214-0000000000006214"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006204-0000000000006204",
+      "fields": {
+        "Name": "RootC",
+        "Components": [
+          "0000000000006215-0000000000006215"
+        ],
+        "Children": [
+          "0000000000006206-0000000000006206"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006205-0000000000006205",
+      "fields": {
+        "Name": "ChildA1",
+        "Components": [
+          "0000000000006216-0000000000006216"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006206-0000000000006206",
+      "fields": {
+        "Name": "ChildC1",
+        "Components": [
+          "0000000000006217-0000000000006217",
+          "0000000000006218-0000000000006218"
+        ],
+        "Children": [
+          "0000000000006207-0000000000006207"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006207-0000000000006207",
+      "fields": {
+        "Name": "GrandChildC1",
+        "Components": [
+          "0000000000006219-0000000000006219"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006211-0000000000006211",
+      "fields": {
+        "Position": [0.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "CameraResource",
+      "uuid": "0000000000006212-0000000000006212",
+      "fields": {
+        "Projection": 0,
+        "FovY": 0.9,
+        "Near": 0.1,
+        "Far": 300.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006213-0000000000006213",
+      "fields": {
+        "Position": [5.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "LightResource",
+      "uuid": "0000000000006214-0000000000006214",
+      "fields": {
+        "Type": 2,
+        "Color": [0.2, 0.5, 1.0, 1.0],
+        "Intensity": 4.0,
+        "Range": 8.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006215-0000000000006215",
+      "fields": {
+        "Position": [10.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006216-0000000000006216",
+      "fields": {
+        "Position": [0.0, 0.0, 1.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006217-0000000000006217",
+      "fields": {
+        "Position": [10.0, 0.0, 2.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "StaticTagResource",
+      "uuid": "0000000000006218-0000000000006218",
+      "fields": {}
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006219-0000000000006219",
+      "fields": {
+        "Position": [10.0, 0.0, 4.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ]
+}

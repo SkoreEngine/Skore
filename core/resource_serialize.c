@@ -235,6 +235,37 @@ static i32 write_uuid_add(sk_archive_writer_t* writer, sk_uuid_t uuid) {
 	return SK_RES_SER_OK;
 }
 
+/* Emit @p values as a JSON array of floats. Built-in ECS component payload
+ * types (APX-300) store vec3 / quat / color / mat fields that are not
+ * representable as scalar JSON values, so they serialize as float arrays
+ * (vec2=2, vec3=3, vec4/quat/color=4, mat4=16 elements). */
+static i32 write_float_array(sk_archive_writer_t* writer, sk_str_view_t name, const f32* values, u32 count) {
+	writer->begin_seq_named(writer->instance, name);
+	for (u32 i = 0u; i < count; ++i) {
+		writer->add_float(writer->instance, (f64)values[i]);
+	}
+	writer->end_seq(writer->instance);
+	return SK_RES_SER_OK;
+}
+
+/* Read a JSON array of exactly @p count floats into @p out. An absent (or
+ * non-array) key is a soft default: the field stays unset. A present but
+ * truncated array is malformed JSON and fails the load. */
+static i32 read_float_array(sk_archive_reader_t* reader, sk_str_view_t name, f32* out, u32 count) {
+	if (!reader->begin_seq_named(reader->instance, name)) {
+		return SK_RES_SER_OK; /* absent / non-array -> field stays unset */
+	}
+	for (u32 i = 0u; i < count; ++i) {
+		if (!reader->next_seq_entry(reader->instance)) {
+			reader->end_seq(reader->instance);
+			return SK_RES_SER_INVALID; /* truncated array */
+		}
+		out[i] = (f32)reader->get_float(reader->instance);
+	}
+	reader->end_seq(reader->instance);
+	return SK_RES_SER_OK;
+}
+
 static i32 write_field_value(sk_repository_t* repository, sk_resource_object_t view, const sk_resource_field_t* field, sk_archive_writer_t* writer) {
 	const sk_repository_api_t* api = sk_repository_api();
 	sk_str_view_t name = sk_str_view_cstr(field->name);
@@ -344,14 +375,37 @@ static i32 write_field_value(sk_repository_t* repository, sk_resource_object_t v
 		return SK_RES_SER_OK;
 	}
 
-	/* Vectors / enums not used by asset types today. */
-	case SK_RESOURCE_FIELD_TYPE_VEC2:
-	case SK_RESOURCE_FIELD_TYPE_VEC3:
-	case SK_RESOURCE_FIELD_TYPE_VEC4:
-	case SK_RESOURCE_FIELD_TYPE_QUAT:
-	case SK_RESOURCE_FIELD_TYPE_MAT4:
-	case SK_RESOURCE_FIELD_TYPE_COLOR:
+	/* Math / enum kinds used by the built-in ECS component payload types
+	 * (transform / camera / light / mesh renderer, APX-300): encode as JSON
+	 * float arrays (or a uint for enum) so authored component values survive
+	 * a package round-trip and on-disk scene/entity fixtures. */
+	case SK_RESOURCE_FIELD_TYPE_VEC2: {
+		sk_vec2_t v = api->get_vec2(view, field->index);
+		return write_float_array(writer, name, &v.x, 2u);
+	}
+	case SK_RESOURCE_FIELD_TYPE_VEC3: {
+		sk_vec3_t v = api->get_vec3(view, field->index);
+		return write_float_array(writer, name, &v.x, 3u);
+	}
+	case SK_RESOURCE_FIELD_TYPE_VEC4: {
+		sk_vec4_t v = api->get_vec4(view, field->index);
+		return write_float_array(writer, name, &v.x, 4u);
+	}
+	case SK_RESOURCE_FIELD_TYPE_QUAT: {
+		sk_quat_t v = api->get_quat(view, field->index);
+		return write_float_array(writer, name, &v.x, 4u);
+	}
+	case SK_RESOURCE_FIELD_TYPE_MAT4: {
+		sk_mat44_t v = api->get_mat4(view, field->index);
+		return write_float_array(writer, name, &v.m[0], 16u);
+	}
+	case SK_RESOURCE_FIELD_TYPE_COLOR: {
+		sk_color_t v = api->get_color(view, field->index);
+		return write_float_array(writer, name, &v.r, 4u);
+	}
 	case SK_RESOURCE_FIELD_TYPE_ENUM:
+		writer->write_uint(writer->instance, name, api->get_enum(view, field->index));
+		return SK_RES_SER_OK;
 	case SK_RESOURCE_FIELD_TYPE_MAX:
 		return SK_RES_SER_OK;
 	}
@@ -689,13 +743,82 @@ static i32 apply_field_value(sk_res_ser_resolve_ctx_t* ctx, sk_resource_object_t
 		return SK_RES_SER_OK;
 	}
 
-	case SK_RESOURCE_FIELD_TYPE_VEC2:
-	case SK_RESOURCE_FIELD_TYPE_VEC3:
-	case SK_RESOURCE_FIELD_TYPE_VEC4:
-	case SK_RESOURCE_FIELD_TYPE_QUAT:
-	case SK_RESOURCE_FIELD_TYPE_MAT4:
-	case SK_RESOURCE_FIELD_TYPE_COLOR:
-	case SK_RESOURCE_FIELD_TYPE_ENUM:
+	/* Mirror of the write path: math / enum kinds on component payload types
+	 * (APX-300) decode from JSON float arrays / uint. Absent keys keep the
+	 * resource defaults (e.g. identity transform). */
+	case SK_RESOURCE_FIELD_TYPE_VEC2: {
+		sk_vec2_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.x, 2u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_vec2(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_VEC3: {
+		sk_vec3_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.x, 3u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_vec3(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_VEC4: {
+		sk_vec4_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.x, 4u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_vec4(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_QUAT: {
+		sk_quat_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.x, 4u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_quat(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_MAT4: {
+		sk_mat44_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.m[0], 16u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_mat4(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_COLOR: {
+		sk_color_t v = {0};
+		i32 rc = read_float_array(reader, name, &v.r, 4u);
+		if (rc != SK_RES_SER_OK) {
+			return rc;
+		}
+		if (api->set_color(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
+	case SK_RESOURCE_FIELD_TYPE_ENUM: {
+		u64 v = reader->read_uint(reader->instance, name);
+		if (api->set_enum(view, field->index, v) != 0) {
+			return SK_RES_SER_FIELD;
+		}
+		return SK_RES_SER_OK;
+	}
 	case SK_RESOURCE_FIELD_TYPE_MAX:
 		return SK_RES_SER_OK;
 	}

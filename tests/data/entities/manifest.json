@@ -1,0 +1,35 @@
+{
+  "format": "sk.entities_fixture_manifest",
+  "format_version": 1,
+  "description": "On-disk scene_resource / entity_resource package fixtures for ECS spawn integration tests (APX-301). Each fixture is a self-contained sk.resource_package document loadable with sk_resource_deserialize_package_json_from_file after registering the built-in asset + component payload types.",
+  "fixtures": [
+    {
+      "id": "entity_single",
+      "resource_file": "entity_single.json",
+      "root_type": "EntityResource",
+      "node_count": 1,
+      "note": "Single entity with transform + camera + light + static tag components"
+    },
+    {
+      "id": "entity_parent_children",
+      "resource_file": "entity_parent_children.json",
+      "root_type": "EntityResource",
+      "node_count": 5,
+      "note": "Parent with two children, one child with two grandchildren (nested two levels deep)"
+    },
+    {
+      "id": "scene_multiple_roots",
+      "resource_file": "scene_multiple_roots.json",
+      "root_type": "SceneResource",
+      "node_count": 6,
+      "note": "Scene with three roots; RootA has a child, RootC has a child with a grandchild"
+    },
+    {
+      "id": "entity_unregistered_component",
+      "resource_file": "entity_unregistered_component.json",
+      "root_type": "EntityResource",
+      "node_count": 1,
+      "note": "Negative: Components list references a MeshResource (registered repository type, not an ECS component) - spawn must fail"
+    }
+  ]
+}

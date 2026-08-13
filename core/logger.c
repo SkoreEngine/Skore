@@ -6,13 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-enum {
-	SK_LOGGER_NAME_MAX = 64,
-	SK_LOGGER_MAX_SINKS = 16,
-	SK_LOG_MESSAGE_MAX = 2048,
-	SK_LOG_FILE_PATH_MAX = 1024,
-	SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16
-};
+enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
@@ -90,18 +84,22 @@ static void file_sink_build_rotated_path(const char* base, u32 index, char* out,
 }
 
 static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
-	long pos;
+	FILE* probe;
+	long pos = 0;
+
+	/* Size via a read handle: fseek on an append-mode FILE has no effect. */
+	probe = fopen(fs->path, "rb");
+	if (probe != NULL) {
+		if (fseek(probe, 0, SEEK_END) == 0) {
+			pos = ftell(probe);
+		}
+		fclose(probe);
+	}
 
 	fs->file = fopen(fs->path, "a");
 	if (fs->file == NULL) {
 		return -1;
 	}
-	if (fseek(fs->file, 0, SEEK_END) != 0) {
-		fclose(fs->file);
-		fs->file = NULL;
-		return -1;
-	}
-	pos = ftell(fs->file);
 	fs->current_size = (pos > 0) ? (u64)pos : 0ull;
 	return 0;
 }
