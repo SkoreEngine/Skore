@@ -125,6 +125,20 @@ set_tests_properties(sk-ui-integration-suites PROPERTIES
     TIMEOUT 1800
 )
 
+# APX-291: docking public-API e2e (headless layout + input_dispatch).
+add_test(
+    NAME sk-ui-dock-integration
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_FILTER=ui_dock_*"
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-integration-tests>
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-ui-dock-integration PROPERTIES
+    LABELS "ui;ui-integration;ui-dock"
+    TIMEOUT 180
+)
+
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
 target_link_libraries(sk-repro-cycles PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)

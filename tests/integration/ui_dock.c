@@ -1,9 +1,10 @@
 /*
- * ui_dock.c — headless dock model + layout solver (APX-288).
+ * ui_dock.c — dock model, layout solver, and public-API e2e (APX-288 / APX-291).
  *
- * Loads sk-ui via the app registry and exercises the public dockspace API
- * without a renderer or Clay layout. Plugin-local SK_TEST coverage lives in
- * plugins/ui/dock.c; this TU keeps the same contract green in Release ctest.
+ * Loads sk-ui via the app registry. Headless tests use dockspace_layout;
+ * interaction tests drive pointer events through input_dispatch after Clay
+ * layout. Plugin-local SK_TEST coverage lives in plugins/ui/dock.c; this TU
+ * keeps the same contract green in Release ctest.
  */
 
 #include "app.h"
@@ -904,6 +905,585 @@ SK_TEST(ui_dock_restore_creates_missing_dockspace) {
 	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
 	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "console"));
 	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+static void uidock_ptr(sk_ui_input_event_t* ev, sk_ui_input_kind_t kind, f32 x, f32 y, i32 down) {
+	memset(ev, 0, sizeof(*ev));
+	ev->kind = kind;
+	ev->x = x;
+	ev->y = y;
+	ev->button = SK_UI_POINTER_BUTTON_LEFT;
+	ev->down = down;
+}
+
+static void uidock_live_layout(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 w, f32 h) {
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, w, h));
+}
+
+static void uidock_click_xy(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 x, f32 y) {
+	sk_ui_input_event_t ev;
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, x, y, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, x, y, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, x, y, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+}
+
+static void uidock_drag_xy(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 x0, f32 y0, f32 x1, f32 y1) {
+	sk_ui_input_event_t ev;
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, x0, y0, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, x0, y0, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, x1, y1, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, x1, y1, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+}
+
+static sk_ui_node_t uidock_find_splitter(const sk_ui_api_t* ui, const sk_ui_context_t* ctx, sk_ui_dock_node_t split) {
+	sk_ui_node_t host = ui->dock_node_host(ctx, split);
+	u32 i;
+	u32 n;
+	if (!sk_ui_node_is_valid(host)) {
+		return SK_UI_NODE_INVALID;
+	}
+	n = ui->node_child_count(ctx, host);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t child = ui->node_child_at(ctx, host, i);
+		if (ui->node_has_class(ctx, child, SK_UI_CLASS_SPLITTER)) {
+			return child;
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static void uidock_assert_resolved_equal(const sk_ui_api_t* ui, const sk_ui_context_t* a, sk_ui_dock_node_t na, const sk_ui_context_t* b, sk_ui_dock_node_t nb) {
+	typedef struct uidock_res_frame_t {
+		sk_ui_dock_node_t a;
+		sk_ui_dock_node_t b;
+	} uidock_res_frame_t;
+	uidock_res_frame_t stack[128];
+	u32 sp = 0u;
+	stack[sp].a = na;
+	stack[sp].b = nb;
+	sp += 1u;
+	while (sp > 0u) {
+		uidock_res_frame_t fr = stack[--sp];
+		sk_ui_rect_t ra;
+		sk_ui_rect_t rb;
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(a, fr.a, &ra));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(b, fr.b, &rb));
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, ra.x, rb.x);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, ra.y, rb.y);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, ra.width, rb.width);
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, ra.height, rb.height);
+		if (ui->dock_node_is_split(a, fr.a) != 0) {
+			sk_ui_rect_t sa;
+			sk_ui_rect_t sb;
+			TEST_ASSERT_EQUAL_INT(0, ui->dock_split_get_splitter_rect(a, fr.a, &sa));
+			TEST_ASSERT_EQUAL_INT(0, ui->dock_split_get_splitter_rect(b, fr.b, &sb));
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, sa.x, sb.x);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, sa.y, sb.y);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, sa.width, sb.width);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, sa.height, sb.height);
+			if (sp + 2u > 128u) {
+				TEST_FAIL_MESSAGE("dock resolved compare stack overflow");
+				return;
+			}
+			stack[sp].a = ui->dock_split_child(a, fr.a, 1u);
+			stack[sp].b = ui->dock_split_child(b, fr.b, 1u);
+			sp += 1u;
+			stack[sp].a = ui->dock_split_child(a, fr.a, 0u);
+			stack[sp].b = ui->dock_split_child(b, fr.b, 0u);
+			sp += 1u;
+		}
+	}
+}
+
+SK_TEST(ui_dock_e2e_dock_empty_space) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_rect_t space;
+	sk_ui_rect_t box;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 99u;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e empty)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Scene", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "empty", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(root));
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, "scene", root, SK_UI_DOCK_DIR_CENTER));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "scene"));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "scene"), root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_UINT(0u, active);
+	TEST_ASSERT_EQUAL_STRING("scene", tabs[0]);
+
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = 800.0f;
+	space.height = 600.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, root, &space));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, root, &box));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space.x, box.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space.y, box.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space.width, box.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space.height, box.height);
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_split_four_dirs) {
+	static const sk_ui_dock_dir_t dirs[4] = {
+		SK_UI_DOCK_DIR_LEFT,
+		SK_UI_DOCK_DIR_RIGHT,
+		SK_UI_DOCK_DIR_UP,
+		SK_UI_DOCK_DIR_DOWN,
+	};
+	static const char* names[4] = {"left", "right", "up", "down"};
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	u32 d;
+	const f32 leftover_w = 800.0f - SK_UI_DOCK_SPLITTER_PT;
+	const f32 leftover_h = 600.0f - SK_UI_DOCK_SPLITTER_PT;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e dirs)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	for (d = 0u; d < 4u; ++d) {
+		char space_id[32];
+		char center_id[32];
+		char edge_id[32];
+		sk_ui_dock_node_t root;
+		sk_ui_dock_node_t split;
+		sk_ui_dock_node_t edge;
+		sk_ui_dock_node_t opposite;
+		sk_ui_rect_t space;
+		sk_ui_rect_t re;
+		sk_ui_rect_t ro;
+		sk_ui_rect_t rs;
+		const i32 horizontal = (dirs[d] == SK_UI_DOCK_DIR_LEFT || dirs[d] == SK_UI_DOCK_DIR_RIGHT) ? 1 : 0;
+		const u32 edge_index = (dirs[d] == SK_UI_DOCK_DIR_LEFT || dirs[d] == SK_UI_DOCK_DIR_UP) ? 0u : 1u;
+		const f32 model_ratio = (edge_index == 0u) ? 0.25f : 0.75f;
+		const f32 leftover = (horizontal != 0) ? leftover_w : leftover_h;
+
+		(void)snprintf(space_id, sizeof(space_id), "dir-%s", names[d]);
+		(void)snprintf(center_id, sizeof(center_id), "center-%s", names[d]);
+		(void)snprintf(edge_id, sizeof(edge_id), "edge-%s", names[d]);
+		(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Center", center_id);
+		(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Edge", edge_id);
+		root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, space_id, SK_UI_DOCKSPACE_KEEP_CENTRAL);
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, center_id, root, SK_UI_DOCK_DIR_CENTER));
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 600.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, root, &space));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, edge_id, root, dirs[d]));
+
+		split = ui->dockspace_find(ctx, space_id);
+		TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, split));
+		TEST_ASSERT_EQUAL_INT(horizontal != 0 ? (int)SK_UI_DOCK_SPLIT_HORIZONTAL : (int)SK_UI_DOCK_SPLIT_VERTICAL, (int)ui->dock_split_get_axis(ctx, split));
+		TEST_ASSERT_FLOAT_WITHIN(0.0001f, model_ratio, ui->dock_split_get_ratio(ctx, split));
+		edge = ui->dock_find_node_for_window(ctx, edge_id);
+		opposite = ui->dock_find_node_for_window(ctx, center_id);
+		TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_split_child(ctx, split, edge_index), edge));
+		TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_split_child(ctx, split, 1u - edge_index), opposite));
+
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, split, &space));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, edge, &re));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, opposite, &ro));
+		TEST_ASSERT_EQUAL_INT(0, ui->dock_split_get_splitter_rect(ctx, split, &rs));
+		if (horizontal != 0) {
+			TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.25f, re.width);
+			TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.75f, ro.width);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, SK_UI_DOCK_SPLITTER_PT, rs.width);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, 600.0f, re.height);
+			if (dirs[d] == SK_UI_DOCK_DIR_LEFT) {
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, re.x);
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, re.x + re.width + rs.width, ro.x);
+			} else {
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, ro.x);
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, ro.x + ro.width + rs.width, re.x);
+			}
+		} else {
+			TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.25f, re.height);
+			TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.75f, ro.height);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, SK_UI_DOCK_SPLITTER_PT, rs.height);
+			TEST_ASSERT_FLOAT_WITHIN(0.01f, 800.0f, re.width);
+			if (dirs[d] == SK_UI_DOCK_DIR_UP) {
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, re.y);
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, re.y + re.height + rs.height, ro.y);
+			} else {
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, ro.y);
+				TEST_ASSERT_FLOAT_WITHIN(0.01f, ro.y + ro.height + rs.height, re.y);
+			}
+		}
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_destroy(ctx, space_id));
+	}
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_tab_switch_via_input) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_node_t scene;
+	sk_ui_node_t game;
+	sk_ui_node_t tab_scene;
+	sk_ui_node_t tab_game;
+	sk_ui_rect_t tr;
+	sk_ui_node_t stash;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 99u;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e tab switch)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	scene = ui->widget_editor_window(ctx, ui->context_root(ctx), "Scene", "scene");
+	game = ui->widget_editor_window(ctx, ui->context_root(ctx), "Game", "game");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "tabs-switch", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, "scene", root, SK_UI_DOCK_DIR_CENTER));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, "game", root, SK_UI_DOCK_DIR_CENTER));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("scene", tabs[0]);
+	TEST_ASSERT_EQUAL_STRING("game", tabs[1]);
+	TEST_ASSERT_EQUAL_UINT(1u, active);
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+
+	tab_scene = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "scene-dock-tab");
+	tab_game = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "game-dock-tab");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_scene));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_game));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, tab_scene));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, tab_game));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_scene, &tr, NULL));
+	uidock_click_xy(ui, ctx, tr.x + tr.width * 0.5f, tr.y + tr.height * 0.5f);
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(0u, active);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, tab_scene));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, tab_game));
+	stash = ui->find_by_id(ctx, "ui-dock-stash");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(stash));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, game), stash));
+	TEST_ASSERT_FALSE(sk_ui_node_eq(ui->node_parent(ctx, scene), stash));
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_tab_reorder_via_input) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_node_t tab_a;
+	sk_ui_node_t tab_b;
+	sk_ui_rect_t a;
+	sk_ui_rect_t b;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e reorder)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "A", "win-a");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "B", "win-b");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "tabs-reorder", 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, "win-a", root, SK_UI_DOCK_DIR_CENTER));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_to_node(ctx, "win-b", root, SK_UI_DOCK_DIR_CENTER));
+	uidock_live_layout(ui, ctx, 640.0f, 400.0f);
+
+	tab_a = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "win-a-dock-tab");
+	tab_b = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "win-b-dock-tab");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_a));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_b));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_a, &a, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_b, &b, NULL));
+	uidock_drag_xy(ui, ctx, a.x + 4.0f, a.y + 8.0f, b.x + b.width * 0.5f, b.y + 8.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("win-b", tabs[0]);
+	TEST_ASSERT_EQUAL_STRING("win-a", tabs[1]);
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_splitter_drag_min_size) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_dock_node_t rest;
+	sk_ui_dock_node_t split;
+	sk_ui_node_t splitter;
+	sk_ui_rect_t sr;
+	sk_ui_rect_t before_l;
+	sk_ui_rect_t before_r;
+	sk_ui_rect_t after_l;
+	sk_ui_rect_t after_r;
+	sk_ui_rect_t min_l;
+	sk_ui_rect_t min_r;
+	f32 before_ratio;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e splitter)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "H", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "S", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "split-e2e", 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_split_node(ctx, root, SK_UI_DOCK_DIR_LEFT, 0.25f, &left, &rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "hierarchy", left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+
+	split = ui->dockspace_find(ctx, "split-e2e");
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, split));
+	splitter = uidock_find_splitter(ui, ctx, split);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(splitter));
+	before_ratio = ui->dock_split_get_ratio(ctx, split);
+	TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.25f, before_ratio);
+	{
+		sk_ui_rect_t space;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 500.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, split, &space));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, left, &before_l));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, rest, &before_r));
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, splitter, &sr, NULL));
+
+	uidock_drag_xy(ui, ctx, sr.x + sr.width * 0.5f, sr.y + sr.height * 0.5f, sr.x + 120.0f, sr.y + sr.height * 0.5f);
+	TEST_ASSERT_TRUE(ui->dock_split_get_ratio(ctx, split) > before_ratio + 0.02f);
+	{
+		sk_ui_rect_t space;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 500.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, split, &space));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, left, &after_l));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, rest, &after_r));
+	TEST_ASSERT_TRUE(after_l.width > before_l.width + 8.0f);
+	TEST_ASSERT_TRUE(after_r.width + 8.0f < before_r.width);
+	TEST_ASSERT_TRUE(after_l.width + 0.01f >= SK_UI_DOCK_NODE_MIN_PT);
+	TEST_ASSERT_TRUE(after_r.width + 0.01f >= SK_UI_DOCK_NODE_MIN_PT);
+
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, splitter, &sr, NULL));
+	uidock_drag_xy(ui, ctx, sr.x + sr.width * 0.5f, sr.y + sr.height * 0.5f, 2.0f, sr.y + sr.height * 0.5f);
+	{
+		sk_ui_rect_t space;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 500.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, split, &space));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, left, &min_l));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, rest, &min_r));
+	TEST_ASSERT_TRUE(min_l.width + 0.01f >= SK_UI_DOCK_NODE_MIN_PT);
+	TEST_ASSERT_TRUE(min_r.width + 0.01f >= SK_UI_DOCK_NODE_MIN_PT);
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, 800.0f - SK_UI_DOCK_SPLITTER_PT, min_l.width + min_r.width);
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_undock_tab_via_input) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_dock_node_t rest;
+	sk_ui_node_t hier;
+	sk_ui_node_t tab;
+	sk_ui_node_t overlay;
+	sk_ui_rect_t tr;
+	sk_ui_layout_style_t st;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e undock)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	hier = ui->widget_editor_window(ctx, ui->context_root(ctx), "H", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "S", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "undock-e2e", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_split_node(ctx, root, SK_UI_DOCK_DIR_LEFT, 0.35f, &left, &rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "hierarchy", left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+
+	tab = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "hierarchy-dock-tab");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab, &tr, NULL));
+	/* Tear off, then release outside the dockspace so commit_drop does not redock. */
+	{
+		sk_ui_input_event_t ev;
+		uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, tr.x + 8.0f, tr.y + 8.0f, 0);
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, tr.x + 8.0f, tr.y + 8.0f, 1);
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, tr.x + 8.0f, tr.y + 80.0f, 1);
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+		uidock_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, 900.0f, 600.0f, 1);
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		uidock_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, 900.0f, 600.0f, 0);
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	}
+	uidock_live_layout(ui, ctx, 800.0f, 500.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "hierarchy"));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "scene"));
+	overlay = ui->find_by_id(ctx, "ui-dock-overlay");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(overlay));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, hier), overlay));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, hier, &st));
+	TEST_ASSERT_EQUAL_INT((int)SK_UI_POSITION_ABSOLUTE, (int)st.position);
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, ui->dockspace_find(ctx, "undock-e2e")));
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_remove_window_collapses) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_dock_node_t rest;
+	sk_ui_dock_node_t after;
+	sk_ui_node_t side;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e collapse)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	side = ui->widget_editor_window(ctx, ui->context_root(ctx), "H", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "S", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "collapse-e2e", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_split_node(ctx, root, SK_UI_DOCK_DIR_LEFT, 0.25f, &left, &rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "hierarchy", left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, ui->dockspace_find(ctx, "collapse-e2e")));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_destroy(ctx, side));
+	after = ui->dockspace_find(ctx, "collapse-e2e");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, after));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(after, rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "hierarchy"));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "scene"));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, after, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("scene", tabs[0]);
+
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_e2e_roundtrip_resolved_layout) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* src;
+	sk_ui_context_t* dst;
+	char json[8192];
+	u32 len = 0u;
+	sk_ui_rect_t space;
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock e2e roundtrip)");
+	}
+	ui = env.ui;
+	src = ui->context_create(NULL);
+	dst = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(src);
+	TEST_ASSERT_NOT_NULL(dst);
+
+	uidock_build_workspace(ui, src);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_save_json(src, "editor-main", json, (u32)sizeof(json), &len));
+	TEST_ASSERT_TRUE(len > 0u);
+	uidock_make_workspace_windows(ui, dst, NULL, NULL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(dst, "editor-main", json, len));
+	uidock_assert_trees_equal(ui, src, ui->dockspace_find(src, "editor-main"), dst, ui->dockspace_find(dst, "editor-main"));
+
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = 1280.0f;
+	space.height = 720.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(src, ui->dockspace_find(src, "editor-main"), &space));
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(dst, ui->dockspace_find(dst, "editor-main"), &space));
+	uidock_assert_resolved_equal(ui, src, ui->dockspace_find(src, "editor-main"), dst, ui->dockspace_find(dst, "editor-main"));
+	uidock_assert_workspace(ui, src);
+	uidock_assert_workspace(ui, dst);
+
+	ui->context_destroy(src);
+	ui->context_destroy(dst);
 	uidock_shutdown(&env);
 }
 
