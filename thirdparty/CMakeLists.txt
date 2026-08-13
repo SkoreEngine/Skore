@@ -59,3 +59,8 @@ add_subdirectory(stb_image)
 # msdf-atlas-gen + msdfgen (MSDF glyph atlas generation for font resources).
 # Reuses freetype from above; PNG/SVG/skia/artery-font paths compiled out.
 add_subdirectory(msdf-atlas-gen)
+
+# Jolt Physics v5.6.0 (rigid/soft-body dynamics; MIT). Library-only subtree
+# vendored from jrouwe/JoltPhysics; GPU compute and debug renderer compiled
+# out via upstream defaults (thirdparty/jolt/README.md).
+add_subdirectory(jolt)

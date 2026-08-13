@@ -1643,6 +1643,122 @@ SK_TEST(resource_serialize_trivial_type_roundtrip) {
 	api->destroy(repo);
 }
 
+/* Generic vector/quat/color/enum kinds (contract §5 wire form: arrays of f64
+ * in field order; enum as a plain uint). Exercises the serializer paths the
+ * physics component payload types rely on. */
+typedef struct sk_ser_vec_enum_t {
+	sk_vec3_t direction;
+	u64 kind;
+	sk_quat_t rotation;
+	sk_color_t tint;
+	sk_vec2_t uv;
+	sk_vec4_t bounds;
+	sk_mat44_t matrix;
+} sk_ser_vec_enum_t;
+
+enum {
+	SK_SER_VEC_ENUM_FIELD_DIRECTION = 0u,
+	SK_SER_VEC_ENUM_FIELD_KIND = 1u,
+	SK_SER_VEC_ENUM_FIELD_ROTATION = 2u,
+	SK_SER_VEC_ENUM_FIELD_TINT = 3u,
+	SK_SER_VEC_ENUM_FIELD_UV = 4u,
+	SK_SER_VEC_ENUM_FIELD_BOUNDS = 5u,
+	SK_SER_VEC_ENUM_FIELD_MATRIX = 6u,
+};
+
+static const sk_resource_field_t ser_vec_enum_fields[] = {
+	{"Direction", SK_SER_VEC_ENUM_FIELD_DIRECTION, SK_RESOURCE_FIELD_TYPE_VEC3, (u32)offsetof(sk_ser_vec_enum_t, direction), (u32)sizeof(sk_vec3_t), {0ull, 0ull}},
+	{"Kind", SK_SER_VEC_ENUM_FIELD_KIND, SK_RESOURCE_FIELD_TYPE_ENUM, (u32)offsetof(sk_ser_vec_enum_t, kind), (u32)sizeof(u64), {0ull, 0ull}},
+	{"Rotation", SK_SER_VEC_ENUM_FIELD_ROTATION, SK_RESOURCE_FIELD_TYPE_QUAT, (u32)offsetof(sk_ser_vec_enum_t, rotation), (u32)sizeof(sk_quat_t), {0ull, 0ull}},
+	{"Tint", SK_SER_VEC_ENUM_FIELD_TINT, SK_RESOURCE_FIELD_TYPE_COLOR, (u32)offsetof(sk_ser_vec_enum_t, tint), (u32)sizeof(sk_color_t), {0ull, 0ull}},
+	{"Uv", SK_SER_VEC_ENUM_FIELD_UV, SK_RESOURCE_FIELD_TYPE_VEC2, (u32)offsetof(sk_ser_vec_enum_t, uv), (u32)sizeof(sk_vec2_t), {0ull, 0ull}},
+	{"Bounds", SK_SER_VEC_ENUM_FIELD_BOUNDS, SK_RESOURCE_FIELD_TYPE_VEC4, (u32)offsetof(sk_ser_vec_enum_t, bounds), (u32)sizeof(sk_vec4_t), {0ull, 0ull}},
+	{"Matrix", SK_SER_VEC_ENUM_FIELD_MATRIX, SK_RESOURCE_FIELD_TYPE_MAT4, (u32)offsetof(sk_ser_vec_enum_t, matrix), (u32)sizeof(sk_mat44_t), {0ull, 0ull}},
+};
+
+static const sk_resource_type_t* ser_register_vec_enum(sk_repository_t* repo, const sk_repository_api_t* api) {
+	sk_type_id_t tid;
+	tid.lo = 0xfaece001ull;
+	tid.hi = 0xdeadbeefull;
+	sk_resource_type_desc_t desc;
+	memset(&desc, 0, sizeof(desc));
+	desc.type_id = tid;
+	desc.name = "SerVecEnum";
+	desc.fields = ser_vec_enum_fields;
+	desc.field_count = (u32)(sizeof(ser_vec_enum_fields) / sizeof(ser_vec_enum_fields[0]));
+	desc.instance_size = (u32)sizeof(sk_ser_vec_enum_t);
+	TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+	return api->find_type_by_name(repo, "SerVecEnum");
+}
+
+SK_TEST(resource_serialize_vec_enum_roundtrip) {
+	const sk_repository_api_t* api = ser_test_repo_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = api->create(a);
+	TEST_ASSERT_NOT_NULL(repo);
+	const sk_resource_type_t* type = ser_register_vec_enum(repo, api);
+	TEST_ASSERT_NOT_NULL(type);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+
+	sk_resource_object_t w = api->write(repo, rid);
+	TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_SER_VEC_ENUM_FIELD_DIRECTION, sk_vec3(0.5f, -1.25f, 2.0f)));
+	TEST_ASSERT_EQUAL_INT(0, api->set_enum(w, SK_SER_VEC_ENUM_FIELD_KIND, 2u));
+	TEST_ASSERT_EQUAL_INT(0, api->set_quat(w, SK_SER_VEC_ENUM_FIELD_ROTATION, sk_quat(0.0f, 0.0f, 0.70710678f, 0.70710678f)));
+	TEST_ASSERT_EQUAL_INT(0, api->set_color(w, SK_SER_VEC_ENUM_FIELD_TINT, (sk_color_t){0.25f, 0.5f, 0.75f, 1.0f}));
+	TEST_ASSERT_EQUAL_INT(0, api->set_vec2(w, SK_SER_VEC_ENUM_FIELD_UV, sk_vec2(0.1f, 0.9f)));
+	TEST_ASSERT_EQUAL_INT(0, api->set_vec4(w, SK_SER_VEC_ENUM_FIELD_BOUNDS, sk_vec4(1.0f, 2.0f, 3.0f, 4.0f)));
+	sk_mat44_t m;
+	for (u32 i = 0u; i < 16u; ++i) {
+		m.m[i] = (f32)(i + 1u);
+	}
+	TEST_ASSERT_EQUAL_INT(0, api->set_mat4(w, SK_SER_VEC_ENUM_FIELD_MATRIX, m));
+	api->commit(w, NULL);
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_json_alloc(repo, ser_test_repo_api(), rid, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	/* Wire form: vectors are arrays of f64 in field order; enums are plain uints. */
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Direction\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Kind\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Matrix\""));
+
+	api->destroy_resource(repo, rid, NULL);
+
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_json_string(repo, ser_test_repo_api(), sk_str_view_cstr(json), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	sk_resource_object_t r = api->read(repo, loaded);
+	sk_vec3_t d = api->get_vec3(r, SK_SER_VEC_ENUM_FIELD_DIRECTION);
+	TEST_ASSERT_EQUAL_FLOAT(0.5f, d.x);
+	TEST_ASSERT_EQUAL_FLOAT(-1.25f, d.y);
+	TEST_ASSERT_EQUAL_FLOAT(2.0f, d.z);
+	TEST_ASSERT_EQUAL_UINT64(2u, api->get_enum(r, SK_SER_VEC_ENUM_FIELD_KIND));
+	sk_quat_t q = api->get_quat(r, SK_SER_VEC_ENUM_FIELD_ROTATION);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, q.x);
+	TEST_ASSERT_EQUAL_FLOAT(0.70710678f, q.z);
+	sk_color_t c = api->get_color(r, SK_SER_VEC_ENUM_FIELD_TINT);
+	TEST_ASSERT_EQUAL_FLOAT(0.25f, c.r);
+	TEST_ASSERT_EQUAL_FLOAT(0.75f, c.b);
+	sk_vec2_t uv = api->get_vec2(r, SK_SER_VEC_ENUM_FIELD_UV);
+	TEST_ASSERT_EQUAL_FLOAT(0.1f, uv.x);
+	TEST_ASSERT_EQUAL_FLOAT(0.9f, uv.y);
+	sk_vec4_t b = api->get_vec4(r, SK_SER_VEC_ENUM_FIELD_BOUNDS);
+	TEST_ASSERT_EQUAL_FLOAT(4.0f, b.w);
+	sk_mat44_t rm = api->get_mat4(r, SK_SER_VEC_ENUM_FIELD_MATRIX);
+	TEST_ASSERT_EQUAL_FLOAT(16.0f, rm.m[15]);
+
+	/* serialize -> deserialize -> serialize produces identical JSON. */
+	char* json_again = NULL;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_json_alloc(repo, ser_test_repo_api(), loaded, a, &json_again, NULL));
+	TEST_ASSERT_EQUAL_STRING(json, json_again);
+
+	a->free(a->instance, json_again);
+	a->free(a->instance, json);
+	api->destroy(repo);
+}
+
 SK_TEST(resource_serialize_absent_and_unknown_fields) {
 	const sk_repository_api_t* api = ser_test_repo_api();
 	const sk_allocator_t* a = sk_allocator_default();

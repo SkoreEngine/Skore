@@ -48,6 +48,9 @@ typedef struct sk_filesystem_api_t sk_filesystem_api_t;
 typedef struct sk_platform_api_t sk_platform_api_t;
 typedef struct sk_repository_api_t sk_repository_api_t;
 typedef struct sk_resource_assets_api_t sk_resource_assets_api_t;
+typedef struct sk_world_t sk_world_t; /* engine ECS scene world (entities plugin) */
+typedef struct sk_entities_api_t sk_entities_api_t;
+typedef struct sk_jolt_api_t sk_jolt_api_t;
 
 /**
  * Host / plugin module API table for the app.
@@ -239,6 +242,22 @@ typedef struct sk_app_api_t {
 	 * @return Non-NULL pointer to the static `sk_resource_assets_api_t`.
 	 */
 	const sk_resource_assets_api_t* (*resource_assets_api)(sk_app_context_t* context);
+
+	/**
+	 * The engine's ECS scene world (owned by the app context).
+	 *
+	 * Created at bootstrap when the entities plugin is loaded; destroyed at
+	 * app shutdown. The engine's frame loop (sk_app_tick) drives the jolt
+	 * physics plugin's fixed-step update against this world every frame and
+	 * writes the simulated poses back onto the owning transform / rigid-body
+	 * state components, so hosts spawn scene entities (see sk_entities_api_t)
+	 * into this world and let the engine step them. Returns NULL when the
+	 * entities plugin is not loaded (or before bootstrap).
+	 *
+	 * @param context App context from sk_app_init (must not be NULL).
+	 * @return The engine scene world, or NULL when unavailable.
+	 */
+	sk_world_t* (*scene_world)(sk_app_context_t* context);
 } sk_app_api_t;
 
 /**

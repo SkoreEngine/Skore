@@ -18,6 +18,9 @@ extern "C" {
 #endif
 
 typedef struct sk_profiler_api_t sk_profiler_api_t;
+typedef struct sk_world_t sk_world_t;
+typedef struct sk_entities_api_t sk_entities_api_t;
+typedef struct sk_jolt_api_t sk_jolt_api_t;
 
 typedef SK_ARRAY(sk_shared_lib_t) plugin_lib_array_t;
 typedef SK_HASH_MAP(sk_type_id_t, void_ptr_t) sk_app_api_map_t;
@@ -56,6 +59,16 @@ struct sk_app_context_t {
 	f64 elapsed_time;
 	plugin_lib_array_t plugins;
 	const sk_profiler_api_t* profiler_api;
+
+	/* Engine scene world + physics: the app creates one ECS world at
+	 * bootstrap (entities plugin) and steps the jolt plugin against it every
+	 * frame (see app_physics_startup / app_tick_engine_systems). The jolt
+	 * table is cached for teardown; the frame loop re-resolves it so an
+	 * unregistered (disabled) plugin stops driving physics immediately. */
+	sk_world_t* world;
+	const sk_entities_api_t* entities_api;
+	const sk_jolt_api_t* jolt_api;
+	i32 physics_started;
 };
 
 #ifdef __cplusplus
