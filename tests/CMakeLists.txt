@@ -124,7 +124,7 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui sk-jolt)
 
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.

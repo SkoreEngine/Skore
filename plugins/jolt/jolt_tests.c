@@ -7,6 +7,12 @@
  * jolt.cpp hand this TU the app registry and the registered sk_jolt_api_t.
  * sk_plugin_run_tests lives here too so the host test scanner (tests/main.c)
  * finds it under the same SK_TESTS guard as the other plugins.
+ *
+ * Coverage: API registration, settings defaults/resolution, world init →
+ * step → shutdown cycles (the leak/ASan surface — every Jolt allocation must
+ * be released per cycle), fixed-step rate enforcement via the step callback,
+ * the giant-frame spiral-of-death clamp, and the still-stubbed body /
+ * character entry points.
  */
 
 /* Release builds strip every symbol below (SK_TESTS undefined); keep the TU
@@ -21,6 +27,8 @@ typedef int sk_jolt_tests_tu_anchor_t;
 #include "app.h"
 #include "common.h"
 #include "test.h"
+
+#include <string.h>
 
 /* Defined in jolt.cpp (SK_TESTS builds only). */
 void sk_jolt_test_context(sk_app_context_t** out_context, const sk_app_api_t** out_app_api);
@@ -51,18 +59,246 @@ SK_TEST(jolt_registers_api_table) {
 	TEST_ASSERT_EQUAL_PTR((const_ptr_t)api, (const_ptr_t)registered);
 }
 
-SK_TEST(jolt_stubs_callable) {
+SK_TEST(jolt_settings_defaults) {
 	const sk_jolt_api_t* api = NULL;
 	sk_app_context_t* context = NULL;
 	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_NOT_NULL(api->settings_defaults);
+
+	memset(&s, 0xAA, sizeof(s));
+	api->settings_defaults(&s);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, s.gravity[0]);
+	TEST_ASSERT_EQUAL_FLOAT(-9.81f, s.gravity[1]);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, s.gravity[2]);
+	TEST_ASSERT_EQUAL_FLOAT(1.0f / 60.0f, s.fixed_timestep);
+	TEST_ASSERT_EQUAL_UINT32(1u, s.substeps);
+	TEST_ASSERT_EQUAL_UINT32(65536u, s.max_bodies);
+	TEST_ASSERT_EQUAL_UINT32(65536u, s.max_body_pairs);
+	TEST_ASSERT_EQUAL_UINT32(10240u, s.max_constraints);
+}
+
+/*
+ * init/shutdown cycles build and destroy the full Jolt stack (Factory +
+ * registered types, 10 MiB TempAllocator, job-system threads, filters,
+ * PhysicsSystem). Running many cycles in one process is the leak check: under
+ * ASan/LSan any Jolt allocation that survives shutdown is reported. Also
+ * covers idempotent shutdown and init-over-live-world replacement.
+ */
+SK_TEST(jolt_world_init_shutdown_cycles) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	i32 i;
+
 	jolt_tests_resolve(&api, &context, &app_api);
 	TEST_ASSERT_NOT_NULL(api);
 
-	/* init/shutdown are idempotent no-ops that must not crash. */
-	TEST_ASSERT_EQUAL_INT32(0, api->init());
-	TEST_ASSERT_EQUAL_INT32(0, api->init());
+	/* shutdown without init is a no-op. */
 	api->shutdown();
 	api->shutdown();
+
+	for (i = 0; i < 12; ++i) {
+		TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+		TEST_ASSERT_EQUAL_FLOAT(1.0f / 60.0f, api->get_fixed_timestep());
+		TEST_ASSERT_EQUAL_UINT32(1u, api->get_substeps());
+		/* Drive a few steps so the job system / broadphase actually run. */
+		api->step(0.05f, NULL, NULL);
+		api->shutdown();
+	}
+
+	/* init over a live world replaces it without leaking the old one. */
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	api->shutdown();
+	api->shutdown();
+}
+
+SK_TEST(jolt_init_honors_settings) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	f32 gx = 0.0f;
+	f32 gy = 0.0f;
+	f32 gz = 0.0f;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.gravity[0] = 0.0f;
+	s.gravity[1] = -20.0f;
+	s.gravity[2] = 0.0f;
+	s.fixed_timestep = 0.02f;
+	s.substeps = 2u;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	api->get_gravity(&gx, &gy, &gz);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, gx);
+	TEST_ASSERT_EQUAL_FLOAT(-20.0f, gy);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, gz);
+	TEST_ASSERT_EQUAL_FLOAT(0.02f, api->get_fixed_timestep());
+	TEST_ASSERT_EQUAL_UINT32(2u, api->get_substeps());
+
+	/* Runtime reconfiguration. */
+	api->set_gravity(0.0f, -30.0f, 0.0f);
+	api->get_gravity(&gx, &gy, &gz);
+	TEST_ASSERT_EQUAL_FLOAT(-30.0f, gy);
+
+	TEST_ASSERT_EQUAL_INT32(0, api->set_fixed_timestep(0.01f));
+	TEST_ASSERT_EQUAL_FLOAT(0.01f, api->get_fixed_timestep());
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->set_fixed_timestep(0.0f));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->set_fixed_timestep(-1.0f));
+	TEST_ASSERT_EQUAL_FLOAT(0.01f, api->get_fixed_timestep());
+
+	TEST_ASSERT_EQUAL_INT32(0, api->set_substeps(4u));
+	TEST_ASSERT_EQUAL_UINT32(4u, api->get_substeps());
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->set_substeps(0u));
+	TEST_ASSERT_EQUAL_UINT32(4u, api->get_substeps());
+
+	/* A zeroed settings struct keeps defaults for the numeric caps (zero is
+	 * invalid there) but honors explicit gravity. */
+	api->shutdown();
+	memset(&s, 0, sizeof(s));
+	s.gravity[1] = -5.0f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+	api->get_gravity(&gx, &gy, &gz);
+	TEST_ASSERT_EQUAL_FLOAT(-5.0f, gy);
+	TEST_ASSERT_EQUAL_FLOAT(1.0f / 60.0f, api->get_fixed_timestep());
+	TEST_ASSERT_EQUAL_UINT32(1u, api->get_substeps());
+	api->shutdown();
+
+	/* Getters report the not-initialized sentinels. */
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, api->get_fixed_timestep());
+	TEST_ASSERT_EQUAL_UINT32(0u, api->get_substeps());
+	api->get_gravity(&gx, &gy, &gz);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, gx);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, gy);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, gz);
+}
+
+/* ---- step-callback rate verification ---- */
+
+static u64 g_jolt_step_callbacks = 0u;
+static f64 g_jolt_last_physics_time = 0.0;
+static u64 g_jolt_last_step_index = 0u;
+
+static void jolt_test_count_steps(void_ptr_t user_data, f64 physics_time, u64 step_index) {
+	(void)user_data;
+	g_jolt_step_callbacks += 1u;
+	g_jolt_last_physics_time = physics_time;
+	g_jolt_last_step_index = step_index;
+}
+
+/* The step callback must fire exactly once per fixed physics step at the
+ * configured rate, with a monotonically advancing physics clock. */
+SK_TEST(jolt_step_callback_rate) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	i32 i;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.fixed_timestep = 0.01f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	/* 50 frames × 0.02 s = 1.0 s simulated at 10 ms/step → exactly 100
+	 * callbacks (each frame is well under the 0.25 s frame clamp). */
+	g_jolt_step_callbacks = 0u;
+	for (i = 0; i < 50; ++i) {
+		api->step(0.02f, jolt_test_count_steps, NULL);
+	}
+	TEST_ASSERT_EQUAL_UINT64(100ull, g_jolt_step_callbacks);
+	TEST_ASSERT_EQUAL_UINT64(100ull, g_jolt_last_step_index);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 1.0f, (f32)g_jolt_last_physics_time);
+
+	/* The accumulator carries across frames: 0.5 s more → 150 total. */
+	for (i = 0; i < 25; ++i) {
+		api->step(0.02f, jolt_test_count_steps, NULL);
+	}
+	TEST_ASSERT_EQUAL_UINT64(150ull, g_jolt_step_callbacks);
+	TEST_ASSERT_EQUAL_UINT64(150ull, g_jolt_last_step_index);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 1.5f, (f32)g_jolt_last_physics_time);
+
+	/* Sub-step frame deltas accumulate: 10 frames × 0.1 s = 100 more steps.
+	 * step_index / physics_time are cumulative since init (250 steps, 2.5 s). */
+	g_jolt_step_callbacks = 0u;
+	for (i = 0; i < 10; ++i) {
+		api->step(0.1f, jolt_test_count_steps, NULL);
+	}
+	TEST_ASSERT_EQUAL_UINT64(100ull, g_jolt_step_callbacks);
+	TEST_ASSERT_EQUAL_UINT64(250ull, g_jolt_last_step_index);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 2.5f, (f32)g_jolt_last_physics_time);
+
+	/* A timestep change applies at the new rate (0.2 s at 5 ms → 40 steps). */
+	TEST_ASSERT_EQUAL_INT32(0, api->set_fixed_timestep(0.005f));
+	g_jolt_step_callbacks = 0u;
+	api->step(0.2f, jolt_test_count_steps, NULL);
+	TEST_ASSERT_EQUAL_UINT64(40ull, g_jolt_step_callbacks);
+
+	api->shutdown();
+}
+
+/* Huge host frame deltas must be clamped (no spiral of death): 1000 s of
+ * input at 10 ms/step must not queue 100000 steps. */
+SK_TEST(jolt_step_clamps_giant_delta) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->settings_defaults(&s);
+	s.fixed_timestep = 0.01f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+
+	g_jolt_step_callbacks = 0u;
+	api->step(1000.0f, jolt_test_count_steps, NULL);
+	/* Clamped to 0.25 s per host frame → 25 steps at 10 ms. */
+	TEST_ASSERT_EQUAL_UINT64(25ull, g_jolt_step_callbacks);
+
+	/* Non-positive deltas are ignored, not treated as catch-up work. */
+	g_jolt_step_callbacks = 0u;
+	api->step(0.0f, jolt_test_count_steps, NULL);
+	api->step(-0.5f, jolt_test_count_steps, NULL);
+	TEST_ASSERT_EQUAL_UINT64(0ull, g_jolt_step_callbacks);
+
+	api->shutdown();
+}
+
+/* step() without a live world is a no-op (no crash, no callback). */
+SK_TEST(jolt_step_before_init_noop) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+
+	api->shutdown();
+	g_jolt_step_callbacks = 0u;
+	api->step(1.0f, jolt_test_count_steps, NULL);
+	TEST_ASSERT_EQUAL_UINT64(0ull, g_jolt_step_callbacks);
+	TEST_ASSERT_EQUAL_FLOAT(0.0f, api->get_fixed_timestep());
+}
+
+SK_TEST(jolt_body_character_stubs) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
 
 	/* Stub create entry points report "not implemented" via NULL; destroy
 	 * tolerates NULL. (Union members are set explicitly: only the first union

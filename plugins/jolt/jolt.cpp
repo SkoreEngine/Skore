@@ -2,55 +2,378 @@
  * @file jolt.cpp
  * @brief Physics module implementation (C++ behind the C-only jolt.h surface).
  *
- * Scaffold stage: only the module registration (sk_jolt_init, invoked from
- * sk_plugin_entry_point) and empty stubs are implemented. Every table entry
- * is a no-op or an explicit "not created" NULL return — no Jolt API is called
- * yet, and this TU intentionally does not include any Jolt header. The C++
- * language, the vendored Jolt link (target_link_libraries(sk-jolt PRIVATE
- * jolt)), and the layer/shape/motion constants in jolt.h are the scaffolding
- * for the real integration that follows.
+ * Implements the physics world lifecycle and fixed-step simulation on the
+ * vendored Jolt (v5.6.0), structurally following SkoreEngine/Skore's
+ * Runtime/Source/Skore/Scene/Physics.cpp:
+ *
+ *   init:     RegisterDefaultAllocator → new Factory → RegisterTypes →
+ *             TempAllocatorImpl (10 MiB) → JobSystemThreadPool →
+ *             BroadPhaseLayerInterface / ObjectVsBroadPhaseLayerFilter /
+ *             ObjectLayerPairFilter → PhysicsSystem::Init (sized from
+ *             sk_jolt_settings_t) → SetGravity.
+ *   step:     fixed-timestep accumulator; each drained step runs
+ *             PhysicsSystem::Update(dt, substeps, tempAllocator, jobSystem)
+ *             and then invokes the host step callback once.
+ *   shutdown: destroy the world (reverse construction order: PhysicsSystem →
+ *             filters → job system threads → temp allocator), then
+ *             UnregisterTypes → delete Factory. No leaks: every Jolt object
+ *             is owned by the module and released here, so the engine can
+ *             start/stop repeatedly with the plugin enabled.
+ *
+ * A CollisionListener is deliberately NOT implemented (explicitly out of
+ * scope for APX-305). Rigid bodies and character controllers remain empty
+ * stubs until a later stage.
  *
  * Unit tests live in jolt_tests.c (C, like every other plugin's tests); this
- * TU only exposes a SK_TESTS-only accessor for them.
+ * TU only exposes SK_TESTS-only accessors for them.
  */
 
 #include "jolt.h"
 
 #include "app.h"
 #include "common.h"
+#include "logger.h"
 
-#include <type_traits>
+#include <Jolt/Jolt.h>
+#include <Jolt/RegisterTypes.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Math/Vec3.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/EPhysicsUpdateError.h>
+#include <Jolt/Physics/PhysicsSettings.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+
+#include <thread>
 
 /* Host app registry cached at plugin load so in-plugin tests (and later the
  * integration) can resolve this plugin's own table. */
 static sk_app_context_t* g_jolt_app_context = nullptr;
 static const sk_app_api_t* g_jolt_app_api = nullptr;
 
-/* ---- empty stubs (no Jolt API calls at this stage) ---- */
+namespace {
 
-static i32 jolt_init_impl() noexcept {
+/* ---- world constants (mirror SkoreEngine/Skore + Jolt HelloWorld) ---- */
+
+/** TempAllocator arena size: 10 MiB (same as the reference PhysicsScene). */
+constexpr JPH::uint kTempAllocatorSize = 10u * 1024u * 1024u;
+
+/** Non-moving geometry lands in broad-phase layer 0, moving bodies in 1. */
+constexpr JPH::BroadPhaseLayer kBroadPhaseNonMoving(0);
+constexpr JPH::BroadPhaseLayer kBroadPhaseMoving(1);
+
+/** Defaults for sk_jolt_settings_t (documented in jolt.h). */
+constexpr f32 kDefaultGravity[3] = {0.0f, -9.81f, 0.0f};
+constexpr f32 kDefaultFixedTimestep = 1.0f / 60.0f;
+constexpr u32 kDefaultSubsteps = 1u;
+constexpr u32 kDefaultMaxBodies = 65536u;
+constexpr u32 kDefaultMaxBodyPairs = 65536u;
+constexpr u32 kDefaultMaxConstraints = 10240u;
+
+/**
+ * Upper bound on the host frame delta fed to the accumulator (seconds).
+ * A single slow frame (debugger pause, swap stall) must not queue a runaway
+ * number of catch-up physics steps — the classic "spiral of death".
+ */
+constexpr f32 kMaxFrameDelta = 0.25f;
+
+/** Accumulator comparison slack; absorbs f32 drift so exact multiples of the
+ * fixed timestep (e.g. 60 frames of 1/60 s) drain to exactly the right
+ * number of steps instead of losing a fraction of a step per frame. */
+constexpr f32 kAccumulatorEpsilon = 1.0e-4f;
+
+/* ---- object-layer / broad-phase-layer collision model ---- */
+
+/** Maps the two 16-bit object layers onto the two 8-bit broad-phase layers. */
+class BroadPhaseLayerInterfaceImpl : public JPH::BroadPhaseLayerInterface {
+public:
+	JPH::uint GetNumBroadPhaseLayers() const override {
+		return SK_JOLT_BROAD_PHASE_LAYER_COUNT;
+	}
+
+	JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override {
+		return (inLayer == SK_JOLT_OBJECT_LAYER_MOVING) ? kBroadPhaseMoving : kBroadPhaseNonMoving;
+	}
+};
+
+/**
+ * Object layer vs broad-phase layer: static geometry (object layer 0) only
+ * collides with the MOVING broad-phase layer; moving bodies collide with
+ * both. Mirrors the reference ObjectVsBroadPhaseLayerFilterImpl.
+ */
+class ObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter {
+public:
+	bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override {
+		if (inLayer1 == SK_JOLT_OBJECT_LAYER_NON_MOVING) {
+			return inLayer2 == kBroadPhaseMoving;
+		}
+		return true;
+	}
+};
+
+/**
+ * Object layer pair filter: static-vs-static pairs never collide; every
+ * other combination does. Mirrors the reference ObjectLayerPairFilterImpl.
+ */
+class ObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter {
+public:
+	bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override {
+		if (inObject1 == SK_JOLT_OBJECT_LAYER_NON_MOVING && inObject2 == SK_JOLT_OBJECT_LAYER_NON_MOVING) {
+			return false;
+		}
+		return true;
+	}
+};
+
+/* ---- the live world ---- */
+
+/**
+ * Owns every per-world Jolt object. Member order is deliberate: the filters
+ * are declared before the PhysicsSystem (which references them and must be
+ * destroyed first), and the job system / temp allocator are declared first so
+ * they outlive the system they feed. C++ destroys members in reverse
+ * declaration order, so `delete world` tears down in exactly the right
+ * sequence.
+ */
+struct JoltWorld {
+	JPH::TempAllocatorImpl temp_allocator;
+	JPH::JobSystemThreadPool job_system;
+	BroadPhaseLayerInterfaceImpl broad_phase;
+	ObjectVsBroadPhaseLayerFilterImpl object_vs_broad_phase;
+	ObjectLayerPairFilterImpl object_pair_filter;
+	JPH::PhysicsSystem physics_system;
+
+	/* Fixed-step driver state (main-thread only). */
+	f32 fixed_timestep;
+	u32 substeps;
+	f32 accumulator;
+	f64 physics_time;
+	u64 step_index;
+
+	explicit JoltWorld(const sk_jolt_settings_t& settings, int thread_count)
+		: temp_allocator(kTempAllocatorSize), job_system(static_cast<JPH::uint>(JPH::cMaxPhysicsJobs), static_cast<JPH::uint>(JPH::cMaxPhysicsBarriers), thread_count),
+		  fixed_timestep(settings.fixed_timestep), substeps(settings.substeps), accumulator(0.0f), physics_time(0.0), step_index(0u) {
+		physics_system.Init(settings.max_bodies, 0u, /* inNumBodyMutexes: 0 = auto-detect */
+							settings.max_body_pairs, settings.max_constraints, broad_phase, object_vs_broad_phase, object_pair_filter);
+		physics_system.SetGravity(JPH::Vec3(settings.gravity[0], settings.gravity[1], settings.gravity[2]));
+	}
+};
+
+/** The live world, or nullptr between init/shutdown cycles. */
+JoltWorld* g_jolt_world = nullptr;
+
+/** Plugin logger (created at init, destroyed at shutdown; NULL on failure). */
+sk_logger_t* g_jolt_log = nullptr;
+
+/* ---- settings helpers ---- */
+
+void jolt_settings_defaults(sk_jolt_settings_t* out) {
+	out->gravity[0] = kDefaultGravity[0];
+	out->gravity[1] = kDefaultGravity[1];
+	out->gravity[2] = kDefaultGravity[2];
+	out->fixed_timestep = kDefaultFixedTimestep;
+	out->substeps = kDefaultSubsteps;
+	out->max_bodies = kDefaultMaxBodies;
+	out->max_body_pairs = kDefaultMaxBodyPairs;
+	out->max_constraints = kDefaultMaxConstraints;
+}
+
+/**
+ * Resolve the effective settings: start from the defaults, then honor the
+ * caller's struct. Gravity is used as given (all-zero is legal); the numeric
+ * caps fall back to defaults when the caller passed zero.
+ */
+void jolt_settings_resolve(const sk_jolt_settings_t* in, sk_jolt_settings_t* out) {
+	jolt_settings_defaults(out);
+	if (in == nullptr) {
+		return;
+	}
+	if (in->fixed_timestep > 0.0f) {
+		out->fixed_timestep = in->fixed_timestep;
+	}
+	if (in->substeps > 0u) {
+		out->substeps = in->substeps;
+	}
+	if (in->max_bodies > 0u) {
+		out->max_bodies = in->max_bodies;
+	}
+	if (in->max_body_pairs > 0u) {
+		out->max_body_pairs = in->max_body_pairs;
+	}
+	if (in->max_constraints > 0u) {
+		out->max_constraints = in->max_constraints;
+	}
+	out->gravity[0] = in->gravity[0];
+	out->gravity[1] = in->gravity[1];
+	out->gravity[2] = in->gravity[2];
+}
+
+/** Worker threads for the job system: all cores minus one (min 1). */
+int jolt_thread_count() {
+	unsigned int cores = std::thread::hardware_concurrency();
+	return (cores > 1u) ? static_cast<int>(cores) - 1 : 1;
+}
+
+/* ---- module lifecycle ---- */
+
+void jolt_shutdown_impl() noexcept {
+	if (g_jolt_world != nullptr) {
+		delete g_jolt_world; /* PhysicsSystem → filters → job threads → temp allocator */
+		g_jolt_world = nullptr;
+	}
+	if (JPH::Factory::sInstance != nullptr) {
+		JPH::UnregisterTypes();
+		delete JPH::Factory::sInstance;
+		JPH::Factory::sInstance = nullptr;
+	}
+	if (g_jolt_log != nullptr) {
+		sk_logger_api()->destroy_logger(g_jolt_log);
+		g_jolt_log = nullptr;
+	}
+}
+
+i32 jolt_init_impl(const sk_jolt_settings_t* settings) noexcept {
+	try {
+		/* Re-entrant: replace any live world (also cleans a half-built state). */
+		jolt_shutdown_impl();
+
+		sk_jolt_settings_t resolved;
+		jolt_settings_resolve(settings, &resolved);
+
+		g_jolt_log = sk_logger_api()->create_logger("jolt");
+
+		/* Process-wide Jolt setup: allocator first (Jolt classes route new/
+		 * delete through JPH::Allocate, which is null until registered). */
+		JPH::RegisterDefaultAllocator();
+		JPH::Factory::sInstance = new JPH::Factory();
+		JPH::RegisterTypes();
+
+		g_jolt_world = new JoltWorld(resolved, jolt_thread_count());
+
+		if (g_jolt_log != nullptr) {
+			sk_log_info(sk_logger_api(), g_jolt_log, "jolt world init: gravity=(%.2f, %.2f, %.2f) dt=%.6f substeps=%u bodies=%u pairs=%u constraints=%u",
+						(double)resolved.gravity[0], (double)resolved.gravity[1], (double)resolved.gravity[2], (double)resolved.fixed_timestep, resolved.substeps,
+						resolved.max_bodies, resolved.max_body_pairs, resolved.max_constraints);
+		}
+		return 0;
+	} catch (...) {
+		/* Allocation failure mid-init: leave the module fully shut down. */
+		jolt_shutdown_impl();
+		return -1;
+	}
+}
+
+/* ---- runtime configuration ---- */
+
+void jolt_set_gravity_impl(f32 x, f32 y, f32 z) noexcept {
+	if (g_jolt_world != nullptr) {
+		g_jolt_world->physics_system.SetGravity(JPH::Vec3(x, y, z));
+	}
+}
+
+void jolt_get_gravity_impl(f32* out_x, f32* out_y, f32* out_z) noexcept {
+	JPH::Vec3 g = (g_jolt_world != nullptr) ? g_jolt_world->physics_system.GetGravity() : JPH::Vec3(0.0f, 0.0f, 0.0f);
+	if (out_x != nullptr) {
+		*out_x = g.GetX();
+	}
+	if (out_y != nullptr) {
+		*out_y = g.GetY();
+	}
+	if (out_z != nullptr) {
+		*out_z = g.GetZ();
+	}
+}
+
+i32 jolt_set_fixed_timestep_impl(f32 step) noexcept {
+	if (g_jolt_world == nullptr || !(step > 0.0f)) {
+		return -1;
+	}
+	g_jolt_world->fixed_timestep = step;
+	/* Drain the accumulator so a rate change applies immediately instead of
+	 * bursting through the leftover catch-up steps at the old rate. */
+	g_jolt_world->accumulator = 0.0f;
 	return 0;
 }
 
-static void jolt_shutdown_impl() noexcept {}
+f32 jolt_get_fixed_timestep_impl() noexcept {
+	return (g_jolt_world != nullptr) ? g_jolt_world->fixed_timestep : 0.0f;
+}
 
-static sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t*, sk_jolt_motion_type_t, u32) noexcept {
+i32 jolt_set_substeps_impl(u32 count) noexcept {
+	if (g_jolt_world == nullptr || count == 0u) {
+		return -1;
+	}
+	g_jolt_world->substeps = count;
+	return 0;
+}
+
+u32 jolt_get_substeps_impl() noexcept {
+	return (g_jolt_world != nullptr) ? g_jolt_world->substeps : 0u;
+}
+
+/* ---- fixed-step simulation ---- */
+
+void jolt_step_impl(f32 delta_time, sk_jolt_step_callback_fn callback, void_ptr_t user_data) noexcept {
+	JoltWorld* world = g_jolt_world;
+	if (world == nullptr || !(delta_time > 0.0f)) {
+		return;
+	}
+
+	const f32 dt = (delta_time > kMaxFrameDelta) ? kMaxFrameDelta : delta_time;
+	world->accumulator += dt;
+
+	while (world->accumulator + kAccumulatorEpsilon >= world->fixed_timestep) {
+		const JPH::EPhysicsUpdateError error = world->physics_system.Update(world->fixed_timestep, static_cast<int>(world->substeps), &world->temp_allocator, &world->job_system);
+		if (error != JPH::EPhysicsUpdateError::None && g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "physics update error 0x%x (increase max_body_pairs / max_constraints)", static_cast<unsigned>(error));
+		}
+
+		world->accumulator -= world->fixed_timestep;
+		world->physics_time += static_cast<f64>(world->fixed_timestep);
+		world->step_index += 1u;
+
+		if (callback != nullptr) {
+			callback(user_data, world->physics_time, world->step_index);
+		}
+	}
+}
+
+/* ---- rigid body / character stubs (not implemented at this stage) ---- */
+
+sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t*, sk_jolt_motion_type_t, u32) noexcept {
 	return nullptr;
 }
 
-static void jolt_body_destroy_impl(sk_jolt_body_t*) noexcept {}
+void jolt_body_destroy_impl(sk_jolt_body_t*) noexcept {}
 
-static sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
+sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
 	return nullptr;
 }
 
-static void jolt_character_destroy_impl(sk_jolt_character_t*) noexcept {}
+void jolt_character_destroy_impl(sk_jolt_character_t*) noexcept {}
 
 /* ---- API table (table-only; no public free-function mirrors) ---- */
 
-static const sk_jolt_api_t jolt_api = {
-	jolt_init_impl, jolt_shutdown_impl, jolt_body_create_impl, jolt_body_destroy_impl, jolt_character_create_impl, jolt_character_destroy_impl,
+const sk_jolt_api_t jolt_api = {
+	jolt_init_impl,
+	jolt_shutdown_impl,
+	jolt_settings_defaults,
+	jolt_set_gravity_impl,
+	jolt_get_gravity_impl,
+	jolt_set_fixed_timestep_impl,
+	jolt_get_fixed_timestep_impl,
+	jolt_set_substeps_impl,
+	jolt_get_substeps_impl,
+	jolt_step_impl,
+	jolt_body_create_impl,
+	jolt_body_destroy_impl,
+	jolt_character_create_impl,
+	jolt_character_destroy_impl,
 };
+
+} /* namespace */
 
 /**
  * Register the physics API on the app context.
@@ -71,6 +394,7 @@ void sk_jolt_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
  * standard-layout for a C++ host to pass them to the C table, and the motion
  * type must stay a plain C enum. */
 static_assert(std::is_trivial<sk_jolt_shape_desc_t>::value && std::is_standard_layout<sk_jolt_shape_desc_t>::value);
+static_assert(std::is_trivial<sk_jolt_settings_t>::value && std::is_standard_layout<sk_jolt_settings_t>::value);
 static_assert(std::is_enum<sk_jolt_motion_type_t>::value && std::is_trivial<sk_jolt_motion_type_t>::value);
 
 /* Motion type values mirror JPH::EMotionType; layer/group constants mirror
@@ -83,8 +407,9 @@ static_assert(SK_JOLT_COLLISION_GROUP_INVALID == 0xFFFFFFFFu && SK_JOLT_COLLISIO
 /* Test-only hook (SK_TESTS plugin builds only; never in a public header):
  * hands the plugin-local C test TU (jolt_tests.c) the app registry cached at
  * plugin load and this plugin's registered table, so the tests can verify the
- * registration landed and exercise the stubs. extern "C" keeps the names
- * unmangled for the C caller within the same shared library. */
+ * registration landed and exercise the world lifecycle / fixed-step driver.
+ * extern "C" keeps the names unmangled for the C caller within the same
+ * shared library. */
 extern "C" void sk_jolt_test_context(sk_app_context_t** out_context, const sk_app_api_t** out_app_api);
 extern "C" const sk_jolt_api_t* sk_jolt_test_api(void);
 

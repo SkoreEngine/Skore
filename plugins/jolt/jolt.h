@@ -15,10 +15,22 @@
  * POD structs, and enums/constants. No C++ types, templates, or name mangling
  * appear here — a C compiler must be able to consume it. The implementation
  * lives in .cpp translation units that link the vendored Jolt library
- * (thirdparty/jolt) behind this boundary; at this stage every table entry is
- * an empty stub and no Jolt API is invoked yet.
+ * (thirdparty/jolt) behind this boundary.
  *
- * Value conventions mirror the vendored Jolt v5.6.0 defaults so later
+ * Current stage (APX-305): the physics world lifecycle and the fixed-step
+ * simulation loop are implemented — Jolt Factory/RegisterTypes setup, a
+ * 10 MiB TempAllocator, a JobSystemThreadPool, the broad-phase layer
+ * interface, the object-vs-broad-phase and object-layer pair filters, a
+ * PhysicsSystem sized from sk_jolt_settings_t, and a fixed-timestep
+ * accumulator driven by step() with configurable gravity / substeps /
+ * timestep. init/shutdown are re-entrant and tear down in the exact reverse
+ * construction order with no leaks; repeated engine start/stop cycles are
+ * supported (verified by plugin tests). A CollisionListener is deliberately
+ * **not** implemented (explicitly out of scope); rigid bodies and character
+ * controllers remain empty stubs (body_create / character_create return
+ * NULL) until a later stage.
+ *
+ * Value conventions mirror the vendored Jolt v5.6.0 defaults so the
  * integration maps 1:1:
  *   - motion types match JPH::EMotionType (Static=0, Kinematic=1, Dynamic=2),
  *   - object layers are 16-bit (JPH_OBJECT_LAYER_BITS == 16 default) with
@@ -26,12 +38,22 @@
  *   - broad-phase layers are 8-bit (JPH::BroadPhaseLayer::Type),
  *   - collision group ids / masks are 32-bit (JPH::CollisionGroup::GroupID).
  *
- * # Layer / collision-filter model (scaffold)
+ * # Layer / collision-filter model
  *
  * Two object layers (non-moving static geometry, moving bodies) map 1:1 onto
  * two broad-phase layers, the classic Jolt HelloWorld setup; characters use
  * their own collision group so the pair filter can later separate dynamic
  * bodies from character probes without changing the layer set.
+ *
+ * # Thread model / lifecycle
+ *
+ * The whole table is main-thread only. step() accumulates host frame deltas
+ * and drains them at the configured fixed rate, invoking the step callback
+ * once per completed physics step — hosts drive it from the app main loop
+ * with app_api->delta_time(ctx). init() may be called again after shutdown()
+ * (or directly over a live world: it tears the old one down first); every
+ * resource is owned by the module and released by shutdown(), so repeated
+ * engine start/stop cycles do not leak.
  */
 
 #include "common.h"
@@ -164,28 +186,147 @@ typedef struct sk_jolt_body_t sk_jolt_body_t;
 typedef struct sk_jolt_character_t sk_jolt_character_t;
 
 /* ------------------------------------------------------------------ */
+/*  World settings                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Physics world settings passed to init. Fill via settings_defaults() and
+ * tweak the fields you care about; init(NULL) uses the full default set.
+ * Numeric caps (fixed_timestep, substeps, max_*) fall back to their defaults
+ * when zero; gravity is honored as given (all-zero gravity is legal).
+ */
+typedef struct sk_jolt_settings_t {
+	/** World gravity in m/s² per axis. Default {0, -9.81, 0}. */
+	f32 gravity[3];
+	/** Seconds per physics step (the fixed timestep). Default 1/60. Must be > 0. */
+	f32 fixed_timestep;
+	/** Collision/integration iterations per physics step. Default 1. Must be >= 1. */
+	u32 substeps;
+	/** Max simultaneous bodies (PhysicsSystem::Init inMaxBodies). Default 65536. */
+	u32 max_bodies;
+	/** Max broad-phase body pairs processed per step. Default 65536. */
+	u32 max_body_pairs;
+	/** Max simultaneous contact constraints per step. Default 10240. */
+	u32 max_constraints;
+} sk_jolt_settings_t;
+
+/**
+ * Step callback, invoked by step() once per completed fixed physics step.
+ * Main-thread only; keep it short (Jolt has already finished the step).
+ * @param user_data    Opaque pointer passed to step() (may be NULL).
+ * @param physics_time Accumulated simulated time in seconds since init
+ *                     (grows by fixed_timestep per step; f64 for long runs).
+ * @param step_index   Zero-based count of completed steps since init.
+ */
+typedef void (*sk_jolt_step_callback_fn)(void_ptr_t user_data, f64 physics_time, u64 step_index);
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
 /**
  * Global physics module API (one table per process after plugin load).
  * Registered under SK_JOLT_API_TYPE_ID; hosts resolve it via app_api->get_api.
- * Every entry is an empty stub at this stage: no Jolt API is called, create
- * entry points report failure (NULL) until the integration lands.
+ *
+ * Lifecycle: init(settings) creates the Jolt world (Factory + registered
+ * types, TempAllocator, JobSystemThreadPool, layer filters, PhysicsSystem).
+ * Hosts then drive step(delta, callback, user_data) once per frame — the
+ * plugin accumulates the frame delta and runs the physics world at the fixed
+ * configured rate, calling the callback after each step. shutdown() tears the
+ * world down in reverse construction order and releases every Jolt resource.
+ * All entries are main-thread only; init/shutdown are re-entrant (init over a
+ * live world replaces it; shutdown without init is a no-op).
+ *
+ * Rigid bodies and character controllers are not implemented yet: the
+ * create entry points report failure (NULL) until the integration lands.
  */
 typedef struct sk_jolt_api_t {
 	/**
-	 * Initialize the physics module (creates the Jolt world, broadphase, and
-	 * collision filters). Stub: no-op reporting success.
+	 * Initialize the physics module (Jolt factory/types, temp allocator, job
+	 * system, broad-phase + object-layer filters, PhysicsSystem) with the
+	 * given world settings. A previous world (if any) is shut down first, so
+	 * repeated init/shutdown cycles are safe.
+	 * @param settings World settings, or NULL for the defaults
+	 *                 (see sk_jolt_settings_t / settings_defaults).
 	 * @return 0 on success, non-zero on failure.
 	 */
-	i32 (*init)(void); // NOLINT(modernize-redundant-void-arg) — C ABI: () would not be a prototype in C
+	i32 (*init)(const sk_jolt_settings_t* settings);
 
 	/**
-	 * Shut the physics module down and release the world created by init.
-	 * Stub: no-op. Safe to call without a matching init.
+	 * Shut the physics module down: destroy the world (PhysicsSystem, filters,
+	 * job system threads, temp allocator), unregister Jolt types and destroy
+	 * the factory. Releases every Jolt allocation; safe to call without a
+	 * matching init and safe to call repeatedly.
 	 */
 	void (*shutdown)(void); // NOLINT(modernize-redundant-void-arg) — C ABI: () would not be a prototype in C
+
+	/**
+	 * Fill @p out with the default world settings (gravity {0,-9.81,0},
+	 * fixed_timestep 1/60, substeps 1, 65536 bodies / body pairs, 10240
+	 * contact constraints). Callers tweak fields, then pass to init.
+	 * @param out Destination struct; must not be NULL.
+	 */
+	void (*settings_defaults)(sk_jolt_settings_t* out);
+
+	/**
+	 * Set world gravity. Applies immediately to the live world; no-op when
+	 * not initialized.
+	 * @param x Gravity x component (m/s²).
+	 * @param y Gravity y component (m/s²).
+	 * @param z Gravity z component (m/s²).
+	 */
+	void (*set_gravity)(f32 x, f32 y, f32 z);
+
+	/**
+	 * Read world gravity. No-op (outputs zeroed) when not initialized.
+	 * @param out_x Optional output for the x component (may be NULL).
+	 * @param out_y Optional output for the y component (may be NULL).
+	 * @param out_z Optional output for the z component (may be NULL).
+	 */
+	void (*get_gravity)(f32* out_x, f32* out_y, f32* out_z);
+
+	/**
+	 * Change the fixed timestep (seconds per physics step) of a live world.
+	 * The step accumulator is drained so the new rate takes effect without a
+	 * burst of catch-up steps.
+	 * @param step Seconds per step; must be > 0.
+	 * @return 0 on success, non-zero when not initialized or @p step <= 0.
+	 */
+	i32 (*set_fixed_timestep)(f32 step);
+
+	/**
+	 * Current fixed timestep in seconds.
+	 * @return Seconds per step, or 0 when not initialized.
+	 */
+	f32 (*get_fixed_timestep)(void); // NOLINT(modernize-redundant-void-arg) — C ABI: () would not be a prototype in C
+
+	/**
+	 * Change the collision/integration substeps of a live world (the Jolt
+	 * collision-steps parameter passed to PhysicsSystem::Update).
+	 * @param count Substep count; must be >= 1.
+	 * @return 0 on success, non-zero when not initialized or @p count == 0.
+	 */
+	i32 (*set_substeps)(u32 count);
+
+	/**
+	 * Current collision/integration substeps per physics step.
+	 * @return Substep count, or 0 when not initialized.
+	 */
+	u32 (*get_substeps)(void); // NOLINT(modernize-redundant-void-arg) — C ABI: () would not be a prototype in C
+
+	/**
+	 * Advance the physics world by one host frame: add @p delta_time to the
+	 * fixed-timestep accumulator and run PhysicsSystem::Update until it is
+	 * drained, invoking @p callback after every completed step (once per
+	 * physics step at the configured fixed rate). Huge frame deltas (e.g.
+	 * after a debugger pause) are clamped to 0.25 s so a slow frame cannot
+	 * trigger a "spiral of death" of catch-up steps. No-op when not
+	 * initialized or @p delta_time <= 0. Main-thread only.
+	 * @param delta_time Host frame delta in seconds (app delta_time).
+	 * @param callback    Optional per-step callback (may be NULL).
+	 * @param user_data   Opaque pointer forwarded to @p callback (may be NULL).
+	 */
+	void (*step)(f32 delta_time, sk_jolt_step_callback_fn callback, void_ptr_t user_data);
 
 	/**
 	 * Create a rigid body from a shape description.
