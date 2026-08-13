@@ -11,8 +11,15 @@
 
 #include "array.h"
 #include "hashmap.h"
+#include "logger.h"
 
+#include <stddef.h>
 #include <string.h>
+
+/* Host logger captured at sk_ui_init. NULL until the plugin is loaded. */
+const sk_logger_api_t* ui_logger_api(void);
+sk_logger_context_t* ui_logger_context(void);
+void ui_bind_host_logger(const sk_logger_api_t* api, sk_logger_context_t* log_ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Containers                                                                 */
@@ -365,18 +372,73 @@ const sk_ui_draw_list_t* ui_get_draw_list_impl(const sk_ui_context_t* ctx);
 /* Font system (font.c)                                                       */
 /* -------------------------------------------------------------------------- */
 
-sk_ui_font_system_t* ui_font_system_create_impl(const sk_allocator_t* allocator, u32 page_width, u32 page_height);
+sk_ui_font_system_t* ui_font_system_create_impl(const sk_allocator_t* allocator);
 void ui_font_system_destroy_impl(sk_ui_font_system_t* system);
 sk_ui_font_t* ui_font_load_path_impl(sk_ui_font_system_t* system, const sk_filesystem_api_t* fs, const_chr_t path);
 sk_ui_font_t* ui_font_load_memory_impl(sk_ui_font_system_t* system, const u8* data, u32 size);
 void ui_font_destroy_impl(sk_ui_font_t* font);
 i32 ui_font_get_metrics_impl(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
 u32 ui_font_glyph_index_impl(const sk_ui_font_t* font, u32 codepoint);
-i32 ui_font_get_glyph_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, u32 glyph_index, sk_ui_glyph_t* out);
-u32 ui_font_atlas_page_count_impl(const sk_ui_font_system_t* system);
-i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
-u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
-void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
+
+/* MSDF atlas (font_msdf.c / font.c) — bake, query, dump; layout scales one atlas. */
+typedef struct ui_msdf_atlas_live_t ui_msdf_atlas_live_t;
+void ui_msdf_atlas_release(const sk_allocator_t* a, ui_msdf_atlas_live_t* atlas);
+i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_size, ui_msdf_atlas_live_t** out_atlas);
+i32 ui_msdf_atlas_get_public(const ui_msdf_atlas_live_t* atlas, sk_ui_msdf_atlas_t* out);
+i32 ui_msdf_atlas_find_codepoint(const ui_msdf_atlas_live_t* atlas, u32 codepoint, sk_ui_msdf_glyph_t* out);
+i32 ui_msdf_atlas_dump(const ui_msdf_atlas_live_t* atlas, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+
+i32 ui_font_msdf_bake_impl(sk_ui_font_t* font);
+i32 ui_font_msdf_get_atlas_impl(const sk_ui_font_t* font, sk_ui_msdf_atlas_t* out);
+i32 ui_font_msdf_get_glyph_impl(const sk_ui_font_t* font, u32 codepoint, sk_ui_msdf_glyph_t* out);
+i32 ui_font_msdf_dump_impl(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+i32 ui_font_measure_text_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, const_chr_t utf8, f32* out_width, f32* out_height);
+
+/**
+ * One shaped codepoint at a requested pixel size. Advances / bearings / plane
+ * quads are already scaled. advance_x includes kerning from prev when MSDF.
+ */
+typedef struct ui_text_layout_glyph_t {
+	u32 codepoint;
+	u32 glyph_index;
+	f32 advance_x;
+	f32 kerning_x; /**< Pair adjustment already included in advance_x. */
+	f32 bearing_x;
+	f32 bearing_y;
+	f32 quad_l;
+	f32 quad_b;
+	f32 quad_r;
+	f32 quad_t;
+	f32 u0, v0, u1, v1;
+	i32 has_quad;	   /**< Sample the atlas (ink). */
+	i32 is_fallback;   /**< Missing cmap → .notdef / box. */
+	i32 is_whitespace; /**< Advance only (space). */
+} ui_text_layout_glyph_t;
+
+i32 ui_text_utf8_next(const u8* s, size_t len, size_t* index, u32* out_cp);
+i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, sk_ui_font_metrics_t* out);
+i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, ui_text_layout_glyph_t* out);
+f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end);
+i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_width, f32* out_height);
+i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, f32* out_advance, f32* out_min_x, f32* out_max_x, f32* out_height);
+
+/* CPU-side MSDF decode matching the fragment shader (MSDF mode). */
+f32 ui_msdf_median3(f32 r, f32 g, f32 b);
+f32 ui_msdf_screen_px_range(f32 px_range, f32 atlas_w, f32 atlas_h, f32 fwidth_u, f32 fwidth_v);
+f32 ui_msdf_coverage(f32 median, f32 screen_px_range);
+f32 ui_msdf_sample_median_nearest(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v);
+f32 ui_msdf_sample_median_bilinear(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v);
+
+/* font.c accessors for MSDF attachment (opaque font internals). */
+const sk_allocator_t* ui_font_allocator(const sk_ui_font_t* font);
+const u8* ui_font_file_bytes(const sk_ui_font_t* font);
+u32 ui_font_file_size(const sk_ui_font_t* font);
+u32 ui_font_id(const sk_ui_font_t* font);
+sk_ui_font_t* ui_font_system_find(sk_ui_font_system_t* system, u32 font_id);
+u32 ui_font_system_font_count(const sk_ui_font_system_t* system);
+sk_ui_font_t* ui_font_system_font_at(sk_ui_font_system_t* system, u32 index);
+ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font);
+void ui_font_msdf_set(sk_ui_font_t* font, ui_msdf_atlas_live_t* atlas);
 
 /* -------------------------------------------------------------------------- */
 /* GPU renderer (render.c)                                                    */
@@ -403,6 +465,7 @@ i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_in
 i32 ui_cpu_image_write_png_impl(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
 i32 ui_test_artifact_root_impl(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
 i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+i32 ui_test_artifact_png_path_in_impl(const sk_filesystem_api_t* fs, const_chr_t subdir, const_chr_t name, char* out, u32 out_cap);
 
 /* -------------------------------------------------------------------------- */
 /* Golden image comparison (image_compare.c)                                  */

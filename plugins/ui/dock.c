@@ -134,8 +134,10 @@ static i32 ui_dock_rect_contains(const sk_ui_rect_t* r, f32 x, f32 y) {
 
 static sk_logger_t* ui_dock_logger(void) {
 	static sk_logger_t* log;
-	if (log == NULL) {
-		log = sk_logger_api()->create_logger("ui.dock");
+	const sk_logger_api_t* api = ui_logger_api();
+	sk_logger_context_t* log_ctx = ui_logger_context();
+	if (log == NULL && api != NULL && log_ctx != NULL) {
+		log = api->create_logger(log_ctx, "ui.dock");
 	}
 	return log;
 }
@@ -896,7 +898,7 @@ static i32 ui_dock_queue_pending(sk_ui_context_t* ctx, ui_dockspace_t* space, co
 	char* copy;
 	u32 i;
 	if (space->pending_count >= SK_UI_DOCK_PENDING_MAX) {
-		sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock pending bind overflow (cap %u)", SK_UI_DOCK_PENDING_MAX);
+		sk_log_warn(ui_logger_api(), ui_dock_logger(), "dock pending bind overflow (cap %u)", SK_UI_DOCK_PENDING_MAX);
 		return -1;
 	}
 	for (i = 0u; i < space->pending_count; ++i) {
@@ -1161,7 +1163,7 @@ sk_ui_dock_node_t ui_dockspace_begin_impl(sk_ui_context_t* ctx, sk_ui_node_t hos
 		}
 		space->flags = flags;
 		ctx->dock_current = space->root;
-		sk_log_debug(sk_logger_api(), ui_dock_logger(), "dockspace reuse '%s'", id);
+		sk_log_debug(ui_logger_api(), ui_dock_logger(), "dockspace reuse '%s'", id);
 		return space->root;
 	}
 	if (ctx->dockspace_count >= SK_UI_DOCKSPACE_MAX) {
@@ -1202,7 +1204,7 @@ sk_ui_dock_node_t ui_dockspace_begin_impl(sk_ui_context_t* ctx, sk_ui_node_t hos
 	space->host = chrome;
 	ctx->dockspace_count += 1u;
 	ctx->dock_current = root;
-	sk_log_debug(sk_logger_api(), ui_dock_logger(), "dockspace create '%s'", id);
+	sk_log_debug(ui_logger_api(), ui_dock_logger(), "dockspace create '%s'", id);
 	return root;
 }
 
@@ -3038,7 +3040,7 @@ i32 ui_dock_window_register_impl(sk_ui_context_t* ctx, const_chr_t window_id, co
 	reg = ui_dock_reg_find(ctx, window_id);
 	if (reg == NULL) {
 		if (ctx->dock_reg_count >= SK_UI_DOCK_WINDOW_REG_MAX) {
-			sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock window register overflow (cap %u)", (u32)SK_UI_DOCK_WINDOW_REG_MAX);
+			sk_log_warn(ui_logger_api(), ui_dock_logger(), "dock window register overflow (cap %u)", (u32)SK_UI_DOCK_WINDOW_REG_MAX);
 			return -1;
 		}
 		id_copy = ui_dock_strdup(ctx->allocator, window_id);
@@ -3866,7 +3868,7 @@ static i32 ui_dock_layout_fill_live(sk_ui_context_t* ctx, ui_dockspace_t* space,
 			return -1;
 		}
 		if (ui_dock_window_known(ctx, src->tabs[i]) == 0) {
-			sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock layout drop unregistered window '%s'", src->tabs[i]);
+			sk_log_warn(ui_logger_api(), ui_dock_logger(), "dock layout drop unregistered window '%s'", src->tabs[i]);
 			continue;
 		}
 		if (ui_dock_append_tab(ctx, live, src->tabs[i]) != 0) {
@@ -3987,7 +3989,7 @@ static i32 ui_dock_layout_place_floats(sk_ui_context_t* ctx, const sk_ui_dock_la
 			return -1;
 		}
 		if (ui_dock_window_known(ctx, fl->window_id) == 0) {
-			sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock layout drop unregistered floating window '%s'", fl->window_id);
+			sk_log_warn(ui_logger_api(), ui_dock_logger(), "dock layout drop unregistered floating window '%s'", fl->window_id);
 			continue;
 		}
 		(void)ui_dock_remove_window(ctx, fl->window_id);
@@ -4018,7 +4020,7 @@ i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id
 		return -1;
 	}
 	if (sk_ui_dock_layout_version_supported(doc.version) != 0) {
-		sk_log_warn(sk_logger_api(), ui_dock_logger(), "dock layout version %d unsupported (want %d); reject and keep default layout", doc.version, (i32)SK_UI_DOCK_LAYOUT_VERSION);
+		sk_log_warn(ui_logger_api(), ui_dock_logger(), "dock layout version %d unsupported (want %d); reject and keep default layout", doc.version, (i32)SK_UI_DOCK_LAYOUT_VERSION);
 		ui_dock_layout_schema_doc_free(ctx->allocator, &doc);
 		return -1;
 	}

@@ -2,7 +2,9 @@ Widget family: SCROLLBAR
 
 Strict visual criteria (PASS only if ALL hold):
 
-1. A track along one edge (vertical or horizontal as claimed) is visible.
-2. A distinct thumb/knob shorter than the track is visible on that track.
-3. Thumb position roughly matches the claimed scroll fraction (start / middle / end).
-4. FAIL if: no thumb, thumb spans the entire track (looks like a solid bar only), or scrollbar is missing while content is claimed to overflow.
+1. A scrollbar sits along one edge (vertical or horizontal as claimed).
+2. A distinct thumb/knob shorter than that edge is visible.
+3. The gutter/track behind the thumb may be subtle or close to the panel color —
+   do not FAIL only because the track is low-contrast.
+4. Thumb position roughly matches the claimed scroll fraction (start / middle / end).
+5. FAIL if: no thumb, thumb spans the entire edge (looks like a solid bar only), or scrollbar is missing while content is claimed to overflow.

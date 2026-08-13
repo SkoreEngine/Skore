@@ -565,11 +565,14 @@ static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t node_id, con
 		return;
 	}
 	fr->limitation_logged = 1;
-	logger = sk_logger_api()->create_logger("clay_adapter");
+	if (ui_logger_api() == NULL || ui_logger_context() == NULL) {
+		return;
+	}
+	logger = ui_logger_api()->create_logger(ui_logger_context(), "clay_adapter");
 	if (logger != NULL) {
-		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_WARN, logger, "element '%s' Clay limitation: %s (kept best-effort mapping)", node_id != NULL ? node_id : "(anon)",
+		sk_log_message(ui_logger_api(), SK_LOGGER_TYPE_WARN, logger, "element '%s' Clay limitation: %s (kept best-effort mapping)", node_id != NULL ? node_id : "(anon)",
 					   detail != NULL ? detail : "unknown");
-		sk_logger_api()->destroy_logger(logger);
+		ui_logger_api()->destroy_logger(ui_logger_context(), logger);
 	}
 }
 

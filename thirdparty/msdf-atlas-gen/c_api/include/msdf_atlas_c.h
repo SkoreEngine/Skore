@@ -360,7 +360,8 @@ typedef struct msdf_atlas_config {
 
     /** Distance range in font units (unit component); 0 = none. */
     msdf_atlas_range_t unit_range;
-    /** Distance range in pixels (pixel component). Default: {2.0, 2.0}. */
+    /** Distance range in pixels as {lower, upper} endpoints (not a width).
+     *  C++ Range(2.0) is {-1.0, 1.0}. Default: {2.0, 2.0} (legacy). */
     msdf_atlas_range_t px_range;
     /** Miter limit for glyph bounds computation. Default: 1.0. */
     double miter_limit;

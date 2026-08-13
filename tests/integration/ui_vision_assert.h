@@ -156,7 +156,7 @@ i32 sk_ui_vision_rubric_file_path(sk_ui_vision_widget_family_t family, char* out
  * @param state_hint   Optional claimed state ("checked", "disabled", …); may be NULL.
  * @param scene_name   Base name for failure artifacts (sanitized); may be NULL → "vision".
  * @param ui           UI API table (for test_artifact_png_path / cpu_image_write_png).
- * @param fs           Filesystem API (may be NULL → sk_filesystem_api()).
+ * @param fs           Filesystem API (may be NULL → table from a temporary app create).
  * @param out_result   Filled with pass/fail, reason, and optional saved path.
  * @return SK_UI_VISION_ASSERT_OK / FAIL / SKIPPED / ERROR.
  */

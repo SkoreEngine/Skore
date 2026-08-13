@@ -4,7 +4,7 @@
  *
  * Encodes the main-branch -> v2 symbol mapping table from
  * docs/compression-design-v2.md §11 as a maintained artifact and verifies it
- * against the real v2 surface (core/compression.h + core/compression.c):
+ * against the real v2 surface (foundation/compression.h + foundation/compression.c):
  *
  *  - every mapped main-branch symbol has a v2 replacement that exists and is
  *    callable with the documented signature: the typed-pointer assignments
@@ -17,7 +17,7 @@
  *    silently, and an undeclared gap fails the run.
  *
  * The check runs as a CTest test (sk-compression-conformance) in Debug and
- * Release CI builds against the production sk-core surface.
+ * Release CI builds against the production sk-foundation surface.
  */
 
 #include "compression.h"

@@ -16,11 +16,13 @@ Useful targets:
 
 | Target | Kind | Role |
 |--------|------|------|
-| `sk-core` | static lib | Engine core (linked by apps, sk-app, plugins) |
-| `sk-app` | static lib | Host app layer (`sk_app_init`, platform API impl) |
+| `sk-foundation` | static lib | Engine + host lifecycle (`sk_app_init`, platform APIs; linked by apps and plugins) |
+
+The `app/` + `core/` merge into `foundation/` is a breaking ABI change. See
+**[docs/foundation-refactor-migration.md](docs/foundation-refactor-migration.md)**.
 | `sk-player` | executable | Game runner |
 | `sk-tests` | executable | Test host (in-source tests + plugin `sk_plugin_run_tests`) |
-| `sk-example-plugin` | shared lib | Example plugin (`.dll` / `.so` / `.dylib`; static-links core) |
+| `sk-example-plugin` | shared lib | Example plugin (`.dll` / `.so` / `.dylib`; static-links foundation) |
 
 Build a single target:
 
@@ -53,7 +55,7 @@ See **[docs/ui-plugin.md](docs/ui-plugin.md)** §7.10 for the API.
 
 ### Tests
 
-In-source `SK_TEST` blocks (see `AGENTS.md`). Host runs core/app then each plugin DLL.
+In-source `SK_TEST` blocks (see `AGENTS.md`). Host runs foundation then each plugin DLL.
 
 ```bash
 cmake --build build --target sk-tests
@@ -64,7 +66,7 @@ ctest --test-dir build --output-on-failure
 Release builds never compile test bodies into plugins.
 
 **UI integration suites** (widget vision, flexbox vision, interaction engine) —
-one command, CI artifact upload, vision credential gating:
+*one command, CI artifact upload, vision credential gating:*
 
 ```bash
 ./scripts/run-ui-integration-tests.sh
@@ -73,6 +75,19 @@ one command, CI artifact upload, vision credential gating:
 See **[docs/ui-integration-test-workflow.md](docs/ui-integration-test-workflow.md)**
 for how to add a widget test, how vision rubrics work, and how to write
 interaction tests with the engine.
+
+### Font rendering (MSDF)
+
+All UI text renders through the **MSDF pipeline**: `font_msdf_bake` generates a
+scale-independent RGB8 multi-channel SDF atlas via the vendored msdf-atlas-c
+(printable ASCII, symmetric distance range of 2 px, INKTRAP edge coloring),
+and the UI shader decodes it with `median(r,g,b)` → screen-space distance
+(`pxRange`/atlas-size × `fwidth`) → `smoothstep(-0.5, 0.5)` AA. FreeType stays
+in the font system only for face loading, glyph-index (cmap) queries, and
+metrics; the legacy R8 raster/bitmap-atlas path is retired. The deterministic
+text screenshot harness (`sk-text-screenshot --verify`, or
+`ctest -R sk-text-screenshot`) renders a fixed sample suite and proves
+byte-identical captures. Full details: **[docs/ui-plugin.md §5](docs/ui-plugin.md)**.
 
 ### Stacktrace and crash handler
 
@@ -83,6 +98,10 @@ Under `BUILD_TESTING`, `sk-crash-trigger` deliberately raises each handled fault
 ```bash
 ./build/bin/sk-crash-trigger null   # or: abort, fpe, ill, bus
 ```
+
+### ECS and resource-driven spawning
+
+See **[docs/resource-to-ecs-mapping-contract.md](docs/resource-to-ecs-mapping-contract.md)** for the resource-to-ECS mapping: the component descriptor (`sk_component_desc_t`), the `on_load_asset` contract, the `entity_resource` / `scene_resource` asset layout, the built-in component payloads, and a minimal worked example of authoring a scene asset and spawning it with `world_spawn_from_asset`.
 
 ### Compression
 

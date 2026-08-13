@@ -1,0 +1,64 @@
+{
+  "format": "sk.resource_package",
+  "format_version": 1,
+  "root_uuid": "0000000000006001-0000000000006001",
+  "resources": [
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006001-0000000000006001",
+      "fields": {
+        "Name": "SingleHero",
+        "Components": [
+          "0000000000006002-0000000000006002",
+          "0000000000006003-0000000000006003",
+          "0000000000006004-0000000000006004",
+          "0000000000006005-0000000000006005"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006002-0000000000006002",
+      "fields": {
+        "Position": [1.0, 2.0, 3.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [2.0, 3.0, 4.0]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "CameraResource",
+      "uuid": "0000000000006003-0000000000006003",
+      "fields": {
+        "Projection": 0,
+        "FovY": 1.0471975511965976,
+        "Near": 0.1,
+        "Far": 1000.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "LightResource",
+      "uuid": "0000000000006004-0000000000006004",
+      "fields": {
+        "Type": 1,
+        "Color": [1.0, 0.8, 0.5, 1.0],
+        "Intensity": 2.5,
+        "Range": 15.0
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "StaticTagResource",
+      "uuid": "0000000000006005-0000000000006005",
+      "fields": {}
+    }
+  ]
+}

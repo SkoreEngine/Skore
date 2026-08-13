@@ -13,6 +13,7 @@
 #   interaction  — behavioural engine suite (plugin) + interaction vision (integration)
 #   vision-helper — ui_vision_assert unit/mock tests
 #   dock         — docking public-API e2e (tests/integration/ui_dock.c)
+#   text-screenshot — APX-268 deterministic MSDF text PNG suite
 #
 # Vision credentials (optional for structural/interaction; required for live grades):
 #   XAI_API_KEY or SK_UI_VISION_API_KEY
@@ -35,7 +36,7 @@ DO_BUILD=1
 EXTRA_ARGS=()
 
 usage() {
-  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -126,6 +127,10 @@ for raw in "${suite_list[@]}"; do
       integration_tokens+=("ui_author_*")
       plugin_tokens+=("ui_author_*")
       ;;
+    text-screenshot|textshot|screenshot)
+      # APX-268: deterministic text rendering screenshot suite (MSDF pipeline).
+      integration_tokens+=("ui_text_screenshot_*")
+      ;;
     all)
       integration_tokens+=(
         "ui_widget_vision_*"
@@ -135,6 +140,7 @@ for raw in "${suite_list[@]}"; do
         "ui_vision_rubrics_*"
         "ui_author_*"
         "ui_dock_*"
+        "ui_text_screenshot_*"
       )
       plugin_tokens+=("ui_author_ix_*")
       ;;

@@ -29,10 +29,12 @@ add_executable(sk-integration-tests
     ui_test_authoring.c
     ui_interaction_suite.c
     ui_dock.c
+    ui_text_screenshot.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
     render_graph.c
     resource_object_fixtures.c
     resource_object_buffer.c
+    entities_fixtures.c
 )
 add_executable(sk-isolate-tests
     main.c
@@ -46,7 +48,7 @@ add_executable(sk-isolate-tests
     ui_dock.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
 )
-target_link_libraries(sk-isolate-tests PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_link_libraries(sk-isolate-tests PRIVATE sk-foundation sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-isolate-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 target_compile_definitions(sk-isolate-tests PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts" SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 set_target_properties(sk-isolate-tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -55,14 +57,17 @@ add_dependencies(sk-isolate-tests sk-vulkan-render-device sk-render-device sk-te
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
 # test registry/Unity (SK_TESTS via sk-test) + render_device.h + dxc_compiler.h
-# + ui.h + render_graph.h headers (plugin libs are header INTERFACE only).
+# + ui.h + render_graph.h headers + entities.h / entities_builtins.h headers
+# (plugin libs are header INTERFACE only; the sk-entities plugin is auto-loaded
+# at runtime from {app_folder}/plugins by sk_app_init).
 target_link_libraries(sk-integration-tests PRIVATE
-    sk-app
+    sk-foundation
     sk-test
     sk-render-device-lib
     sk-dxc-compiler-lib
     sk-ui-lib
     sk-render-graph-lib
+    sk-entities-lib
 )
 
 # Local headers (resource_object_fixtures.h) live next to the .c sources.
@@ -94,15 +99,16 @@ set_target_properties(sk-integration-tests PROPERTIES
 )
 
 # Ensure the real Vulkan backend + stub render device + DXC compiler + the
-# CPU-mock test render device + UI + render_graph plugins exist (and the
-# vendored DXC runtime is copied beside the plugin) before the run.
+# CPU-mock test render device + UI + render_graph + entities plugins exist (and
+# the vendored DXC runtime is copied beside the plugin) before the run.
 add_dependencies(sk-integration-tests
     sk-vulkan-render-device
     sk-render-device
     sk-test-render-device
     sk-dxc-compiler
     sk-ui
-    sk-render-graph)
+    sk-render-graph
+    sk-entities)
 
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
 # relative to cwd, matching the sk-tests working directory.
@@ -111,7 +117,7 @@ add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTOR
 # APX-263: focused UI suites (widget-vision + flexbox + interaction bridge).
 # Prefer scripts/run-ui-integration-tests.sh for the full one-command workflow
 # (also runs plugin interaction tests via sk-tests and prints vision skip notes).
-# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in core/test.c.
+# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in foundation/test.c.
 add_test(
     NAME sk-ui-integration-suites
     COMMAND ${CMAKE_COMMAND} -E env
@@ -139,10 +145,74 @@ set_tests_properties(sk-ui-dock-integration PROPERTIES
     TIMEOUT 180
 )
 
+# APX-268: deterministic text rendering screenshot harness.
+#
+# Standalone entry point: renders the fixed text-sample suite through the
+# headless offscreen renderer and writes PNG captures into
+# {SK_TEST_ARTIFACT_DIR}/text-screenshot/msdf/ so the MSDF pipeline can be
+# inspected (all UI text renders through MSDF since APX-271). --verify
+# re-captures every sample and byte-compares (raw readback + PNG bytes);
+# re-running the same command twice must produce byte-identical trees.
+add_executable(sk-text-screenshot
+    ui_text_screenshot_main.c
+    ui_text_screenshot.c
+    ui_capture_harness.c
+)
+target_link_libraries(sk-text-screenshot PRIVATE
+    sk-foundation
+    sk-test
+    sk-render-device-lib
+    sk-dxc-compiler-lib
+    sk-ui-lib
+)
+target_include_directories(sk-text-screenshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
+target_compile_definitions(sk-text-screenshot PRIVATE
+    SK_TESTS
+    SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts"
+    SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
+)
+set_target_properties(sk-text-screenshot PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_dependencies(sk-text-screenshot
+    sk-vulkan-render-device
+    sk-render-device
+    sk-test-render-device
+    sk-dxc-compiler
+    sk-ui
+    sk-render-graph)
+
+# MSDF pipeline captured with the determinism re-check, into the shared
+# artifact root. Skips cleanly when no Vulkan ICD is present (exit 2).
+add_test(
+    NAME sk-text-screenshot
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-text-screenshot> --verify
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-text-screenshot PROPERTIES
+    LABELS "ui;ui-integration;ui-text-screenshot"
+    TIMEOUT 1800
+)
+
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
-target_link_libraries(sk-repro-cycles PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_link_libraries(sk-repro-cycles PRIVATE sk-foundation sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-repro-cycles PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 target_compile_definitions(sk-repro-cycles PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts")
 set_target_properties(sk-repro-cycles PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_dependencies(sk-repro-cycles sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler sk-ui sk-render-graph)
+
+# APX-268 sk-text-screenshot (added on v2): the harness documents exit code 2
+# as "skipped (no Vulkan loader/ICD available)" and prints
+# "no Vulkan ICD; skipping msdf suite". CTest treats any non-zero exit as a
+# failure unless told otherwise, so macOS/Windows CI (no ICD) failed this test
+# while Linux (lavapipe) passed. Treat exit code 2 as a clean SKIP.
+# Guarded so configuring the goal branch standalone (where the test does not
+# exist yet) remains a no-op; after merge with v2 the test is registered above.
+if(TEST sk-text-screenshot)
+	set_tests_properties(sk-text-screenshot PROPERTIES SKIP_RETURN_CODE 2)
+endif()

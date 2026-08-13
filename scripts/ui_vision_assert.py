@@ -89,6 +89,8 @@ def build_prompt(rubric: str, family: str, state_hint: str) -> str:
         "Grade the attached screenshot against the rubric. Be precise about",
         "fine-grained mark styles (X vs checkmark vs filled square, handle vs bar).",
         "Do NOT pass on a vague 'looks fine' — apply every checklist item.",
+        "Frames are small UI chrome captures; anti-aliased circle thumbs can look",
+        "scalloped at low res — never invent gear/cog icons or ignore elongated tracks.",
         "",
         f"Widget family: {family or '(see rubric)'}",
     ]
@@ -106,6 +108,43 @@ def build_prompt(rubric: str, family: str, state_hint: str) -> str:
         ]
     )
     return "\n".join(parts)
+
+
+def maybe_upscale_for_vision(image_path: Path) -> Path:
+    """Nearest-neighbor upscale tiny frames so VLMs see elongated chrome.
+
+    Small 80x64-ish widget captures are a common source of gear/lone-circle
+    hallucinations on toggles. Scale only when edges are small. Prefer writing
+    next to the source when it already lives under a test-artifacts tree;
+    otherwise use a temp file so source-tree fixtures stay untouched.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return image_path
+
+    try:
+        with Image.open(image_path) as im:
+            w, h = im.size
+            # Only upscale very small chrome frames (keeps golden fixtures intact).
+            if w >= 160 and h >= 128:
+                return image_path
+            scale = 4 if max(w, h) < 100 else 3
+            out = im.resize((w * scale, h * scale), resample=Image.Resampling.NEAREST)
+            path_s = str(image_path)
+            if "test-artifacts" in path_s or "vision_tmp" in image_path.name:
+                dest = image_path.with_name(image_path.stem + "_vision_up" + image_path.suffix)
+            else:
+                import tempfile
+
+                fd, tmp = tempfile.mkstemp(prefix="sk_ui_vision_up_", suffix=image_path.suffix)
+                os.close(fd)
+                dest = Path(tmp)
+            out.save(dest)
+            return dest
+    except OSError as exc:
+        eprint(f"ui_vision_assert: upscale skipped ({exc})")
+        return image_path
 
 
 def parse_model_json(text: str) -> dict[str, Any]:
@@ -135,56 +174,65 @@ def parse_model_json(text: str) -> dict[str, Any]:
 def grade_with_api(
     image_path: Path, prompt: str, api_key: str, model: str, api_url: str
 ) -> dict[str, Any]:
-    b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    mime = "image/png"
-    if image_path.suffix.lower() in (".jpg", ".jpeg"):
-        mime = "image/jpeg"
-    body = {
-        "model": model,
-        "temperature": 0,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime};base64,{b64}"},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-    }
-    req = urllib.request.Request(
-        api_url,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "skore-ui-vision-assert/APX-251",
-        },
-        method="POST",
-    )
+    send_path = maybe_upscale_for_vision(image_path)
+    cleanup_temp = send_path != image_path and "sk_ui_vision_up_" in send_path.name
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        err_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"vision API HTTP {exc.code}: {err_body[:500]}") from exc
+        b64 = base64.b64encode(send_path.read_bytes()).decode("ascii")
+        mime = "image/png"
+        if send_path.suffix.lower() in (".jpg", ".jpeg"):
+            mime = "image/jpeg"
+        body = {
+            "model": model,
+            "temperature": 0,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        }
+        req = urllib.request.Request(
+            api_url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "skore-ui-vision-assert/APX-251",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"vision API HTTP {exc.code}: {err_body[:500]}") from exc
 
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"unexpected API response: {data!r}") from exc
-    if not isinstance(content, str):
-        # Some models return content as a list of parts
-        if isinstance(content, list):
-            content = "".join(
-                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
-            )
-        else:
-            content = str(content)
-    return parse_model_json(content)
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError(f"unexpected API response: {data!r}") from exc
+        if not isinstance(content, str):
+            # Some models return content as a list of parts
+            if isinstance(content, list):
+                content = "".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+                )
+            else:
+                content = str(content)
+        return parse_model_json(content)
+    finally:
+        if cleanup_temp:
+            try:
+                send_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def load_mock_response(path: Optional[str]) -> Optional[dict[str, Any]]:

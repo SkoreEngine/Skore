@@ -51,8 +51,10 @@ static const sk_ui_api_t* te_api(void) {
 
 static sk_logger_t* te_logger(void) {
 	static sk_logger_t* log = NULL;
-	if (log == NULL) {
-		log = sk_logger_api()->create_logger("ui-test-engine");
+	const sk_logger_api_t* api = ui_logger_api();
+	sk_logger_context_t* log_ctx = ui_logger_context();
+	if (log == NULL && api != NULL && log_ctx != NULL) {
+		log = api->create_logger(log_ctx, "ui-test-engine");
 	}
 	return log;
 }
@@ -87,7 +89,9 @@ static void te_set_error(sk_ui_test_engine_t* engine, const_chr_t fmt, ...) {
 	va_start(args, fmt);
 	(void)vsnprintf(engine->last_error, sizeof(engine->last_error), fmt, args);
 	va_end(args);
-	sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_ERROR, te_logger(), engine->last_error);
+	if (ui_logger_api() != NULL && te_logger() != NULL) {
+		sk_log_message(ui_logger_api(), SK_LOGGER_TYPE_ERROR, te_logger(), engine->last_error);
+	}
 }
 
 static void te_clear_error(sk_ui_test_engine_t* engine) {

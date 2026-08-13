@@ -229,7 +229,7 @@ sk_add_plugin(<short-name> SOURCES ${sources})
 # Creates:
 #   sk-<short-name>        SHARED  → {runtime}/plugins/sk-<short-name>.{so,dll,dylib}
 #   sk-<short-name>-lib    INTERFACE headers for consumers/tests
-# Links PRIVATE sk-core (static). PREFIX "" so Unix matches unprefixed name.
+# Links PRIVATE sk-foundation (static). PREFIX "" so Unix matches unprefixed name.
 # Non-Release: SK_TESTS + link sk-test for in-DLL Unity registry.
 ```
 
@@ -446,7 +446,7 @@ only).
 | Task | Result |
 | ---- | ------ |
 | APX-198 | C API contract frozen: `sk_profiler_api_t` with zone category/color, `dump_report` entry point, `_EX` macros. |
-| APX-199 (core) | Engine-independent core implemented under `plugins/profiler/core/` (`profiler_core.h` / `profiler_core.c` / `profiler_core_tests.c`): platform monotonic high-res clock (Win32 QPC, POSIX CLOCK_MONOTONIC, injectable for tests), per-thread TLS zone buffers with lock-free registration and allocation-free hot path, bounded ring buffers with counted non-crashing overflow (per-thread per-frame cap, frame ring keep-newest, task table cap, mismatched ends), nested depth tracking (dropped begins keep depth consistent), and per-zone accumulation (per-frame calls/total + rolling min/max/avg) with frame wall-time stats. Standalone: no app context, plugin registry or render device dependency; uses sk-core allocator + logger only. Wiring into the plugin table is a later task. |
+| APX-199 (core) | Engine-independent core implemented under `plugins/profiler/core/` (`profiler_core.h` / `profiler_core.c` / `profiler_core_tests.c`): platform monotonic high-res clock (Win32 QPC, POSIX CLOCK_MONOTONIC, injectable for tests), per-thread TLS zone buffers with lock-free registration and allocation-free hot path, bounded ring buffers with counted non-crashing overflow (per-thread per-frame cap, frame ring keep-newest, task table cap, mismatched ends), nested depth tracking (dropped begins keep depth consistent), and per-zone accumulation (per-frame calls/total + rolling min/max/avg) with frame wall-time stats. Standalone: no app context, plugin registry or render device dependency; uses sk-foundation allocator + logger only. Wiring into the plugin table is a later task. |
 | APX-199/200 | Plugin lifecycle integrated (host begin/end frame in `sk_app_tick`), compile-switchable `SK_PROFILE_*` macros, player frame zone. |
 | APX-201 | Report path live: `dump_report` (text), `dump_report_json` (versioned JSON), `log_report` (console/log) with per-frame + cumulative aggregation (call counts, total/min/max/avg, % of frame, nesting). Engine call sites instrumented: main-loop phases (`app tick` → `tick timing`), ECS (`ecs spawn` / `ecs despawn` / `ecs scheduler run`), render graph (`rg begin` / `rg compile` / `rg execute`). Verified end to end with `SK_ENABLE_PROFILER=ON` (see `app_profiler_report_end_to_end`). Still no Tracy / third-party backend. |
 | APX-202 | Tests + docs: core/plugin/macro `SK_TEST` coverage for zone begin/end nesting, aggregation math, bounded overflow policy, multi-threaded TLS capture (no cross-thread corruption), and compile-time macro strip (`SK_ENABLE_PROFILER` OFF/ON). Plugin README documents API, macros, enable/disable, report formats, and C++→C migration map. Full v2 build verified with profiling enabled and disabled. |

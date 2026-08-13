@@ -26,14 +26,21 @@
  *   - fixed clear color: params.clear_color when clear_color_set is
  *     non-zero, else the documented fixed default
  *     (SK_UI_CAPTURE_HARNESS_DEFAULT_CLEAR_COLOR — opaque white);
- *   - fixed content scale / DPI: always 1.0x / 96 DPI
- *     (SK_UI_CAPTURE_HARNESS_CONTENT_SCALE / _DPI) — never host scale;
+ *   - default content scale / DPI: 1.0x / 96 DPI
+ *     (SK_UI_CAPTURE_HARNESS_CONTENT_SCALE / _DPI) unless params.content_scale
+ *     is set; never host scale. Layout is in logical units (physical / scale);
  *   - fixed text font when load_test_font != 0: vendored DejaVuSans.ttf
  *     under the UI test-assets dir (see SK_UI_CAPTURE_HARNESS_FONT_*),
- *     loaded at a fixed atlas size; no system-font or embedded built-in
+ *     loaded by the font system; no system-font or embedded built-in
  *     fallback (missing asset → RC_ERROR);
- *   - fixed FreeType raster flags in the font pipeline
- *     (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+ *   - text always renders through the MSDF pipeline (msdf-atlas-c bake
+ *     + median/smoothstep decode). The pinned font is baked lazily on the
+ *     first shape, so text scenes paint without extra setup;
+ *   - fixed content scale: params.content_scale (0 → the pinned 1.0x / 96
+ *     DPI constant) — never host scale;
+ *   - optional params.output_subdir routes the PNG artifact to
+ *     {root}/{subdir}/{sanitized_name}.png so suite-scoped captures land
+ *     in a dedicated folder (e.g. "text-screenshot/msdf");
  *   - no wall-clock or frame-counter dependent state anywhere: every call
  *     uses a fresh app context, device, capture, and UI context, and the
  *     scene callback only sees the fixed logical time
@@ -77,15 +84,11 @@ extern "C" {
 /** Logical DPI corresponding to CONTENT_SCALE 1.0 (reference, not queried from OS). */
 #define SK_UI_CAPTURE_HARNESS_DPI 96.0f
 
-/** Default logical font size for text scenes that use the harness font. */
+/** Fixed default logical font size for text scenes that use the harness font. */
 #define SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE 20.0f
 
 /** Physical pixel size at the pinned scale: round(logical * scale). */
 #define SK_UI_CAPTURE_HARNESS_FONT_PIXEL_SIZE 20u
-
-/** Fixed atlas page size used when the harness loads the test font. */
-#define SK_UI_CAPTURE_HARNESS_FONT_ATLAS_W 256u
-#define SK_UI_CAPTURE_HARNESS_FONT_ATLAS_H 256u
 
 /** Vendored TTF filename under the UI test-assets directory. */
 #define SK_UI_CAPTURE_HARNESS_FONT_FILENAME "DejaVuSans.ttf"
@@ -116,6 +119,20 @@ typedef struct sk_ui_capture_harness_params_t {
 	 * font_system/font; ownership of any final pair remains with the harness.
 	 */
 	i32 load_test_font;
+	/**
+	 * Content scale applied to layout/paint for this capture
+	 * (0 = pinned SK_UI_CAPTURE_HARNESS_CONTENT_SCALE, the 1.0x / 96 DPI
+	 * reference). Fixed per call — never the host scale. Scenes are
+	 * authored in logical units; paint + readback stay in physical pixels.
+	 */
+	f32 content_scale;
+	/**
+	 * Optional subdirectory under the test-artifact root; when set the PNG
+	 * artifact is written to {root}/{subdir}/{sanitized_name}.png instead of
+	 * {root}/{sanitized_name}.png (cpu_image_write_png creates parents).
+	 * NULL/empty = artifact root. Example: "text-screenshot/msdf".
+	 */
+	const_chr_t output_subdir;
 } sk_ui_capture_harness_params_t;
 
 /**
@@ -166,10 +183,9 @@ void sk_ui_capture_harness_image_free(sk_ui_cpu_image_t* image);
 i32 sk_ui_capture_harness_test_font_path(char* out, u32 out_cap);
 
 /**
- * Load the pinned test font (DejaVuSans.ttf) with fixed atlas size.
- * Fails if the asset is missing, the size is not
- * SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE, or FreeType rejects the face —
- * never falls back to an embedded/system font.
+ * Load the pinned test font (DejaVuSans.ttf). Fails if the asset is
+ * missing, the size is not SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE, or
+ * FreeType rejects the face — never falls back to an embedded/system font.
  * On success, *out_system / *out_font are non-NULL and owned by the caller
  * (destroy font then system, or let the capture harness own them via scene).
  * @return 0 on success, non-zero on failure.

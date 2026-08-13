@@ -11,7 +11,7 @@
  * This module is the engine-independent layer behind the frozen public
  * contract (sk_profiler_api_t in profiler.h). It has no dependency on the
  * app context, the plugin registry, or the render device: it only uses
- * sk-core utilities (common.h types, the engine allocator, the process
+ * sk-foundation utilities (common.h types, the engine allocator, the process
  * logger). The plugin layer (profiler.c) owns the registry wiring, GPU
  * timestamp queries and the report formats; this module owns timing, zone
  * capture and accumulation.
@@ -49,6 +49,7 @@
 
 #include "allocator.h"
 #include "common.h"
+#include "logger.h"
 
 #include <stdbool.h> /* bool / true / false (not pulled in by common.h) */
 
@@ -107,6 +108,10 @@ typedef struct sk_profiler_core_config_t {
 	const sk_allocator_t* allocator;
 	/** Clock used for all stamps; now == NULL selects the platform default. */
 	sk_profiler_clock_t clock;
+	/** Optional host logger table (from app_api->logger_api). NULL skips logs. */
+	const sk_logger_api_t* logger_api;
+	/** Optional host logger context. Required with logger_api to create the core logger. */
+	sk_logger_context_t* logger_ctx;
 } sk_profiler_core_config_t;
 
 /** Fill @p out with the documented defaults (0 fields are still treated as

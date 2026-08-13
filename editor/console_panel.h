@@ -33,12 +33,15 @@ typedef struct sk_editor_console_panel_t sk_editor_console_panel_t;
  * Create the console panel under @p parent (or the context root when parent is
  * invalid). Registers a logger sink so subsequent sk_log_* messages appear.
  *
- * @param ui     Live sk_ui_api_t (must not be NULL; already init'd).
- * @param ctx    UI context (must not be NULL).
- * @param parent Parent node, or SK_UI_NODE_INVALID for context root.
+ * @param ui         Live sk_ui_api_t (must not be NULL; already init'd).
+ * @param ctx        UI context (must not be NULL).
+ * @param parent     Parent node, or SK_UI_NODE_INVALID for context root.
+ * @param logger_api Host logger table (must not be NULL).
+ * @param log_ctx    Host logger context that owns sinks (must not be NULL).
  * @return Panel, or NULL on failure.
  */
-sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent);
+sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent, const sk_logger_api_t* logger_api,
+														  sk_logger_context_t* log_ctx);
 
 /**
  * Destroy the panel: unregister sink, destroy the panel subtree, free storage.
