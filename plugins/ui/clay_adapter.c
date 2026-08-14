@@ -175,7 +175,9 @@ static i32 ui_clay_is_menu_surface(const_chr_t widget) {
 		return 0;
 	}
 	if (strcmp(widget, "menu_bar") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu_popup") == 0 ||
-		strcmp(widget, "dropdown") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "submenu") == 0) {
+		strcmp(widget, "dropdown") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "popup_menu") == 0 ||
+		strcmp(widget, "modal") == 0 || strcmp(widget, "modal_dim") == 0 || strcmp(widget, "modal_dialog") == 0 || strcmp(widget, "modal_title") == 0 ||
+		strcmp(widget, "modal_body") == 0 || strcmp(widget, "modal_buttons") == 0) {
 		return 1;
 	}
 	return 0;
@@ -186,7 +188,7 @@ static i32 ui_clay_is_menu_popup(const_chr_t widget) {
 	if (widget == NULL) {
 		return 0;
 	}
-	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0) {
+	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0) {
 		return 1;
 	}
 	return 0;
@@ -695,7 +697,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	}
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
 				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "tab") == 0 ||
-									   strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "separator_text") == 0));
+									   strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "modal_title") == 0 || strcmp(widget, "separator_text") == 0));
 	wrap = ui_clay_prop_i32(slot, "wrap", 0);
 	(void)is_dock_drag;
 
@@ -804,6 +806,31 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	/* POINT sizes are border-box (outer); see ui_clay_map_axis. */
 	decl.layout.sizing.width = ui_clay_map_axis(ls->width, ls->min_width, ls->max_width, grow_w, parent_w, parent_def);
 	decl.layout.sizing.height = ui_clay_map_axis(ls->height, ls->min_height, ls->max_height, grow_h, parent_h, parent_def);
+	/* Floating percent-of-parent is 0 under Clay; pin modal chrome to the viewport. */
+	if (widget != NULL && (strcmp(widget, "modal") == 0 || strcmp(widget, "modal_dim") == 0)) {
+		f32 vw = ctx->root_width > 1.0f ? ctx->root_width : parent_w;
+		f32 vh = ctx->root_height > 1.0f ? ctx->root_height : parent_h;
+		if (vw < 1.0f) {
+			vw = 640.0f;
+		}
+		if (vh < 1.0f) {
+			vh = 400.0f;
+		}
+		{
+			Clay_SizingAxis aw;
+			Clay_SizingAxis ah;
+			memset(&aw, 0, sizeof(aw));
+			memset(&ah, 0, sizeof(ah));
+			aw.type = CLAY__SIZING_TYPE_FIXED;
+			aw.size.minMax.min = vw;
+			aw.size.minMax.max = vw;
+			ah.type = CLAY__SIZING_TYPE_FIXED;
+			ah.size.minMax.min = vh;
+			ah.size.minMax.max = vh;
+			decl.layout.sizing.width = aw;
+			decl.layout.sizing.height = ah;
+		}
+	}
 
 	if (slot->computed.background_color.a > 0.001f) {
 		decl.backgroundColor = ui_clay_color(slot->computed.background_color);
@@ -850,7 +877,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		i32 z_default = is_menu_popup != 0 ? 100 : (widget != NULL && strcmp(widget, "editor_window") == 0 ? 50 : 0);
 		i32 z = ui_clay_prop_i32(slot, "z_index", z_default);
 		/* context_menu and free-floating editor_window: root attach. */
-		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0)) {
+		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0)) {
 			decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
 		} else {
 			decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;

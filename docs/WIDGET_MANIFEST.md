@@ -857,12 +857,18 @@ picker *contents* are a filtered asset list (see Image / content item).
 - Styled 300px context menu used everywhere (`ImGuiBeginPopupMenu`).
 - Resource picker: search + thumbnail grid or entity list + callback.
 
-**sk-ui today:** `widget_menu_popup` / `widget_context_menu`. No modal
-dialog factory.
+**sk-ui today:** `widget_menu_popup` / `widget_context_menu` plus
+`widget_popup_menu` (300px ImGuiBeginPopupMenu) and `widget_modal`
+(BeginPopupModal chrome: dim, title, auto-resize or fixed child+table body).
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_popup_modal_open_close_edge`,
+  `ui_widget_popup_modal_click_outside_and_block`,
+  `ui_widget_popup_modal_size_and_focus`)
+- [x] Headless UI automation — `plugins/ui/popup_modal_family_tests.c`
+  (`ui_author_popup_modal_family_open_block_escape`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget popup`,
+  `popup_menu`, `modal_save`; states default)
 
 ---
 

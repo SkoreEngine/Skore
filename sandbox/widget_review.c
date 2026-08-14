@@ -974,6 +974,148 @@ static i32 sandbox_widget_build_menu_popup(const sandbox_widget_host_t* host, sk
 	return sandbox_widget_build_menu_scene(host, out_target, SANDBOX_MENU_POPUP);
 }
 
+static void sandbox_widget_fill_editor_bg(const sandbox_widget_host_t* host) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_style_props_t p;
+	sk_ui_node_t bar;
+	sk_ui_node_t pane;
+
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR;
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.width = sk_ui_pt((f32)host->width);
+	p.layout.height = sk_ui_pt((f32)host->height);
+	p.background_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	(void)ui->node_set_inline_style(host->ctx, root, &p);
+
+	bar = ui->widget_menu_bar(host->ctx, root, "review-ed-bar");
+	(void)ui->widget_menu(host->ctx, bar, "File", "review-ed-file");
+	(void)ui->widget_menu(host->ctx, bar, "Edit", "review-ed-edit");
+	(void)ui->widget_menu(host->ctx, bar, "Window", "review-ed-window");
+
+	pane = ui->widget_view(host->ctx, root, "review-ed-pane");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION;
+	p.layout.flex_grow = 1.0f;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.height = sk_ui_auto();
+	p.layout.padding.left = 12.0f;
+	p.layout.padding.top = 12.0f;
+	p.layout.padding.right = 12.0f;
+	p.layout.padding.bottom = 12.0f;
+	p.background_color = sk_ui_rgba(0.13f, 0.14f, 0.16f, 1.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	(void)ui->node_merge_inline_style(host->ctx, pane, &p);
+	(void)ui->widget_text(host->ctx, pane, "Hierarchy", "review-ed-h");
+	(void)ui->widget_text(host->ctx, pane, "  Entity_01", "review-ed-e1");
+	(void)ui->widget_text(host->ctx, pane, "  Entity_02", "review-ed-e2");
+	(void)ui->widget_button(host->ctx, pane, "Add Component", "review-ed-add");
+}
+
+static i32 sandbox_widget_build_popup_menu(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t menu;
+	sk_ui_node_t del;
+	sk_ui_layout_style_t ls;
+
+	sandbox_widget_fill_editor_bg(host);
+	menu = ui->widget_popup_menu(host->ctx, root, "review-ctx-menu");
+	if (!sk_ui_node_is_valid(menu)) {
+		fprintf(stderr, "sk-sandbox: widget_popup_menu failed\n");
+		return -1;
+	}
+	(void)ui->node_get_layout_style(host->ctx, menu, &ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(48.0f);
+	ls.top = sk_ui_pt(64.0f);
+	(void)ui->node_set_layout_style(host->ctx, menu, &ls);
+	(void)ui->popup_open(host->ctx, menu);
+	(void)ui->widget_menu_item(host->ctx, menu, "Rename", "review-ctx-rename");
+	(void)ui->widget_menu_item(host->ctx, menu, "Duplicate", "review-ctx-dup");
+	(void)ui->widget_menu_separator(host->ctx, menu, "review-ctx-sep");
+	del = ui->widget_menu_item(host->ctx, menu, "Delete", "review-ctx-del");
+	(void)ui->menu_item_set_shortcut(host->ctx, del, "Del");
+	*out_target = menu;
+	return 0;
+}
+
+static i32 sandbox_widget_build_popup(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t modal;
+	sk_ui_node_t body;
+	sk_ui_node_t row;
+	sk_ui_node_t ok;
+	sk_ui_node_t close;
+
+	sandbox_widget_fill_editor_bg(host);
+	modal = ui->widget_modal(host->ctx, root, "Cannot delete", "review-modal", NULL, SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE);
+	if (!sk_ui_node_is_valid(modal)) {
+		fprintf(stderr, "sk-sandbox: widget_modal failed\n");
+		return -1;
+	}
+	body = ui->modal_body(host->ctx, modal);
+	(void)ui->widget_text(host->ctx, body, "Entity is referenced by 2 assets.", "review-modal-msg");
+	row = ui->modal_button_row(host->ctx, modal);
+	ok = ui->widget_button(host->ctx, row, "OK", "review-modal-ok");
+	close = ui->widget_button(host->ctx, row, "Close", "review-modal-close");
+	(void)ui->button_set_size(host->ctx, ok, 120.0f, 0.0f);
+	(void)ui->button_set_size(host->ctx, close, 120.0f, 0.0f);
+	(void)ui->set_item_default_focus(host->ctx, ok);
+	(void)ui->popup_open(host->ctx, modal);
+	*out_target = ok;
+	return 0;
+}
+
+static i32 sandbox_widget_build_modal_save(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t modal;
+	sk_ui_node_t body;
+	sk_ui_node_t child;
+	sk_ui_node_t content;
+	sk_ui_node_t row;
+	sk_ui_node_t save;
+	sk_ui_node_t dont;
+	sk_ui_node_t cancel;
+	static i32 s_open = 1;
+	u32 i;
+
+	sandbox_widget_fill_editor_bg(host);
+	s_open = 1;
+	modal = ui->widget_modal(host->ctx, root, "Save Content", "review-save", &s_open, SK_UI_MODAL_FLAG_NO_SCROLLBAR);
+	if (!sk_ui_node_is_valid(modal)) {
+		fprintf(stderr, "sk-sandbox: widget_modal (save) failed\n");
+		return -1;
+	}
+	body = ui->modal_body(host->ctx, modal);
+	child = ui->widget_child(host->ctx, body, "review-save-child", 0.0f, 0.0f, SK_UI_CHILD_FLAG_BORDER);
+	content = ui->child_content(host->ctx, child);
+	if (!sk_ui_node_is_valid(content)) {
+		content = body;
+	}
+	{
+		const_chr_t rows[4] = {"scene.skore", "material.mat", "mesh.bin", "anim.clip"};
+		for (i = 0u; i < 4u; ++i) {
+			char id[32];
+			(void)snprintf(id, sizeof(id), "review-save-r%u", i);
+			(void)ui->widget_text(host->ctx, content, rows[i], id);
+		}
+	}
+	row = ui->modal_button_row(host->ctx, modal);
+	save = ui->widget_button(host->ctx, row, "Save", "review-save-ok");
+	dont = ui->widget_button(host->ctx, row, "Don't Save", "review-save-dont");
+	cancel = ui->widget_button(host->ctx, row, "Cancel", "review-save-cancel");
+	(void)ui->button_set_size(host->ctx, save, 120.0f, 0.0f);
+	(void)ui->button_set_size(host->ctx, dont, 120.0f, 0.0f);
+	(void)ui->button_set_size(host->ctx, cancel, 120.0f, 0.0f);
+	(void)ui->set_item_default_focus(host->ctx, save);
+	*out_target = save;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1012,7 +1154,9 @@ static const sandbox_widget_desc_t catalog[] = {
 	 sandbox_widget_build_menu_open},
 	{"menu_submenu", "submenu", "§11 nested submenu", SANDBOX_WS_BIT_DEFAULT, 640u, 280u, sandbox_widget_build_menu_submenu},
 	{"menu_popup", "menupopup", "§11 MenuItem inside popup", SANDBOX_WS_BIT_DEFAULT, 480u, 240u, sandbox_widget_build_menu_popup},
-	{"popup", "modal", "§12 Popup / Modal", SANDBOX_WS_BIT_DEFAULT, 384u, 192u, NULL},
+	{"popup", "modal", "§12 auto-resize modal + dim", SANDBOX_WS_BIT_DEFAULT, 560u, 360u, sandbox_widget_build_popup},
+	{"popup_menu", "contextmenu", "§12 ImGuiBeginPopupMenu 300px", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_popup_menu},
+	{"modal_save", "savecontent", "§12 Save Content fixed child+table", SANDBOX_WS_BIT_DEFAULT, 640u, 400u, sandbox_widget_build_modal_save},
 	{"window", NULL, "§13 named window + close", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 480u, 280u, sandbox_widget_build_window},
 	{"fullscreen", NULL, "§13 ImGuiBeginFullscreen", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_fullscreen},
 	{"child", NULL, "§13 BeginChild remaining + border", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_child},
@@ -1078,6 +1222,7 @@ void sandbox_widget_list(void) {
 	printf("         sliderint=slider_int sliderf3=slider_float3 drag=drag_float\n");
 	printf("         dragint=drag_int dragf3=drag_float3\n");
 	printf("         menuopen=menu_open submenu=menu_submenu menupopup=menu_popup\n");
+	printf("         contextmenu=popup_menu savecontent=modal_save\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

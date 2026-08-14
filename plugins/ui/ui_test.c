@@ -470,7 +470,7 @@ i32 sk_ui_open_menu_path(sk_ui_test_t* t, const_chr_t id_path) {
 			widget = pv.data.str_value;
 		}
 		if (widget != NULL && (strcmp(widget, "menu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "menu_popup") == 0 ||
-							   strcmp(widget, "context_menu") == 0)) {
+							   strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0)) {
 			is_menu_like = 1;
 		}
 

@@ -868,6 +868,26 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_DROPDOWN "ui-dropdown"
 #define SK_UI_CLASS_CONTEXT_MENU "ui-context-menu"
 #define SK_UI_CLASS_SUBMENU "ui-submenu"
+/** Popup / modal chrome (APX-347; manifest §12). */
+#define SK_UI_CLASS_POPUP_MENU "ui-popup-menu"
+#define SK_UI_CLASS_MODAL "ui-modal"
+#define SK_UI_CLASS_MODAL_DIM "ui-modal-dim"
+#define SK_UI_CLASS_MODAL_DIALOG "ui-modal-dialog"
+#define SK_UI_CLASS_MODAL_TITLE "ui-modal-title"
+#define SK_UI_CLASS_MODAL_BODY "ui-modal-body"
+#define SK_UI_CLASS_MODAL_BUTTONS "ui-modal-buttons"
+
+/** ImGuiBeginPopupMenu SetNextWindowSize(ImVec2{300, 0}, Once). */
+#define SK_UI_POPUP_MENU_WIDTH 300.0f
+/** Save Content dialog width (fixed child+table body). */
+#define SK_UI_MODAL_FIXED_WIDTH 420.0f
+/** Save Content table-body height inside a fixed modal. */
+#define SK_UI_MODAL_FIXED_BODY_HEIGHT 160.0f
+
+/** BeginPopupModal window flags the editor actually sets. */
+#define SK_UI_MODAL_FLAG_NONE 0u
+#define SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE (1u << 0)
+#define SK_UI_MODAL_FLAG_NO_SCROLLBAR (1u << 1)
 /** Docking / editor window surfaces (APX-235): nodes, splitters, tabs, chrome. */
 #define SK_UI_CLASS_DOCK_SPACE "ui-dock-space"
 #define SK_UI_CLASS_DOCK_NODE "ui-dock-node"
@@ -3871,6 +3891,62 @@ typedef struct sk_ui_api_t {
 	 * enabled MenuItem, then clears. Disabled → 0.
 	 */
 	i32 (*menu_item_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- popup / modal family (APX-347; manifest §12) ---- */
+
+	/**
+	 * Styled 300px context menu (ImGuiBeginPopupMenu). widget=popup_menu.
+	 * Closed until popup_open / menu_set_open. Click-outside or
+	 * popup_close_current dismisses. Host a right-click by parenting this
+	 * under the hit target (or call popup_open).
+	 */
+	sk_ui_node_t (*widget_popup_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Modal dialog (BeginPopupModal). Title, optional caller-owned @p p_open,
+	 * fullscreen dim that blocks input behind. ALWAYS_AUTO_RESIZE shrink-wraps
+	 * the dialog; otherwise the body is a fixed child (Save Content /
+	 * NoScrollbar). Default-closed until popup_open unless @p p_open is 1.
+	 */
+	sk_ui_node_t (*widget_modal)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open, u32 flags);
+
+	/** Title-bar child (widget=modal_title). */
+	sk_ui_node_t (*modal_title_bar)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Body child (widget=modal_body). Auto-size or fixed child+table host. */
+	sk_ui_node_t (*modal_body)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Footer button row (widget=modal_buttons). Caller adds Button children. */
+	sk_ui_node_t (*modal_button_row)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Dialog card child (widget=modal_dialog). */
+	sk_ui_node_t (*modal_dialog)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Dim overlay child (widget=modal_dim). */
+	sk_ui_node_t (*modal_dim)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+
+	i32 (*modal_set_open)(sk_ui_context_t* ctx, sk_ui_node_t modal, i32 open);
+	i32 (*modal_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close X). */
+	i32 (*modal_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t modal, i32* p_open);
+	u32 (*modal_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	i32 (*modal_set_title)(sk_ui_context_t* ctx, sk_ui_node_t modal, const_chr_t title);
+
+	/**
+	 * Edge-triggered OpenPopup. Opens @p node (popup_menu / context_menu /
+	 * menu_popup / modal, or a menu owner). A second call while already open
+	 * is a no-op. Newly opened surfaces push the popup stack.
+	 */
+	i32 (*popup_open)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * CloseCurrentPopup: close the top of the popup stack. Writes 0 through
+	 * a bound p_open on modals.
+	 */
+	i32 (*popup_close_current)(sk_ui_context_t* ctx);
+	/** Non-zero if @p node (or its popup child) is open. */
+	i32 (*popup_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * SetItemDefaultFocus. When the owning popup / modal opens, focus moves
+	 * to @p node (typically the primary button).
+	 */
+	i32 (*set_item_default_focus)(sk_ui_context_t* ctx, sk_ui_node_t node);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

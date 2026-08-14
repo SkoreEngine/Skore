@@ -5,7 +5,8 @@
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
  * checkbox/slider/drag (APX-343: SliderFloat/Int + DragFloat/Int + N)/text_input (APX-342: multiline/hint/search/scalar)/scroll_view, menu surfaces (menu_bar, menu,
- * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234/APX-346), and
+ * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234/APX-346),
+ * popup / modal chrome (popup_menu, modal — APX-347), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
  * tab, editor_window, window_title_bar, window_content — APX-235). Child /
  * window / layout family (APX-345): widget_window + close, fullscreen, child
@@ -51,6 +52,7 @@ enum {
 	UI_WD_PROGRESS = 15,
 	UI_WD_WINDOW = 16,
 	UI_WD_CHILD_RESIZE = 17,
+	UI_WD_MODAL = 18,
 };
 
 enum {
@@ -869,6 +871,121 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTEXT_MENU, &base) != 0) {
+		return -1;
+	}
+
+	/* ImGuiBeginPopupMenu: 300px once-size, extra padding / panel chrome. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH |
+				SK_UI_SP_MIN_WIDTH | SK_UI_SP_POSITION;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.border_color = sk_ui_rgba(0.38f, 0.40f, 0.46f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	base.layout.padding.left = 6.0f;
+	base.layout.padding.top = 6.0f;
+	base.layout.padding.right = 6.0f;
+	base.layout.padding.bottom = 6.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.width = sk_ui_pt(SK_UI_POPUP_MENU_WIDTH);
+	base.layout.min_width = sk_ui_pt(SK_UI_POPUP_MENU_WIDTH);
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_POPUP_MENU, &base) != 0) {
+		return -1;
+	}
+
+	/* Modal host: fullscreen overlay (dim + centered dialog). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.height = sk_ui_percent(100.0f);
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL, &base) != 0) {
+		return -1;
+	}
+
+	/* Background dim: blocks input and darkens the editor behind. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION;
+	base.background_color = sk_ui_rgba(0.01f, 0.02f, 0.03f, 0.72f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.height = sk_ui_percent(100.0f);
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL_DIM, &base) != 0) {
+		return -1;
+	}
+
+	/* Dialog card: title + body + button row. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_MIN_WIDTH |
+				SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.border_color = sk_ui_rgba(0.52f, 0.54f, 0.60f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 4.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.min_width = sk_ui_pt(260.0f);
+	base.layout.min_height = sk_ui_pt(96.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL_DIALOG, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS |
+				SK_UI_SP_FLEX_DIRECTION;
+	base.background_color = sk_ui_rgba(0.28f, 0.32f, 0.40f, 1.0f);
+	base.layout.padding.left = 10.0f;
+	base.layout.padding.top = 6.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.bottom = 6.0f;
+	base.color = sk_ui_rgba(0.94f, 0.95f, 0.97f, 1.0f);
+	base.font_size = 13.0f;
+	base.layout.min_height = sk_ui_pt(26.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL_TITLE, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH;
+	base.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	base.layout.padding.left = 10.0f;
+	base.layout.padding.top = 10.0f;
+	base.layout.padding.right = 10.0f;
+	base.layout.padding.bottom = 8.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.width = sk_ui_percent(100.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL_BODY, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_COLUMN_GAP |
+				SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.15f, 0.16f, 0.18f, 1.0f);
+	base.layout.padding.left = 10.0f;
+	base.layout.padding.top = 8.0f;
+	base.layout.padding.right = 10.0f;
+	base.layout.padding.bottom = 10.0f;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.justify_content = SK_UI_JUSTIFY_FLEX_END;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.column_gap = 8.0f;
+	base.layout.min_height = sk_ui_pt(40.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MODAL_BUTTONS, &base) != 0) {
 		return -1;
 	}
 
@@ -3590,7 +3707,7 @@ static sk_ui_node_t ui_menu_find_popup_child(const sk_ui_context_t* ctx, sk_ui_n
 			continue;
 		}
 		w = ui_prop_str_const(ch, "widget");
-		if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0)) {
+		if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0)) {
 			return slot->children.items[i];
 		}
 	}
@@ -3609,12 +3726,13 @@ static void ui_menu_set_popup_open(sk_ui_context_t* ctx, sk_ui_node_t owner, i32
 }
 
 static i32 ui_menu_event_on_trigger(const sk_ui_context_t* ctx, sk_ui_node_t menu, sk_ui_node_t target) {
-	sk_ui_node_t popup;
-	if (!sk_ui_node_is_valid(target) || sk_ui_node_eq(target, menu)) {
-		return 1;
+	/* Only the labeled trigger toggles. Clicks on the floating popup (padding
+	 * or a disabled row that is not itself a hit target) must not close it. */
+	(void)ctx;
+	if (!sk_ui_node_is_valid(target)) {
+		return 0;
 	}
-	popup = ui_menu_find_popup_child(ctx, menu);
-	return sk_ui_node_eq(target, popup) ? 1 : 0;
+	return sk_ui_node_eq(target, menu) ? 1 : 0;
 }
 
 static void ui_menu_toggle_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
@@ -3858,6 +3976,10 @@ sk_ui_node_t ui_widget_submenu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, c
 	return n;
 }
 
+static void ui_popup_sync_stack(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+static void ui_popup_raise(sk_ui_context_t* ctx, sk_ui_node_t node);
+static void ui_popup_apply_default_focus(sk_ui_context_t* ctx, sk_ui_node_t owner);
+
 i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
 	const_chr_t w;
@@ -3868,14 +3990,33 @@ i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open) {
 		return 0;
 	}
 	w = ui_prop_str_const(slot, "widget");
-	if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0)) {
+	if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0 || strcmp(w, "modal") == 0)) {
 		const sk_ui_api_t* ui = ui_wapi();
 		(void)ui->node_set_prop_i32(ctx, node, "open", open != 0 ? 1 : 0);
 		(void)ui->node_set_prop_i32(ctx, node, "hidden", open != 0 ? 0 : 1);
 		ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+		ui_popup_sync_stack(ctx, node, open);
+		if (open != 0) {
+			ui_popup_raise(ctx, node);
+			ui_popup_apply_default_focus(ctx, node);
+		}
+		if (w != NULL && strcmp(w, "modal") == 0) {
+			ui_widget_data_t* wd = ui_widget_data(ctx, node);
+			if (wd != NULL && wd->p_open != NULL) {
+				*wd->p_open = open != 0 ? 1 : 0;
+			}
+		}
 		return 0;
 	}
 	ui_menu_set_popup_open(ctx, node, open);
+	{
+		sk_ui_node_t popup = ui_menu_find_popup_child(ctx, node);
+		if (sk_ui_node_is_valid(popup)) {
+			ui_popup_sync_stack(ctx, popup, open);
+		} else {
+			ui_popup_sync_stack(ctx, node, open);
+		}
+	}
 	return 0;
 }
 
@@ -3942,7 +4083,7 @@ static i32 ui_menu_surface_is_closed(const ui_node_slot_t* slot) {
 	if (w == NULL) {
 		return 0;
 	}
-	if (strcmp(w, "menu_popup") != 0 && strcmp(w, "context_menu") != 0) {
+	if (strcmp(w, "menu_popup") != 0 && strcmp(w, "context_menu") != 0 && strcmp(w, "popup_menu") != 0) {
 		return 0;
 	}
 	(void)ui_prop_i32_const(slot, "open", &open);
@@ -3988,7 +4129,7 @@ static i32 ui_menu_is_owner_widget(const_chr_t w) {
 	if (w == NULL) {
 		return 0;
 	}
-	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0) ? 1 : 0;
+	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0) ? 1 : 0;
 }
 
 static void ui_menu_close_ancestors(sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -6901,6 +7042,627 @@ sk_ui_node_t ui_widget_spring_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f3
 }
 
 /* -------------------------------------------------------------------------- */
+/* Popup / modal family (APX-347; manifest §12)                               */
+/* -------------------------------------------------------------------------- */
+
+static i32 ui_popup_is_surface_widget(const_chr_t w) {
+	if (w == NULL) {
+		return 0;
+	}
+	return (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0 || strcmp(w, "modal") == 0) ? 1 : 0;
+}
+
+static i32 ui_popup_stack_index(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	u32 i;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	for (i = 0u; i < ctx->popup_stack_count; ++i) {
+		if (sk_ui_node_eq(ctx->popup_stack[i], node)) {
+			return (i32)i;
+		}
+	}
+	return -1;
+}
+
+static void ui_popup_sync_stack(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open) {
+	i32 idx;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return;
+	}
+	idx = ui_popup_stack_index(ctx, node);
+	if (open != 0) {
+		if (idx < 0 && ctx->popup_stack_count < (u8)SK_UI_POPUP_STACK_MAX) {
+			ctx->popup_stack[ctx->popup_stack_count] = node;
+			ctx->popup_stack_count = (u8)(ctx->popup_stack_count + 1u);
+		}
+		return;
+	}
+	if (idx < 0) {
+		return;
+	}
+	{
+		u32 i;
+		for (i = (u32)idx; i + 1u < ctx->popup_stack_count; ++i) {
+			ctx->popup_stack[i] = ctx->popup_stack[i + 1u];
+		}
+		ctx->popup_stack_count = (u8)(ctx->popup_stack_count - 1u);
+		ctx->popup_stack[ctx->popup_stack_count] = SK_UI_NODE_INVALID;
+	}
+}
+
+static void ui_popup_raise(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t parent;
+	u32 n;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return;
+	}
+	parent = ui->node_parent(ctx, node);
+	if (!sk_ui_node_is_valid(parent)) {
+		return;
+	}
+	n = ui->node_child_count(ctx, parent);
+	if (n > 0u) {
+		(void)ui->node_set_child_index(ctx, parent, node, n - 1u);
+	}
+}
+
+static sk_ui_node_t ui_popup_find_marked_focus(const sk_ui_context_t* ctx, sk_ui_node_t owner) {
+	sk_ui_node_t stack[64];
+	u32 n = 0u;
+	if (!sk_ui_node_is_valid(owner)) {
+		return SK_UI_NODE_INVALID;
+	}
+	stack[n++] = owner;
+	while (n > 0u) {
+		sk_ui_node_t cur = stack[--n];
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		u32 i;
+		i32 marked = 0;
+		if (slot == NULL) {
+			continue;
+		}
+		if (!sk_ui_node_eq(cur, owner) && ui_prop_i32_const(slot, "default_focus", &marked) == 0 && marked != 0) {
+			return cur;
+		}
+		for (i = slot->children.count; i > 0u && n < 64u;) {
+			--i;
+			stack[n++] = slot->children.items[i];
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static sk_ui_node_t ui_popup_first_focusable(const sk_ui_context_t* ctx, sk_ui_node_t owner) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t stack[64];
+	u32 n = 0u;
+	if (!sk_ui_node_is_valid(owner)) {
+		return SK_UI_NODE_INVALID;
+	}
+	stack[n++] = owner;
+	while (n > 0u) {
+		sk_ui_node_t cur = stack[--n];
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		u32 i;
+		if (slot == NULL) {
+			continue;
+		}
+		if (!sk_ui_node_eq(cur, owner) && ui->node_get_focusable(ctx, cur) != 0 && (ui->node_get_state(ctx, cur) & (u32)SK_UI_STATE_DISABLED) == 0u) {
+			return cur;
+		}
+		for (i = slot->children.count; i > 0u && n < 64u;) {
+			--i;
+			stack[n++] = slot->children.items[i];
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static void ui_popup_apply_default_focus(sk_ui_context_t* ctx, sk_ui_node_t owner) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t target;
+	sk_ui_node_t row;
+	if (ctx == NULL || !sk_ui_node_is_valid(owner)) {
+		return;
+	}
+	target = ui_popup_find_marked_focus(ctx, owner);
+	if (!sk_ui_node_is_valid(target)) {
+		sk_ui_node_t dialog = ui_find_child_widget(ctx, owner, "modal_dialog");
+		row = ui_find_child_widget(ctx, owner, "modal_buttons");
+		if (!sk_ui_node_is_valid(row) && sk_ui_node_is_valid(dialog)) {
+			row = ui_find_child_widget(ctx, dialog, "modal_buttons");
+		}
+		if (sk_ui_node_is_valid(row)) {
+			target = ui_popup_first_focusable(ctx, row);
+		}
+	}
+	if (!sk_ui_node_is_valid(target)) {
+		target = ui_popup_first_focusable(ctx, owner);
+	}
+	if (sk_ui_node_is_valid(target)) {
+		(void)ui->focus_set(ctx, target);
+	}
+}
+
+static sk_ui_node_t ui_modal_dialog_child(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	return ui_find_child_widget(ctx, modal, "modal_dialog");
+}
+
+sk_ui_node_t ui_modal_dialog_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	return ui_modal_dialog_child(ctx, modal);
+}
+
+sk_ui_node_t ui_modal_dim_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	return ui_find_child_widget(ctx, modal, "modal_dim");
+}
+
+sk_ui_node_t ui_modal_title_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	sk_ui_node_t dialog = ui_modal_dialog_child(ctx, modal);
+	if (!sk_ui_node_is_valid(dialog)) {
+		return SK_UI_NODE_INVALID;
+	}
+	return ui_find_child_widget(ctx, dialog, "modal_title");
+}
+
+sk_ui_node_t ui_modal_body_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	sk_ui_node_t dialog = ui_modal_dialog_child(ctx, modal);
+	if (!sk_ui_node_is_valid(dialog)) {
+		return SK_UI_NODE_INVALID;
+	}
+	return ui_find_child_widget(ctx, dialog, "modal_body");
+}
+
+sk_ui_node_t ui_modal_button_row_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	sk_ui_node_t dialog = ui_modal_dialog_child(ctx, modal);
+	if (!sk_ui_node_is_valid(dialog)) {
+		return SK_UI_NODE_INVALID;
+	}
+	return ui_find_child_widget(ctx, dialog, "modal_buttons");
+}
+
+static void ui_modal_apply_size(sk_ui_context_t* ctx, sk_ui_node_t modal, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t dialog = ui_modal_dialog_child(ctx, modal);
+	sk_ui_node_t body = ui_modal_body_impl(ctx, modal);
+	sk_ui_style_props_t p;
+
+	if (!sk_ui_node_is_valid(dialog)) {
+		return;
+	}
+	ui_style_props_clear(&p);
+	if ((flags & SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE) != 0u) {
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_ALIGN_SELF;
+		p.layout.width = sk_ui_auto();
+		p.layout.height = sk_ui_auto();
+		p.layout.min_width = sk_ui_pt(260.0f);
+		p.layout.flex_grow = 0.0f;
+		p.layout.flex_shrink = 0.0f;
+		p.layout.align_self = SK_UI_ALIGN_CENTER;
+		(void)ui->node_merge_inline_style(ctx, dialog, &p);
+		if (sk_ui_node_is_valid(body)) {
+			ui_style_props_clear(&p);
+			p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_FLEX_GROW;
+			p.layout.height = sk_ui_auto();
+			p.layout.min_height = sk_ui_pt(0.0f);
+			p.layout.max_height = sk_ui_auto();
+			p.layout.flex_grow = 0.0f;
+			(void)ui->node_merge_inline_style(ctx, body, &p);
+			(void)ui->node_set_clip_children(ctx, body, 0);
+		}
+		return;
+	}
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH;
+	p.layout.width = sk_ui_pt(SK_UI_MODAL_FIXED_WIDTH);
+	p.layout.min_width = sk_ui_pt(SK_UI_MODAL_FIXED_WIDTH);
+	p.layout.max_width = sk_ui_pt(SK_UI_MODAL_FIXED_WIDTH);
+	(void)ui->node_merge_inline_style(ctx, dialog, &p);
+	if (sk_ui_node_is_valid(body)) {
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_FLEX_GROW;
+		p.layout.width = sk_ui_percent(100.0f);
+		p.layout.height = sk_ui_pt(SK_UI_MODAL_FIXED_BODY_HEIGHT);
+		p.layout.min_height = sk_ui_pt(SK_UI_MODAL_FIXED_BODY_HEIGHT);
+		p.layout.max_height = sk_ui_pt(SK_UI_MODAL_FIXED_BODY_HEIGHT);
+		p.layout.flex_grow = 0.0f;
+		(void)ui->node_merge_inline_style(ctx, body, &p);
+		(void)ui->node_set_clip_children(ctx, body, 1);
+	}
+}
+
+static void ui_modal_do_close(sk_ui_context_t* ctx, sk_ui_node_t close_btn) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t cur = close_btn;
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		const_chr_t w;
+		if (slot == NULL) {
+			break;
+		}
+		w = ui_prop_str_const(slot, "widget");
+		if (w != NULL && strcmp(w, "modal") == 0) {
+			(void)ui_menu_set_open_impl(ctx, cur, 0);
+			return;
+		}
+		cur = ui->node_parent(ctx, cur);
+	}
+}
+
+static void ui_modal_close_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)user;
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+	ui_modal_do_close(ctx, node);
+}
+
+static sk_ui_node_t ui_modal_ensure_close(sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t bar = ui_modal_title_bar_impl(ctx, modal);
+	sk_ui_node_t close;
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	char close_id[96];
+	const_chr_t wid;
+	sk_ui_layout_style_t ls;
+
+	if (!sk_ui_node_is_valid(bar)) {
+		return SK_UI_NODE_INVALID;
+	}
+	close = ui_find_child_widget(ctx, bar, "window_close");
+	if (sk_ui_node_is_valid(close)) {
+		return close;
+	}
+	wid = ui->node_get_id(ctx, modal);
+	if (wid != NULL && wid[0] != '\0') {
+		(void)snprintf(close_id, sizeof(close_id), "%s-close", wid);
+	} else {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(close_id, sizeof(close_id), "ui-modal-close-%u", ctx->widget_id_seq);
+	}
+	{
+		char spring_id[96];
+		if (wid != NULL && wid[0] != '\0') {
+			(void)snprintf(spring_id, sizeof(spring_id), "%s-close-gap", wid);
+		} else {
+			ctx->widget_id_seq += 1u;
+			(void)snprintf(spring_id, sizeof(spring_id), "ui-modal-close-gap-%u", ctx->widget_id_seq);
+		}
+		(void)ui_widget_spring_impl(ctx, bar, 1.0f, spring_id);
+	}
+	close = ui_button_make(ctx, bar, "x", close_id, SK_UI_CLASS_WINDOW_CLOSE, "window_close", 16.0f, 16.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+	if (!sk_ui_node_is_valid(close)) {
+		return SK_UI_NODE_INVALID;
+	}
+	(void)ui->node_set_prop_str(ctx, close, "widget", "window_close");
+	if (ui->node_get_layout_style(ctx, close, &ls) == 0) {
+		ls.position = SK_UI_POSITION_RELATIVE;
+		ls.flex_grow = 0.0f;
+		(void)ui->node_set_layout_style(ctx, close, &ls);
+	}
+	wd = ui_widget_data_ensure(ctx, close, UI_WD_BUTTON);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_modal_close_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, close, &cbs);
+	return close;
+}
+
+sk_ui_node_t ui_widget_popup_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t ls;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_POPUP_MENU, "popup_menu", "ui-popup-menu", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "hidden", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "z_index", 200);
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	ls.width = sk_ui_pt(SK_UI_POPUP_MENU_WIDTH);
+	ls.min_width = sk_ui_pt(SK_UI_POPUP_MENU_WIDTH);
+	ls.left = sk_ui_pt(0.0f);
+	ls.top = sk_ui_pt(0.0f);
+	(void)ui->node_set_layout_style(ctx, n, &ls);
+	return n;
+}
+
+sk_ui_node_t ui_widget_modal_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t ls;
+	ui_widget_data_t* wd;
+	sk_ui_node_t modal;
+	sk_ui_node_t dim;
+	sk_ui_node_t dialog;
+	sk_ui_node_t title_bar;
+	sk_ui_node_t body;
+	sk_ui_node_t buttons;
+	char dim_id[80];
+	char dialog_id[80];
+	char title_id[80];
+	char body_id[80];
+	char buttons_id[80];
+	i32 start_open = 0;
+
+	modal = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_MODAL, "modal", "ui-modal", id);
+	if (!sk_ui_node_is_valid(modal)) {
+		return modal;
+	}
+
+	if (id != NULL && id[0] != '\0') {
+		(void)snprintf(dim_id, sizeof(dim_id), "%s-dim", id);
+		(void)snprintf(dialog_id, sizeof(dialog_id), "%s-dialog", id);
+		(void)snprintf(title_id, sizeof(title_id), "%s-title", id);
+		(void)snprintf(body_id, sizeof(body_id), "%s-body", id);
+		(void)snprintf(buttons_id, sizeof(buttons_id), "%s-buttons", id);
+	} else {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(dim_id, sizeof(dim_id), "ui-modal-dim-%u", ctx->widget_id_seq);
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(dialog_id, sizeof(dialog_id), "ui-modal-dialog-%u", ctx->widget_id_seq);
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(title_id, sizeof(title_id), "ui-modal-title-%u", ctx->widget_id_seq);
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(body_id, sizeof(body_id), "ui-modal-body-%u", ctx->widget_id_seq);
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(buttons_id, sizeof(buttons_id), "ui-modal-buttons-%u", ctx->widget_id_seq);
+	}
+
+	(void)ui->node_set_prop_i32(ctx, modal, "flags", (i32)flags);
+	(void)ui->node_set_prop_i32(ctx, modal, "z_index", 300);
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(0.0f);
+	ls.top = sk_ui_pt(0.0f);
+	ls.width = sk_ui_percent(100.0f);
+	ls.height = sk_ui_percent(100.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	ls.justify_content = SK_UI_JUSTIFY_CENTER;
+	ls.align_items = SK_UI_ALIGN_CENTER;
+	(void)ui->node_set_layout_style(ctx, modal, &ls);
+
+	dim = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, modal, SK_UI_CLASS_MODAL_DIM, "modal_dim", "ui-modal-dim", dim_id);
+	if (sk_ui_node_is_valid(dim)) {
+		ui_layout_style_init_default(&ls);
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(0.0f);
+		ls.top = sk_ui_pt(0.0f);
+		ls.width = sk_ui_percent(100.0f);
+		ls.height = sk_ui_percent(100.0f);
+		(void)ui->node_set_layout_style(ctx, dim, &ls);
+		(void)ui->node_set_prop_i32(ctx, dim, "z_index", 0);
+	}
+
+	dialog = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, modal, SK_UI_CLASS_MODAL_DIALOG, "modal_dialog", "ui-modal-dialog", dialog_id);
+	if (sk_ui_node_is_valid(dialog)) {
+		(void)ui->node_set_prop_i32(ctx, dialog, "z_index", 1);
+	}
+
+	title_bar = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, dialog, SK_UI_CLASS_MODAL_TITLE, "modal_title", "ui-modal-title", title_id);
+	if (sk_ui_node_is_valid(title_bar)) {
+		(void)ui->node_set_prop_str(ctx, title_bar, "text", title != NULL ? title : "");
+		(void)ui->node_set_prop_i32(ctx, title_bar, "text_align", 0);
+		(void)ui->node_set_prop_i32(ctx, title_bar, "vertical_align", 1);
+	}
+
+	body = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, dialog, SK_UI_CLASS_MODAL_BODY, "modal_body", "ui-modal-body", body_id);
+	(void)body;
+	buttons = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, dialog, SK_UI_CLASS_MODAL_BUTTONS, "modal_buttons", "ui-modal-buttons", buttons_id);
+	(void)buttons;
+
+	wd = ui_widget_data_ensure(ctx, modal, UI_WD_MODAL);
+	if (wd != NULL) {
+		wd->p_open = p_open;
+	}
+	if (p_open != NULL) {
+		(void)ui_modal_ensure_close(ctx, modal);
+		start_open = *p_open != 0 ? 1 : 0;
+	}
+	(void)ui->node_set_prop_i32(ctx, modal, "open", start_open);
+	(void)ui->node_set_prop_i32(ctx, modal, "hidden", start_open != 0 ? 0 : 1);
+	ui_modal_apply_size(ctx, modal, flags);
+	if (start_open != 0) {
+		ui_popup_sync_stack(ctx, modal, 1);
+		ui_popup_raise(ctx, modal);
+	}
+	return modal;
+}
+
+i32 ui_modal_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, i32 open) {
+	return ui_menu_set_open_impl(ctx, modal, open);
+}
+
+i32 ui_modal_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	return ui_menu_get_open_impl(ctx, modal);
+}
+
+i32 ui_modal_bind_open_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, i32* p_open) {
+	ui_widget_data_t* wd;
+	sk_ui_node_t close;
+	if (ctx == NULL || !sk_ui_node_is_valid(modal)) {
+		return -1;
+	}
+	wd = ui_widget_data_ensure(ctx, modal, UI_WD_MODAL);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->p_open = p_open;
+	close = ui_modal_ensure_close(ctx, modal);
+	if (p_open == NULL) {
+		if (sk_ui_node_is_valid(close)) {
+			(void)ui_wapi()->node_set_prop_i32(ctx, close, "hidden", 1);
+		}
+		return 0;
+	}
+	if (sk_ui_node_is_valid(close)) {
+		(void)ui_wapi()->node_set_prop_i32(ctx, close, "hidden", 0);
+	}
+	return ui_menu_set_open_impl(ctx, modal, *p_open != 0 ? 1 : 0);
+}
+
+u32 ui_modal_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal) {
+	const ui_node_slot_t* slot = ui_slot(ctx, modal);
+	i32 flags = 0;
+	if (slot == NULL) {
+		return 0u;
+	}
+	(void)ui_prop_i32_const(slot, "flags", &flags);
+	return (u32)flags;
+}
+
+i32 ui_modal_set_title_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, const_chr_t title) {
+	sk_ui_node_t bar = ui_modal_title_bar_impl(ctx, modal);
+	if (!sk_ui_node_is_valid(bar)) {
+		return -1;
+	}
+	return ui_wapi()->node_set_prop_str(ctx, bar, "text", title != NULL ? title : "");
+}
+
+i32 ui_popup_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	if (ui_menu_get_open_impl(ctx, node) != 0) {
+		return 0;
+	}
+	return ui_menu_set_open_impl(ctx, node, 1);
+}
+
+i32 ui_popup_close_current_impl(sk_ui_context_t* ctx) {
+	sk_ui_node_t top;
+	if (ctx == NULL || ctx->popup_stack_count == 0u) {
+		return 0;
+	}
+	top = ctx->popup_stack[ctx->popup_stack_count - 1u];
+	if (!sk_ui_node_is_valid(top)) {
+		ctx->popup_stack_count = (u8)(ctx->popup_stack_count - 1u);
+		return 0;
+	}
+	return ui_menu_set_open_impl(ctx, top, 0);
+}
+
+i32 ui_popup_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_menu_get_open_impl(ctx, node);
+}
+
+i32 ui_set_item_default_focus_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t cur;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	if (ui->node_set_prop_i32(ctx, node, "default_focus", 1) != 0) {
+		return -1;
+	}
+	cur = node;
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		const_chr_t w;
+		if (slot == NULL) {
+			break;
+		}
+		w = ui_prop_str_const(slot, "widget");
+		if (ui_popup_is_surface_widget(w) && ui_menu_get_open_impl(ctx, cur) != 0) {
+			ui_popup_apply_default_focus(ctx, cur);
+			break;
+		}
+		cur = slot->parent;
+	}
+	return 0;
+}
+
+static i32 ui_popup_node_contains(const sk_ui_context_t* ctx, sk_ui_node_t ancestor, sk_ui_node_t node) {
+	sk_ui_node_t cur = node;
+	if (!sk_ui_node_is_valid(ancestor) || !sk_ui_node_is_valid(cur)) {
+		return 0;
+	}
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot;
+		if (sk_ui_node_eq(cur, ancestor)) {
+			return 1;
+		}
+		slot = ui_slot(ctx, cur);
+		if (slot == NULL) {
+			break;
+		}
+		cur = slot->parent;
+	}
+	return 0;
+}
+
+sk_ui_node_t ui_popup_hit_redirect_impl(const sk_ui_context_t* ctx, sk_ui_node_t hit) {
+	i32 i;
+	if (ctx == NULL) {
+		return hit;
+	}
+	for (i = (i32)ctx->popup_stack_count - 1; i >= 0; --i) {
+		sk_ui_node_t node = ctx->popup_stack[i];
+		const ui_node_slot_t* slot = ui_slot(ctx, node);
+		const_chr_t w;
+		if (slot == NULL) {
+			continue;
+		}
+		w = ui_prop_str_const(slot, "widget");
+		if (w == NULL || strcmp(w, "modal") != 0) {
+			continue;
+		}
+		if (ui_menu_get_open_impl(ctx, node) == 0) {
+			continue;
+		}
+		if (ui_popup_node_contains(ctx, node, hit) != 0) {
+			return hit;
+		}
+		{
+			sk_ui_node_t dim = ui_modal_dim_impl(ctx, node);
+			return sk_ui_node_is_valid(dim) ? dim : node;
+		}
+	}
+	return hit;
+}
+
+void ui_popup_on_right_click_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t cur = hit;
+	if (ctx == NULL) {
+		return;
+	}
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		sk_ui_node_t menu;
+		if (slot == NULL) {
+			break;
+		}
+		menu = ui_find_child_widget(ctx, cur, "popup_menu");
+		if (!sk_ui_node_is_valid(menu)) {
+			menu = ui_find_child_widget(ctx, cur, "context_menu");
+		}
+		if (sk_ui_node_is_valid(menu)) {
+			sk_ui_layout_style_t ls;
+			if (ui->node_get_layout_style(ctx, menu, &ls) == 0) {
+				ls.position = SK_UI_POSITION_ABSOLUTE;
+				ls.left = sk_ui_pt(x);
+				ls.top = sk_ui_pt(y);
+				(void)ui->node_set_layout_style(ctx, menu, &ls);
+			}
+			(void)ui_popup_open_impl(ctx, menu);
+			return;
+		}
+		cur = slot->parent;
+	}
+}
+
+i32 ui_popup_on_escape_impl(sk_ui_context_t* ctx) {
+	if (ctx == NULL || ctx->popup_stack_count == 0u) {
+		return 0;
+	}
+	(void)ui_popup_close_current_impl(ctx);
+	return 1;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Tests                                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -9330,6 +10092,159 @@ SK_TEST(ui_widget_menu_family_shortcut_check_separator) {
 		wtest_pointer(ui, ctx, r.x + 20.0f, r.y + 10.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
 		TEST_ASSERT_EQUAL_INT(1, ui->menu_item_clicked(ctx, pop_item));
 	}
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_popup_modal_open_close_edge) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t host;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t item;
+
+	host = ui->widget_view(ctx, root, "pm-host");
+	a = ui->widget_popup_menu(ctx, host, "pm-a");
+	b = ui->widget_popup_menu(ctx, host, "pm-b");
+	item = ui->widget_menu_item(ctx, a, "Cut", "pm-cut");
+	(void)item;
+	wtest_set_size(ui, ctx, host, 200.0f, 80.0f);
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_get_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, a));
+	/* Edge: already-open OpenPopup is a no-op. */
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, a));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, b));
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, b));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_close_current(ctx));
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_get_open(ctx, b));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_close_current(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_get_open(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_close_current(ctx));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_popup_modal_click_outside_and_block) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t host;
+	sk_ui_node_t menu;
+	sk_ui_node_t item;
+	sk_ui_node_t behind;
+	sk_ui_node_t modal;
+	sk_ui_node_t ok;
+	sk_ui_layout_style_t ls;
+	sk_ui_rect_t r;
+
+	host = ui->widget_view(ctx, root, "pm-ctx-host");
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, host, &ls));
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(8.0f);
+	ls.top = sk_ui_pt(8.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, host, &ls));
+	wtest_set_size(ui, ctx, host, 80.0f, 24.0f);
+	menu = ui->widget_popup_menu(ctx, host, "pm-ctx");
+	item = ui->widget_menu_item(ctx, menu, "Rename", "pm-rename");
+	wtest_set_size(ui, ctx, item, 280.0f, 22.0f);
+
+	behind = ui->widget_button(ctx, root, "Behind", "pm-behind");
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, behind, &ls));
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(8.0f);
+	ls.top = sk_ui_pt(200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, behind, &ls));
+	wtest_set_size(ui, ctx, behind, 80.0f, 24.0f);
+
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, menu));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->popup_get_open(ctx, menu));
+
+	wtest_pointer(ui, ctx, 380.0f, 280.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, 380.0f, 280.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_get_open(ctx, menu));
+
+	modal = ui->widget_modal(ctx, root, "Error", "pm-modal", NULL, SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE);
+	(void)ui->widget_text(ctx, ui->modal_body(ctx, modal), "Cannot save.", "pm-msg");
+	ok = ui->widget_button(ctx, ui->modal_button_row(ctx, modal), "OK", "pm-ok");
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, ok, 120.0f, 0.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->set_item_default_focus(ctx, ok));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, modal));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->modal_get_open(ctx, modal));
+
+	(void)ui->button_clicked(ctx, behind);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, behind, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + 10.0f, r.y + 10.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + 10.0f, r.y + 10.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, behind));
+	TEST_ASSERT_EQUAL_INT(1, ui->modal_get_open(ctx, modal));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_popup_modal_size_and_focus) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t auto_m;
+	sk_ui_node_t fixed_m;
+	sk_ui_node_t ok;
+	sk_ui_node_t cancel;
+	sk_ui_node_t save;
+	sk_ui_node_t auto_dlg;
+	sk_ui_node_t fixed_body;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	i32 open_flag = 1;
+
+	auto_m = ui->widget_modal(ctx, root, "Cannot delete", "pm-auto", NULL, SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE);
+	(void)ui->widget_text(ctx, ui->modal_body(ctx, auto_m), "File is locked.", "pm-auto-msg");
+	ok = ui->widget_button(ctx, ui->modal_button_row(ctx, auto_m), "OK", "pm-auto-ok");
+	cancel = ui->widget_button(ctx, ui->modal_button_row(ctx, auto_m), "Close", "pm-auto-close");
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, ok, 120.0f, 0.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, cancel, 120.0f, 0.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->set_item_default_focus(ctx, ok));
+	TEST_ASSERT_EQUAL_INT(0, ui->popup_open(ctx, auto_m));
+	wtest_layout(ui, ctx, 640.0f, 400.0f);
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->focus_get(ctx), ok));
+
+	fixed_m = ui->widget_modal(ctx, root, "Save Content", "pm-fixed", &open_flag, SK_UI_MODAL_FLAG_NO_SCROLLBAR);
+	(void)ui->widget_text(ctx, ui->modal_body(ctx, fixed_m), "scene.skore", "pm-row0");
+	(void)ui->widget_text(ctx, ui->modal_body(ctx, fixed_m), "material.mat", "pm-row1");
+	save = ui->widget_button(ctx, ui->modal_button_row(ctx, fixed_m), "Save", "pm-save");
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, save, 120.0f, 0.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->set_item_default_focus(ctx, save));
+
+	wtest_layout(ui, ctx, 640.0f, 400.0f);
+
+	auto_dlg = ui->modal_dialog(ctx, auto_m);
+	fixed_body = ui->modal_body(ctx, fixed_m);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(auto_dlg));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(fixed_body));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, auto_dlg, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, fixed_body, &rb, NULL));
+	TEST_ASSERT_TRUE(ra.width + 0.5f >= 260.0f);
+	TEST_ASSERT_TRUE(ra.width + 0.5f < 640.0f);
+	TEST_ASSERT_TRUE(ra.height > 40.0f);
+	TEST_ASSERT_TRUE(ra.height + 0.5f < 360.0f);
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, SK_UI_MODAL_FIXED_BODY_HEIGHT, rb.height);
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->focus_get(ctx), save));
+	TEST_ASSERT_EQUAL_UINT32(SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE, ui->modal_get_flags(ctx, auto_m));
+	TEST_ASSERT_EQUAL_UINT32(SK_UI_MODAL_FLAG_NO_SCROLLBAR, ui->modal_get_flags(ctx, fixed_m));
+	TEST_ASSERT_EQUAL_INT(1, ui->modal_get_open(ctx, fixed_m));
+	TEST_ASSERT_EQUAL_INT(1, open_flag);
 
 	ui->context_destroy(ctx);
 }

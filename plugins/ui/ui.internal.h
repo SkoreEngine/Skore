@@ -25,6 +25,8 @@ void ui_bind_host_logger(const sk_logger_api_t* api, sk_logger_context_t* log_ct
 /* Containers                                                                 */
 /* -------------------------------------------------------------------------- */
 
+#define SK_UI_POPUP_STACK_MAX 8
+
 typedef SK_ARRAY(sk_ui_node_t) ui_node_list_t;
 typedef SK_ARRAY(char*) ui_class_list_t;
 
@@ -281,6 +283,10 @@ struct sk_ui_context_t {
 	sk_ui_dock_node_t dock_drag_hover;
 	sk_ui_dock_dir_t dock_drag_dir;
 	char dock_drag_window_id[64];
+	/* Popup / modal stack (APX-347). OpenPopup push; CloseCurrentPopup pop. */
+	sk_ui_node_t popup_stack[SK_UI_POPUP_STACK_MAX];
+	u8 popup_stack_count;
+	u8 _popup_pad[3]; /**< Align after popup_stack_count. */
 };
 
 /* -------------------------------------------------------------------------- */
@@ -585,6 +591,26 @@ i32 ui_menu_item_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node
 sk_ui_node_t ui_widget_menu_separator_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 i32 ui_menu_item_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
 void ui_menu_dismiss_outside_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y);
+
+sk_ui_node_t ui_widget_popup_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_modal_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open, u32 flags);
+sk_ui_node_t ui_modal_title_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+sk_ui_node_t ui_modal_body_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+sk_ui_node_t ui_modal_button_row_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+sk_ui_node_t ui_modal_dialog_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+sk_ui_node_t ui_modal_dim_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+i32 ui_modal_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, i32 open);
+i32 ui_modal_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+i32 ui_modal_bind_open_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, i32* p_open);
+u32 ui_modal_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+i32 ui_modal_set_title_impl(sk_ui_context_t* ctx, sk_ui_node_t modal, const_chr_t title);
+i32 ui_popup_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_popup_close_current_impl(sk_ui_context_t* ctx);
+i32 ui_popup_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_set_item_default_focus_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_popup_hit_redirect_impl(const sk_ui_context_t* ctx, sk_ui_node_t hit);
+void ui_popup_on_right_click_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y);
+i32 ui_popup_on_escape_impl(sk_ui_context_t* ctx);
 
 sk_ui_node_t ui_widget_dock_space_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_dock_node_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 orientation, const_chr_t id);
