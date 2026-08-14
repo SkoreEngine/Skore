@@ -708,7 +708,11 @@ static ui_item_bind_data_t* ib_ensure(sk_ui_context_t* ctx, sk_ui_node_t host, u
 }
 
 i32 ui_item_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind) {
-	ui_item_bind_data_t* b = ib_ensure(ctx, host, (u32)kind);
+	ui_item_bind_data_t* b;
+	if (kind == SK_UI_ITEM_BIND_TABLE && ui_table_bind_if_table(ctx, host, items) == 0) {
+		return 0;
+	}
+	b = ib_ensure(ctx, host, (u32)kind);
 	if (b == NULL) {
 		return -1;
 	}

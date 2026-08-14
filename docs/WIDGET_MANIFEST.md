@@ -72,9 +72,10 @@ button, label, checkbox, slider (float only), text_input (single-line,
 multiline, hint/search, read-only, InputScalar / InputFloat / InputFloat3),
 scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
-editor_window. Missing factories that this audit makes load-bearing: **tree**,
-**table**, **drag-drop payload**, **color picker**, **combo that binds an
-int + zero-separated items**, **tooltip**.
+editor_window. Missing factories that this audit makes load-bearing:
+**drag-drop payload**, **color picker**, **combo that binds an
+int + zero-separated items**, **tooltip**. Tree (APX-350) and table (APX-351)
+now have factories.
 
 ---
 
@@ -694,11 +695,27 @@ packages / pending-save / debugger instances should bind
 **Not used:** `Columns` / `NextColumn` legacy API; `TableGetSortSpecs`
 (no click-to-sort in the editor).
 
-**sk-ui today:** no table factory (widgets.c: “no tables”).
+**sk-ui today:** `widget_table` (BeginTable / EndTable) plus TableSetupColumn
+(WidthStretch / WidthFixed / NoHide / NoResize / IndentEnable / IndentDisable),
+TableHeadersRow, TableNextRow / TableNextColumn / TableSetColumnIndex,
+sizing policies (FixedFit / FixedSame / StretchProp), Resizable, RowBg,
+border variants (Outer / InnerH / InnerV / NoBordersInBody), ScrollX/ScrollY
+with leftover-height `outer_size`, TableSetupScrollFreeze, TableSetBgColor
+(CellBg column_n < 0 fills a whole EntityTree row), TableGetColumnCount,
+and `table_bind_items` / `item_bind(..., TABLE)` for the §21 no-rebuild
+contract. `widget_item_view` TABLE bind kind from APX-338 is unchanged.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/table.c`
+  (`ui_widget_table_column_width_resolution`,
+  `ui_widget_table_cell_navigation`,
+  `ui_widget_table_border_bg_flags`,
+  `ui_widget_table_scroll_region`,
+  `ui_widget_table_row_bg_override`,
+  `ui_widget_table_item_bind_no_rebuild`)
+- [x] Headless UI automation — `plugins/ui/table_family_tests.c`
+  (`ui_author_table_family_resize_scroll_cell_queries`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget table`,
+  `properties_grid`, `table_scroll`; states default)
 
 ---
 

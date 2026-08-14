@@ -1427,6 +1427,126 @@ static i32 sandbox_widget_build_tree_deep(const sandbox_widget_host_t* host, sk_
 	return 0;
 }
 
+static sk_ui_item_t s_review_table_items[6];
+static sk_ui_item_array_t s_review_table_arr;
+
+static void sandbox_table_put(const sandbox_widget_host_t* host, sk_ui_node_t table, const_chr_t a, const_chr_t b, const_chr_t c) {
+	const sk_ui_api_t* ui = host->ui;
+	char ida[40];
+	char idb[40];
+	char idc[40];
+	i32 row = ui->table_get_current_row(host->ctx, table) + 1;
+	const_chr_t tid = ui->node_get_id(host->ctx, table);
+	(void)snprintf(ida, sizeof(ida), "%s/t%d-0", tid != NULL ? tid : "tbl", row);
+	(void)snprintf(idb, sizeof(idb), "%s/t%d-1", tid != NULL ? tid : "tbl", row);
+	(void)snprintf(idc, sizeof(idc), "%s/t%d-2", tid != NULL ? tid : "tbl", row);
+	(void)ui->table_next_row(host->ctx, table, SK_UI_TABLE_ROW_FLAG_NONE, 0.0f);
+	(void)ui->table_next_column(host->ctx, table);
+	(void)ui->widget_text(host->ctx, ui->table_current_cell(host->ctx, table), a, ida);
+	(void)ui->table_next_column(host->ctx, table);
+	(void)ui->widget_text(host->ctx, ui->table_current_cell(host->ctx, table), b, idb);
+	if (c != NULL) {
+		(void)ui->table_next_column(host->ctx, table);
+		(void)ui->widget_text(host->ctx, ui->table_current_cell(host->ctx, table), c, idc);
+	}
+}
+
+static i32 sandbox_widget_build_table(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t table;
+	sk_ui_color_t row_mark = sk_ui_rgba(0.18f, 0.32f, 0.52f, 1.0f);
+
+	sandbox_widget_style_fill(host);
+	table = ui->widget_table(host->ctx, root, "review-table", 3,
+							 SK_UI_TABLE_FLAG_RESIZABLE | SK_UI_TABLE_FLAG_ROW_BG | SK_UI_TABLE_FLAG_BORDERS | SK_UI_TABLE_FLAG_SIZING_STRETCH_PROP, (f32)host->width - 32.0f,
+							 (f32)host->height - 32.0f);
+	if (!sk_ui_node_is_valid(table)) {
+		fprintf(stderr, "sk-sandbox: widget_table failed\n");
+		return -1;
+	}
+	(void)ui->table_setup_column(host->ctx, table, "Name", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH | SK_UI_TABLE_COLUMN_FLAG_NO_HIDE, 1.2f);
+	(void)ui->table_setup_column(host->ctx, table, "Type", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH, 1.0f);
+	(void)ui->table_setup_column(host->ctx, table, "Size", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED | SK_UI_TABLE_COLUMN_FLAG_NO_RESIZE, 64.0f);
+	(void)ui->table_headers_row(host->ctx, table);
+	sandbox_table_put(host, table, "mesh_hero", "asset", "12");
+	sandbox_table_put(host, table, "tex_albedo", "asset", "4");
+	sandbox_table_put(host, table, "mat_stone", "asset", "1");
+	sandbox_table_put(host, table, "audio_hit", "asset", "8");
+	(void)ui->table_set_bg_color(host->ctx, table, SK_UI_TABLE_BG_CELL, row_mark, -1);
+	sk_ui_item_set(&s_review_table_items[0], 1ull, 0ull, "mesh_hero", 0u);
+	sk_ui_item_set(&s_review_table_items[1], 2ull, 0ull, "tex_albedo", 0u);
+	s_review_table_arr.items = s_review_table_items;
+	s_review_table_arr.count = 2u;
+	s_review_table_arr.revision = 1u;
+	(void)ui->table_end(host->ctx, table);
+	*out_target = table;
+	return 0;
+}
+
+static i32 sandbox_widget_build_properties_grid(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t table;
+
+	sandbox_widget_style_fill(host);
+	table = ui->widget_table(host->ctx, root, "review-props", 2,
+							 SK_UI_TABLE_FLAG_SIZING_STRETCH_PROP | SK_UI_TABLE_FLAG_NO_BORDERS_IN_BODY | SK_UI_TABLE_FLAG_BORDERS_INNER_V | SK_UI_TABLE_FLAG_BORDERS_OUTER,
+							 (f32)host->width - 32.0f, (f32)host->height - 32.0f);
+	if (!sk_ui_node_is_valid(table)) {
+		fprintf(stderr, "sk-sandbox: properties grid table failed\n");
+		return -1;
+	}
+	(void)ui->table_setup_column(host->ctx, table, "Property", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED | SK_UI_TABLE_COLUMN_FLAG_NO_RESIZE, 140.0f);
+	(void)ui->table_setup_column(host->ctx, table, "Value", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH, 1.0f);
+	sandbox_table_put(host, table, "Position", "0.00  1.20  -3.40", NULL);
+	sandbox_table_put(host, table, "Rotation", "0.00  45.0   0.00", NULL);
+	sandbox_table_put(host, table, "Scale", "1.00  1.00   1.00", NULL);
+	sandbox_table_put(host, table, "Layer", "Default", NULL);
+	sandbox_table_put(host, table, "Visible", "true", NULL);
+	(void)ui->table_end(host->ctx, table);
+	*out_target = table;
+	return 0;
+}
+
+static i32 sandbox_widget_build_table_scroll(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t table;
+	u32 i;
+
+	sandbox_widget_style_fill(host);
+	table = ui->widget_table(host->ctx, root, "review-table-scroll", 4,
+							 SK_UI_TABLE_FLAG_SCROLL_Y | SK_UI_TABLE_FLAG_SCROLL_X | SK_UI_TABLE_FLAG_ROW_BG | SK_UI_TABLE_FLAG_BORDERS | SK_UI_TABLE_FLAG_RESIZABLE |
+								 SK_UI_TABLE_FLAG_SIZING_FIXED_FIT,
+							 (f32)host->width - 32.0f, (f32)host->height - 32.0f);
+	if (!sk_ui_node_is_valid(table)) {
+		fprintf(stderr, "sk-sandbox: scrolling table failed\n");
+		return -1;
+	}
+	(void)ui->table_setup_column(host->ctx, table, "Zone", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED | SK_UI_TABLE_COLUMN_FLAG_NO_HIDE, 120.0f);
+	(void)ui->table_setup_column(host->ctx, table, "ms", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 56.0f);
+	(void)ui->table_setup_column(host->ctx, table, "Calls", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 56.0f);
+	(void)ui->table_setup_column(host->ctx, table, "Thread", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 80.0f);
+	(void)ui->table_setup_scroll_freeze(host->ctx, table, 1, 1);
+	(void)ui->table_headers_row(host->ctx, table);
+	for (i = 0u; i < 16u; ++i) {
+		char zone[32];
+		char ms[16];
+		char calls[16];
+		(void)snprintf(zone, sizeof(zone), "GPU.Pass%u", i);
+		(void)snprintf(ms, sizeof(ms), "%.2f", (double)(0.12f * (f32)(i + 1u)));
+		(void)snprintf(calls, sizeof(calls), "%u", 4u + i);
+		sandbox_table_put(host, table, zone, ms, calls);
+		(void)ui->table_set_column_index(host->ctx, table, 3);
+		(void)ui->widget_text(host->ctx, ui->table_current_cell(host->ctx, table), "main", NULL);
+	}
+	(void)ui->table_end(host->ctx, table);
+	(void)ui->table_set_scroll(host->ctx, table, 0.0f, SK_UI_TABLE_ROW_HEIGHT * 2.0f);
+	*out_target = table;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1461,7 +1581,9 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"collapsing_header", "collapsing", "§8 CollapsingHeader + trailing button", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 420u, 220u,
 	 sandbox_widget_build_collapsing_header},
 	{"tree_deep", "tree_selected", "§8 deep indent + selected", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED, 384u, 256u, sandbox_widget_build_tree_deep},
-	{"table", NULL, "§9 Table", SANDBOX_WS_BIT_DEFAULT, 480u, 256u, NULL},
+	{"table", NULL, "§9 Table packages + headers + row bg", SANDBOX_WS_BIT_DEFAULT, 520u, 260u, sandbox_widget_build_table},
+	{"properties_grid", "table_properties", "§9 2-col properties label/value", SANDBOX_WS_BIT_DEFAULT, 480u, 240u, sandbox_widget_build_properties_grid},
+	{"table_scroll", "table_frozen", "§9 ScrollY + frozen header/column", SANDBOX_WS_BIT_DEFAULT, 520u, 280u, sandbox_widget_build_table_scroll},
 	{"tab_bar", "tab", "§10 TabBar workspace + close + body", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 520u, 180u, sandbox_widget_build_tab_bar},
 	{"tab_bar_plus", "tabplus", "§10 TabItemButton +", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED, 320u, 96u, sandbox_widget_build_tab_plus},
 	{"menu", "menubar", "§11 MenuBar / Menu / MenuItem", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 640u, 280u,

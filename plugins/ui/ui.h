@@ -948,11 +948,62 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_LIST "ui-list"
 #define SK_UI_CLASS_COMBO_ITEMS "ui-combo-items"
 #define SK_UI_CLASS_TABLE "ui-table"
+#define SK_UI_CLASS_TABLE_HEADER "ui-table-header"
+#define SK_UI_CLASS_TABLE_ROW "ui-table-row"
+#define SK_UI_CLASS_TABLE_CELL "ui-table-cell"
+#define SK_UI_CLASS_TABLE_BODY "ui-table-body"
+#define SK_UI_CLASS_TABLE_RESIZE "ui-table-resize"
 #define SK_UI_CLASS_ITEM_ROW "ui-item-row"
 #define SK_UI_CLASS_TREE_ARROW "ui-tree-arrow"
 #define SK_UI_CLASS_COLLAPSING_HEADER "ui-collapsing-header"
 #define SK_UI_CLASS_COLLAPSING_HEADER_BODY "ui-collapsing-header-body"
 #define SK_UI_CLASS_COLLAPSING_HEADER_BUTTON "ui-collapsing-header-button"
+
+/**
+ * BeginTable flags the editor actually sets (ImGuiTableFlags analog).
+ * Sizing bits are mutually exclusive; the last one that is set wins.
+ */
+#define SK_UI_TABLE_FLAG_NONE 0u
+#define SK_UI_TABLE_FLAG_RESIZABLE (1u << 0)
+#define SK_UI_TABLE_FLAG_ROW_BG (1u << 1)
+#define SK_UI_TABLE_FLAG_BORDERS_OUTER (1u << 2)
+#define SK_UI_TABLE_FLAG_BORDERS_INNER_H (1u << 3)
+#define SK_UI_TABLE_FLAG_BORDERS_INNER_V (1u << 4)
+#define SK_UI_TABLE_FLAG_BORDERS (SK_UI_TABLE_FLAG_BORDERS_OUTER | SK_UI_TABLE_FLAG_BORDERS_INNER_H | SK_UI_TABLE_FLAG_BORDERS_INNER_V)
+#define SK_UI_TABLE_FLAG_NO_BORDERS_IN_BODY (1u << 5)
+#define SK_UI_TABLE_FLAG_SCROLL_X (1u << 6)
+#define SK_UI_TABLE_FLAG_SCROLL_Y (1u << 7)
+#define SK_UI_TABLE_FLAG_SIZING_FIXED_FIT (1u << 8)
+#define SK_UI_TABLE_FLAG_SIZING_FIXED_SAME (1u << 9)
+#define SK_UI_TABLE_FLAG_SIZING_STRETCH_PROP (1u << 10)
+
+/** TableSetupColumn flags (ImGuiTableColumnFlags analog). */
+#define SK_UI_TABLE_COLUMN_FLAG_NONE 0u
+#define SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH (1u << 0)
+#define SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED (1u << 1)
+#define SK_UI_TABLE_COLUMN_FLAG_NO_HIDE (1u << 2)
+#define SK_UI_TABLE_COLUMN_FLAG_NO_RESIZE (1u << 3)
+#define SK_UI_TABLE_COLUMN_FLAG_INDENT_ENABLE (1u << 4)
+#define SK_UI_TABLE_COLUMN_FLAG_INDENT_DISABLE (1u << 5)
+
+/** TableNextRow flags. HEADERS marks the header row. */
+#define SK_UI_TABLE_ROW_FLAG_NONE 0u
+#define SK_UI_TABLE_ROW_FLAG_HEADERS (1u << 0)
+
+/** TableSetBgColor target. CellBg with column_n < 0 fills the whole row. */
+typedef enum sk_ui_table_bg_target_t {
+	SK_UI_TABLE_BG_NONE = 0,
+	SK_UI_TABLE_BG_ROW_BG0 = 1,
+	SK_UI_TABLE_BG_ROW_BG1 = 2,
+	SK_UI_TABLE_BG_CELL = 3,
+} sk_ui_table_bg_target_t;
+
+/** Editor tables are 1–5 columns; keep a small hard cap. */
+#define SK_UI_TABLE_MAX_COLUMNS 8
+/** Default row height (logical px) when min_row_height is 0. */
+#define SK_UI_TABLE_ROW_HEIGHT 22.0f
+/** FixedFit fallback when a column has no init width. */
+#define SK_UI_TABLE_DEFAULT_COL_WIDTH 80.0f
 
 /** Per-level indent for tree rows (ImGui-ish; Entity Tree / Project Browser). */
 #define SK_UI_TREE_INDENT 14.0f
@@ -4118,6 +4169,76 @@ typedef struct sk_ui_api_t {
 	/** Edge-triggered click on the trailing button, then clears. */
 	i32 (*collapsing_header_button_clicked)(sk_ui_context_t* ctx, sk_ui_node_t header);
 	u32 (*collapsing_header_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+
+	/* ---- table family (APX-351; manifest §9) ---- */
+
+	/**
+	 * BeginTable. Retained N-column table. @p columns is 1..SK_UI_TABLE_MAX_COLUMNS.
+	 * @p flags is SK_UI_TABLE_FLAG_*. Zero on an outer_size axis is leftover /
+	 * auto (Packages / profiler fill leftover height when ScrollY).
+	 */
+	sk_ui_node_t (*widget_table)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, i32 columns, u32 flags, f32 outer_width, f32 outer_height);
+	/** EndTable: resolve column widths, apply borders / row-bg, finish layout. */
+	i32 (*table_end)(sk_ui_context_t* ctx, sk_ui_node_t table);
+
+	/**
+	 * TableSetupColumn. Call once per column before the first row. @p flags is
+	 * SK_UI_TABLE_COLUMN_FLAG_*. @p init_width_or_weight is a fixed width
+	 * (WidthFixed) or stretch weight (WidthStretch); 0 uses the sizing policy.
+	 */
+	i32 (*table_setup_column)(sk_ui_context_t* ctx, sk_ui_node_t table, const_chr_t label, u32 flags, f32 init_width_or_weight);
+	/** TableHeadersRow. Emits a header row from setup-column labels. */
+	i32 (*table_headers_row)(sk_ui_context_t* ctx, sk_ui_node_t table);
+	/** TableNextRow. Advances the cell cursor to a new row. */
+	i32 (*table_next_row)(sk_ui_context_t* ctx, sk_ui_node_t table, u32 row_flags, f32 min_row_height);
+	/**
+	 * TableNextColumn. Advances to the next cell (wraps to the next row).
+	 * @return 1 if the cell is visible, 0 otherwise.
+	 */
+	i32 (*table_next_column)(sk_ui_context_t* ctx, sk_ui_node_t table);
+	/**
+	 * TableSetColumnIndex. Jumps to @p column_n on the current row.
+	 * @return 1 if the column exists.
+	 */
+	i32 (*table_set_column_index)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column_n);
+	/** Current cell host (parent widgets into this). */
+	sk_ui_node_t (*table_current_cell)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	sk_ui_node_t (*table_get_cell)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row, i32 column);
+	sk_ui_node_t (*table_get_row)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row);
+	i32 (*table_get_current_row)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_get_current_column)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+
+	/** TableGetColumnCount. */
+	i32 (*table_get_column_count)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	u32 (*table_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t table, u32 flags);
+	u32 (*table_get_column_flags)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column);
+	i32 (*table_get_column_width)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32* out_width);
+	i32 (*table_set_column_width)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32 width);
+	/** Resolve widths for @p avail_width (tests + EndTable). */
+	i32 (*table_resolve_column_widths)(sk_ui_context_t* ctx, sk_ui_node_t table, f32 avail_width);
+
+	/**
+	 * TableSetBgColor. CellBg + column_n < 0 fills the whole current row
+	 * (EntityTree). ROW_BG0 / ROW_BG1 override the alternating stripe.
+	 */
+	i32 (*table_set_bg_color)(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_table_bg_target_t target, sk_ui_color_t color, i32 column_n);
+
+	/** TableSetupScrollFreeze. First @p cols / @p rows stay put when scrolling. */
+	i32 (*table_setup_scroll_freeze)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 cols, i32 rows);
+	i32 (*table_get_scroll_freeze)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32* out_cols, i32* out_rows);
+
+	/** Scroll body (ScrollX / ScrollY). Invalid when the table does not scroll. */
+	sk_ui_node_t (*table_body)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	sk_ui_node_t (*table_header)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_get_scroll)(const sk_ui_context_t* ctx, sk_ui_node_t table, f32* out_x, f32* out_y);
+	i32 (*table_set_scroll)(sk_ui_context_t* ctx, sk_ui_node_t table, f32 scroll_x, f32 scroll_y);
+
+	/**
+	 * Bind a caller-owned item array as table rows (§21). Diffs by id; the
+	 * table host is not rebuilt. Label goes in column 0.
+	 */
+	i32 (*table_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_item_array_t* items);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

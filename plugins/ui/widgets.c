@@ -14,8 +14,9 @@
  * (border / ResizeX / h-scroll), disabled stack, PushID, SetNextItemWidth,
  * Indent, group, horizontal/vertical + Spring-as-flex-grow. Item-array
  * binding for tree / list / combo / table is in item_bind.c (APX-338). TreeNode
- * / CollapsingHeader chrome is APX-350. Not full ImGui parity — no
- * multi-viewport docking.
+ * / CollapsingHeader chrome is APX-350. Table family (BeginTable / columns /
+ * headers / scroll-freeze / CellBg) is APX-351 in table.c. Not full ImGui
+ * parity — no multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -120,6 +121,10 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 		ctx->allocator->free(ctx->allocator->instance, slot->user_data);
 		slot->user_data = NULL;
 		slot->user_data_type = SK_TYPE_ID_ZERO;
+		return;
+	}
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_TABLE_DATA_TYPE_ID)) {
+		ui_table_release_user_data(ctx, slot);
 		return;
 	}
 	ui_item_bind_release_user_data(ctx, slot);
@@ -1360,6 +1365,82 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE, &base) != 0) {
 		return -1;
 	}
+
+	/* Table header / row / cell / body / resize (APX-351). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.min_height = sk_ui_pt(SK_UI_TABLE_ROW_HEIGHT);
+	base.background_color = sk_ui_rgba(0.30f, 0.38f, 0.48f, 1.0f);
+	base.color = sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE_HEADER, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.min_height = sk_ui_pt(SK_UI_TABLE_ROW_HEIGHT);
+	base.background_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	base.color = sk_ui_rgba(0.90f, 0.91f, 0.93f, 1.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE_ROW, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
+				SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.padding.left = 6.0f;
+	base.layout.padding.right = 6.0f;
+	base.layout.padding.top = 3.0f;
+	base.layout.padding.bottom = 3.0f;
+	base.layout.flex_shrink = 0.0f;
+	base.layout.min_height = sk_ui_pt(SK_UI_TABLE_ROW_HEIGHT);
+	base.color = sk_ui_rgba(0.90f, 0.91f, 0.93f, 1.0f);
+	base.font_size = 13.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE_CELL, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.flex_grow = 1.0f;
+	base.layout.flex_shrink = 1.0f;
+	base.layout.min_height = sk_ui_pt(0.0f);
+	base.background_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE_BODY, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.width = sk_ui_pt(6.0f);
+	base.layout.min_width = sk_ui_pt(6.0f);
+	base.layout.max_width = sk_ui_pt(6.0f);
+	base.layout.height = sk_ui_percent(100.0f);
+	base.layout.flex_grow = 0.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE_RESIZE, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.45f, 0.55f, 0.72f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TABLE_RESIZE, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.35f, 0.50f, 0.78f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TABLE_RESIZE, SK_UI_STATE_ACTIVE, &var);
 
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |

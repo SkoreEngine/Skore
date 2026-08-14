@@ -1721,6 +1721,55 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 			}
 		}
+		if (wtype != NULL && (strcmp(wtype, "table") == 0 || strcmp(wtype, "table_header") == 0 || strcmp(wtype, "table_row") == 0)) {
+			/* Extra 1px grid on top of style borders so header / body / cells
+			 * read as an ImGui table (Packages, pending-save, EntityTree). */
+			i32 flags = 0;
+			i32 inner_h = 0;
+			i32 inner_v = 0;
+			i32 no_body = 0;
+			f32 tline = 1.0f * avg;
+			u32 line_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.30f, 0.33f, 0.38f, 1.0f), opacity));
+			(void)ui_paint_prop_i32(slot, "table_flags", &flags);
+			(void)ui_paint_prop_i32(slot, "table_inner_h", &inner_h);
+			(void)ui_paint_prop_i32(slot, "table_inner_v", &inner_v);
+			(void)ui_paint_prop_i32(slot, "table_no_body_border", &no_body);
+			if (strcmp(wtype, "table") == 0 && (flags & (i32)SK_UI_TABLE_FLAG_BORDERS_OUTER) != 0) {
+				if (ui_paint_add_border(em, bx, by, bw, bh, tline, tline, tline, tline, line_col) != 0) {
+					return -1;
+				}
+			}
+			if (strcmp(wtype, "table") != 0) {
+				if (inner_h != 0 || strcmp(wtype, "table_header") == 0) {
+					if (ui_paint_add_thick_line(em, bx, by + bh - tline * 0.5f, bx + bw, by + bh - tline * 0.5f, tline, line_col) != 0) {
+						return -1;
+					}
+				}
+				if (inner_v != 0) {
+					u32 ci;
+					for (ci = 0u; ci < slot->children.count; ++ci) {
+						const ui_node_slot_t* cell = ui_slot(em->ctx, slot->children.items[ci]);
+						const_chr_t cwtype;
+						f32 cx1;
+						if (cell == NULL) {
+							continue;
+						}
+						cwtype = ui_paint_prop_str(cell, "widget");
+						if (cwtype == NULL || (strcmp(cwtype, "table_cell") != 0 && strcmp(cwtype, "table_header_cell") != 0)) {
+							continue;
+						}
+						if (ci + 1u >= slot->children.count) {
+							continue;
+						}
+						cx1 = bx + (cell->layout_border.x + cell->layout_border.width) * em->scale_x;
+						if (ui_paint_add_thick_line(em, cx1, by, cx1, by + bh, tline, line_col) != 0) {
+							return -1;
+						}
+					}
+				}
+			}
+			(void)no_body;
+		}
 		if (wtype != NULL && strcmp(wtype, "menu_separator") == 0) {
 			f32 mid = cy + ch * 0.5f;
 			f32 t = 1.0f * avg;

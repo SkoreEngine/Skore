@@ -465,6 +465,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_array_init(&ctx->slots, a);
 	sk_array_init(&ctx->freelist, a);
 	sk_array_init(&ctx->item_binds, a);
+	sk_array_init(&ctx->tables, a);
 	if (sk_hash_map_init(&ctx->id_map, a, sk_hash_cstr, sk_equals_cstr) != 0) {
 		a->free(a->instance, ctx);
 		return NULL;
@@ -477,6 +478,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->tables);
 		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
@@ -490,6 +492,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->tables);
 		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
@@ -546,6 +549,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_array_free(&ctx->slots);
 	sk_array_free(&ctx->freelist);
 	sk_array_free(&ctx->item_binds);
+	sk_array_free(&ctx->tables);
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
@@ -1871,6 +1875,33 @@ static const sk_ui_api_t ui_api = {
 	ui_collapsing_header_button_impl,
 	ui_collapsing_header_button_clicked_impl,
 	ui_collapsing_header_get_flags_impl,
+	ui_widget_table_impl,
+	ui_table_end_impl,
+	ui_table_setup_column_impl,
+	ui_table_headers_row_impl,
+	ui_table_next_row_impl,
+	ui_table_next_column_impl,
+	ui_table_set_column_index_impl,
+	ui_table_current_cell_impl,
+	ui_table_get_cell_impl,
+	ui_table_get_row_impl,
+	ui_table_get_current_row_impl,
+	ui_table_get_current_column_impl,
+	ui_table_get_column_count_impl,
+	ui_table_get_flags_impl,
+	ui_table_set_flags_impl,
+	ui_table_get_column_flags_impl,
+	ui_table_get_column_width_impl,
+	ui_table_set_column_width_impl,
+	ui_table_resolve_column_widths_impl,
+	ui_table_set_bg_color_impl,
+	ui_table_setup_scroll_freeze_impl,
+	ui_table_get_scroll_freeze_impl,
+	ui_table_body_impl,
+	ui_table_header_impl,
+	ui_table_get_scroll_impl,
+	ui_table_set_scroll_impl,
+	ui_table_bind_items_impl,
 };
 
 /**

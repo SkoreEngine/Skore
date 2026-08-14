@@ -255,6 +255,7 @@ struct sk_ui_context_t {
 	void_ptr_t clipboard_user;
 	i32 widgets_defaults_registered;
 	ui_node_list_t item_binds; /**< Hosts with a live item-array bind (item_bind.c). */
+	ui_node_list_t tables;	   /**< Live widget_table hosts (table.c). */
 
 	/* Dock model (dock.c). Unused when dockspace_count == 0. */
 	ui_dock_slot_array_t dock_slots;
@@ -526,13 +527,23 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_WIDGET_DATA_TYPE_ID SK_TYPE_ID("sk.ui_widget_data", 0xa1b2c3d4e5f60718ULL, 0x918273645a5b6c7dULL)
 /** Type id for item-array bind user_data (item_bind.c). */
 #define SK_UI_ITEM_BIND_DATA_TYPE_ID SK_TYPE_ID("sk.ui_item_bind_data", 0x4cd9667484ce0c69ULL, 0xd02fc4d8299c22b5ULL)
+/** Type id for table widget user_data (table.c). */
+#define SK_UI_TABLE_DATA_TYPE_ID SK_TYPE_ID("sk.ui_table_data", 0x7a1e9c2b4d6f80a1ULL, 0xb3c5d7e9f1023456ULL)
 
 /** Free widget user_data if present (called from slot release). */
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 /** Free item-bind user_data if present (called from widget release). */
 void ui_item_bind_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Free table user_data if present (called from widget release). */
+void ui_table_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 /** Sync every bound item-array host (style_resolve / harness_step). */
 void ui_item_bind_sync_all(sk_ui_context_t* ctx);
+/** Sync every live table (item bind + column widths). */
+void ui_table_sync_all(sk_ui_context_t* ctx);
+/** Non-zero if @p host is a widget_table. */
+i32 ui_table_is_table(const sk_ui_context_t* ctx, sk_ui_node_t host);
+/** Bind items onto a widget_table. @return 0 if handled. */
+i32 ui_table_bind_if_table(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items);
 
 sk_ui_node_t ui_widget_item_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind, const_chr_t id);
 sk_ui_node_t ui_widget_tree_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
@@ -847,6 +858,35 @@ sk_ui_node_t ui_collapsing_header_body_impl(sk_ui_context_t* ctx, sk_ui_node_t h
 sk_ui_node_t ui_collapsing_header_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t header);
 i32 ui_collapsing_header_button_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t header);
 u32 ui_collapsing_header_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t header);
+
+sk_ui_node_t ui_widget_table_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, i32 columns, u32 flags, f32 outer_width, f32 outer_height);
+i32 ui_table_end_impl(sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_setup_column_impl(sk_ui_context_t* ctx, sk_ui_node_t table, const_chr_t label, u32 flags, f32 init_width_or_weight);
+i32 ui_table_headers_row_impl(sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_next_row_impl(sk_ui_context_t* ctx, sk_ui_node_t table, u32 row_flags, f32 min_row_height);
+i32 ui_table_next_column_impl(sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_set_column_index_impl(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column_n);
+sk_ui_node_t ui_table_current_cell_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+sk_ui_node_t ui_table_get_cell_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row, i32 column);
+sk_ui_node_t ui_table_get_row_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row);
+i32 ui_table_get_current_row_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_get_current_column_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_get_column_count_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+u32 ui_table_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t table, u32 flags);
+u32 ui_table_get_column_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column);
+i32 ui_table_get_column_width_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32* out_width);
+i32 ui_table_set_column_width_impl(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32 width);
+i32 ui_table_resolve_column_widths_impl(sk_ui_context_t* ctx, sk_ui_node_t table, f32 avail_width);
+i32 ui_table_set_bg_color_impl(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_table_bg_target_t target, sk_ui_color_t color, i32 column_n);
+i32 ui_table_setup_scroll_freeze_impl(sk_ui_context_t* ctx, sk_ui_node_t table, i32 cols, i32 rows);
+i32 ui_table_get_scroll_freeze_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, i32* out_cols, i32* out_rows);
+sk_ui_node_t ui_table_body_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+sk_ui_node_t ui_table_header_impl(const sk_ui_context_t* ctx, sk_ui_node_t table);
+i32 ui_table_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t table, f32* out_x, f32* out_y);
+i32 ui_table_set_scroll_impl(sk_ui_context_t* ctx, sk_ui_node_t table, f32 scroll_x, f32 scroll_y);
+i32 ui_table_bind_items_impl(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_item_array_t* items);
+
 i32 ui_indent_impl(sk_ui_context_t* ctx, f32 width);
 i32 ui_unindent_impl(sk_ui_context_t* ctx, f32 width);
 sk_ui_node_t ui_widget_group_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
