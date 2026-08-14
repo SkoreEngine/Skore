@@ -75,6 +75,17 @@ build/widget-review/button_focused.png
 
 Naming: `{catalog_name}_{state}.png`.
 
+### Verified from a clean checkout (APX-344)
+
+Reproduced on Linux with Mesa lavapipe from a fresh `build/` directory using
+only the commands above (no extra packages, flags, or env vars). From cwd
+`build/bin`, `--widget button --out ../widget-review` wrote all five
+`build/widget-review/button_{default,hovered,pressed,disabled,focused}.png`
+frames. Each decoded as a readable button with label text: hovered brightens
+the fill, pressed darkens it, disabled greys it out, focused adds a light
+outline around the same default fill. `--list` and the single-state
+`--state <name>` capture also worked as written.
+
 States (as applicable to the family): `default`, `hovered`, `pressed`,
 `disabled`, `focused`. Pressed is `SK_UI_STATE_ACTIVE`.
 
