@@ -62,6 +62,19 @@ static const sk_editor_api_t editor_api = {
 	sk_editor_imgui_shell_draw_items,
 	sk_editor_imgui_shell_selected_index,
 	sk_editor_imgui_shell_hierarchy_rect,
+
+	/* workspaces / windows / dockspace (APX-329) */
+	sk_editor_workspace_create,
+	sk_editor_workspace_destroy,
+	sk_editor_workspace_switch,
+	sk_editor_workspace_list,
+	sk_editor_workspace_active,
+	sk_editor_window_open,
+	sk_editor_window_close,
+	sk_editor_window_by_type,
+	sk_editor_window_iterate,
+	sk_editor_dockspace_init,
+	sk_editor_dockspace_reset,
 };
 
 void sk_editor_bind_tables(sk_app_context_t* context, const sk_app_api_t* app_api) {
@@ -102,6 +115,19 @@ SK_TEST(editor_api_resolves_via_app_registry) {
 	TEST_ASSERT_NOT_NULL(editor->console_push);
 	TEST_ASSERT_NOT_NULL(editor->imgui_create);
 	TEST_ASSERT_NOT_NULL(editor->imgui_draw);
+
+	/* APX-329 window/workspace/dockspace surface. */
+	TEST_ASSERT_NOT_NULL(editor->workspace_create);
+	TEST_ASSERT_NOT_NULL(editor->workspace_destroy);
+	TEST_ASSERT_NOT_NULL(editor->workspace_switch);
+	TEST_ASSERT_NOT_NULL(editor->workspace_list);
+	TEST_ASSERT_NOT_NULL(editor->workspace_active);
+	TEST_ASSERT_NOT_NULL(editor->window_open);
+	TEST_ASSERT_NOT_NULL(editor->window_close);
+	TEST_ASSERT_NOT_NULL(editor->window_by_type);
+	TEST_ASSERT_NOT_NULL(editor->window_iterate);
+	TEST_ASSERT_NOT_NULL(editor->dockspace_init);
+	TEST_ASSERT_NOT_NULL(editor->dockspace_reset);
 
 	/* Re-bind replaces the previous registration (idempotent). */
 	sk_editor_bind_tables(app, boot.api);

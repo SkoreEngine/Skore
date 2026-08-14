@@ -21,13 +21,17 @@
  * free functions declared in project.h / editor_ui_host.h / console_panel.h /
  * imgui_shell.h are the internal wiring the table points at.
  *
- * Window internals and new window/workspace types are deliberately out of
- * scope for this table version (they land in a later task).
+ * Window/workspace scaffolding (APX-329) is on the table: window impls and
+ * workspace types register via app_api->add_impl and the entries below
+ * create/destroy/switch/list workspaces, open/close/iterate windows by
+ * type_id, and init/reset dockspaces. The 14 concrete editor windows land in
+ * a later task; sk_editor_window_t (editor_window.h) is their contract.
  */
 
 #include "app.h"
 #include "console_panel.h"
 #include "editor_ui_host.h"
+#include "editor_window.h"
 #include "imgui_shell.h"
 #include "project.h"
 
@@ -179,6 +183,45 @@ typedef struct sk_editor_api_t {
 
 	/** @see sk_editor_imgui_shell_hierarchy_rect */
 	void (*imgui_hierarchy_rect)(const sk_editor_imgui_shell_t* shell, f32* x, f32* y, f32* w, f32* h);
+
+	/* ---- workspaces (APX-329 scaffolding) ---- */
+
+	/** @see sk_editor_workspace_create */
+	sk_editor_workspace_t* (*workspace_create)(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_type_id);
+
+	/** @see sk_editor_workspace_destroy */
+	void (*workspace_destroy)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_workspace_switch */
+	void (*workspace_switch)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_workspace_list */
+	u32 (*workspace_list)(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_workspace_t** out, u32 out_cap);
+
+	/** @see sk_editor_workspace_active */
+	sk_editor_workspace_t* (*workspace_active)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/* ---- windows (APX-329 scaffolding) ---- */
+
+	/** @see sk_editor_window_open */
+	sk_editor_window_t* (*window_open)(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_type_id_t window_type_id);
+
+	/** @see sk_editor_window_close */
+	void (*window_close)(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t* window);
+
+	/** @see sk_editor_window_by_type */
+	sk_editor_window_t* (*window_by_type)(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_type_id_t window_type_id);
+
+	/** @see sk_editor_window_iterate */
+	u32 (*window_iterate)(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t** out, u32 out_cap);
+
+	/* ---- dockspace (APX-329 scaffolding) ---- */
+
+	/** @see sk_editor_dockspace_init */
+	void (*dockspace_init)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_dockspace_reset */
+	void (*dockspace_reset)(sk_editor_workspace_t* workspace);
 } sk_editor_api_t;
 
 /**

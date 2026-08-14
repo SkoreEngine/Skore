@@ -235,6 +235,8 @@ int main(int argc, char* argv[]) {
 	/* Editor boot: register the single editor API table, then resolve it via
 	 * the app registry (hosts never call the underlying free functions). */
 	sk_editor_bind_tables(app, app_api);
+	/* APX-329: register the four built-in workspace types (Scene/Graph/Animator/Material). */
+	sk_editor_workspace_register_impls(app, app_api);
 	editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
 
 	logger_api = app_api->logger_api(app);
