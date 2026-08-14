@@ -863,6 +863,7 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_MENU_BAR "ui-menu-bar"
 #define SK_UI_CLASS_MENU "ui-menu"
 #define SK_UI_CLASS_MENU_ITEM "ui-menu-item"
+#define SK_UI_CLASS_MENU_SEPARATOR "ui-menu-separator"
 #define SK_UI_CLASS_MENU_POPUP "ui-menu-popup"
 #define SK_UI_CLASS_DROPDOWN "ui-dropdown"
 #define SK_UI_CLASS_CONTEXT_MENU "ui-context-menu"
@@ -3827,6 +3828,49 @@ typedef struct sk_ui_api_t {
 	 * unweighted, so every live spring shares leftover space equally.
 	 */
 	sk_ui_node_t (*widget_spring)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 weight, const_chr_t id);
+
+	/* ---- menu family (APX-346; editor BeginMenuBar / BeginMenu / MenuItem) ---- */
+
+	/**
+	 * BeginMenu(label, enabled). Disabled menus do not open. Applies to
+	 * widget_menu / widget_submenu / widget_dropdown.
+	 */
+	i32 (*menu_set_enabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+	i32 (*menu_get_enabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * MenuItem(..., enabled). Disabled items never activate. Same MenuItem
+	 * works in a menu_popup / context_menu, not only the bar.
+	 */
+	i32 (*menu_item_set_enabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+	i32 (*menu_item_get_enabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Optional right-aligned shortcut. The editor builds the string
+	 * (`Ctrl+S`); the widget only displays it. NULL / empty clears.
+	 */
+	i32 (*menu_item_set_shortcut)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t shortcut);
+	const_chr_t (*menu_item_get_shortcut)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Logical width used to place the shortcut column (0 if none). */
+	f32 (*menu_item_measure_shortcut)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** After layout: shortcut column in absolute logical units. */
+	i32 (*menu_item_get_shortcut_rect)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out);
+
+	/**
+	 * Caller-owned checked mark (MenuItem selected=true). Not the unused
+	 * `bool* p_selected` overload.
+	 */
+	i32 (*menu_item_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*menu_item_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Horizontal rule between menu priority groups (ImGui Separator). */
+	sk_ui_node_t (*widget_menu_separator)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Edge-triggered item activation: 1 once after a press+release over an
+	 * enabled MenuItem, then clears. Disabled → 0.
+	 */
+	i32 (*menu_item_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

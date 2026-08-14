@@ -861,9 +861,16 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			if (attach == 1) {
 				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_RIGHT_TOP;
+				if (decl.floating.offset.x < 1.0f) {
+					decl.floating.offset.x = 2.0f;
+				}
 			} else {
 				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+				/* Hang below the 28px bar trigger so File stays visible. */
+				if (decl.floating.offset.y < 20.0f) {
+					decl.floating.offset.y = 28.0f;
+				}
 			}
 		} else {
 			decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;

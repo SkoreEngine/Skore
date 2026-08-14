@@ -864,6 +864,116 @@ static i32 sandbox_widget_build_drag_float3(const sandbox_widget_host_t* host, s
 	return 0;
 }
 
+typedef enum sandbox_menu_scene_t { SANDBOX_MENU_BAR = 0, SANDBOX_MENU_OPEN, SANDBOX_MENU_SUBMENU, SANDBOX_MENU_POPUP } sandbox_menu_scene_t;
+
+static i32 sandbox_widget_build_menu_scene(const sandbox_widget_host_t* host, sk_ui_node_t* out_target, sandbox_menu_scene_t scene) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t bar;
+	sk_ui_node_t file_m;
+	sk_ui_node_t edit_m;
+	sk_ui_node_t popup;
+	sk_ui_node_t open_it;
+	sk_ui_node_t save;
+	sk_ui_node_t recent;
+	sk_ui_node_t locked;
+	sk_ui_node_t grid;
+	sk_ui_node_t target;
+
+	sandbox_widget_style_fill(host);
+
+	if (scene == SANDBOX_MENU_POPUP) {
+		sk_ui_node_t hostn;
+		sk_ui_node_t pop;
+		sk_ui_layout_style_t ls;
+		hostn = ui->widget_view(host->ctx, root, "review-menu-pop-host");
+		if (!sk_ui_node_is_valid(hostn)) {
+			fprintf(stderr, "sk-sandbox: menu popup host failed\n");
+			return -1;
+		}
+		(void)ui->node_get_layout_style(host->ctx, hostn, &ls);
+		ls.position = SK_UI_POSITION_RELATIVE;
+		(void)ui->node_set_layout_style(host->ctx, hostn, &ls);
+		pop = ui->widget_menu_popup(host->ctx, hostn, 0, "review-workspace-popup");
+		if (!sk_ui_node_is_valid(pop)) {
+			fprintf(stderr, "sk-sandbox: widget_menu_popup failed\n");
+			return -1;
+		}
+		(void)ui->menu_set_open(host->ctx, pop, 1);
+		(void)ui->widget_menu_item(host->ctx, pop, "Scene", "review-pop-scene");
+		save = ui->widget_menu_item(host->ctx, pop, "Game", "review-pop-game");
+		(void)ui->menu_item_set_shortcut(host->ctx, save, "Ctrl+2");
+		(void)ui->widget_menu_separator(host->ctx, pop, "review-pop-sep");
+		locked = ui->widget_menu_item(host->ctx, pop, "Locked Type", "review-pop-locked");
+		(void)ui->menu_item_set_enabled(host->ctx, locked, 0);
+		grid = ui->widget_menu_item(host->ctx, pop, "Default Workspace", "review-pop-def");
+		(void)ui->menu_item_set_selected(host->ctx, grid, 1);
+		*out_target = pop;
+		return 0;
+	}
+
+	bar = ui->widget_menu_bar(host->ctx, root, "review-menubar");
+	if (!sk_ui_node_is_valid(bar)) {
+		fprintf(stderr, "sk-sandbox: widget_menu_bar failed\n");
+		return -1;
+	}
+	file_m = ui->widget_menu(host->ctx, bar, "File", "review-menu-file");
+	edit_m = ui->widget_menu(host->ctx, bar, "Edit", "review-menu-edit");
+	(void)ui->widget_menu(host->ctx, bar, "Window", "review-menu-window");
+	(void)ui->menu_set_enabled(host->ctx, edit_m, 0);
+
+	popup = ui->menu_get_popup(host->ctx, file_m);
+	open_it = ui->widget_menu_item(host->ctx, popup, "Open", "review-menu-open");
+	(void)ui->menu_item_set_shortcut(host->ctx, open_it, "Ctrl+O");
+	save = ui->widget_menu_item(host->ctx, popup, "Save", "review-menu-save");
+	(void)ui->menu_item_set_shortcut(host->ctx, save, "Ctrl+S");
+	(void)ui->widget_menu_separator(host->ctx, popup, "review-menu-sep");
+	recent = ui->widget_submenu(host->ctx, popup, "Recent", "review-menu-recent");
+	{
+		sk_ui_node_t sub = ui->menu_get_popup(host->ctx, recent);
+		sk_ui_node_t a = ui->widget_menu_item(host->ctx, sub, "Project A", "review-menu-a");
+		(void)ui->widget_menu_item(host->ctx, sub, "Project B", "review-menu-b");
+		(void)a;
+	}
+	locked = ui->widget_menu_item(host->ctx, popup, "Export (disabled)", "review-menu-export");
+	(void)ui->menu_item_set_enabled(host->ctx, locked, 0);
+	grid = ui->widget_menu_item(host->ctx, popup, "Show Grid", "review-menu-grid");
+	(void)ui->menu_item_set_selected(host->ctx, grid, 1);
+
+	if (scene == SANDBOX_MENU_OPEN || scene == SANDBOX_MENU_SUBMENU) {
+		(void)ui->menu_set_open(host->ctx, file_m, 1);
+	}
+	if (scene == SANDBOX_MENU_SUBMENU) {
+		(void)ui->menu_set_open(host->ctx, recent, 1);
+	}
+
+	if (scene == SANDBOX_MENU_BAR) {
+		target = file_m;
+	} else if (scene == SANDBOX_MENU_SUBMENU) {
+		target = recent;
+	} else {
+		target = save;
+	}
+	*out_target = target;
+	return 0;
+}
+
+static i32 sandbox_widget_build_menu(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	return sandbox_widget_build_menu_scene(host, out_target, SANDBOX_MENU_BAR);
+}
+
+static i32 sandbox_widget_build_menu_open(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	return sandbox_widget_build_menu_scene(host, out_target, SANDBOX_MENU_OPEN);
+}
+
+static i32 sandbox_widget_build_menu_submenu(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	return sandbox_widget_build_menu_scene(host, out_target, SANDBOX_MENU_SUBMENU);
+}
+
+static i32 sandbox_widget_build_menu_popup(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	return sandbox_widget_build_menu_scene(host, out_target, SANDBOX_MENU_POPUP);
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -896,7 +1006,12 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"tree", NULL, "§8 TreeNode / CollapsingHeader", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u, NULL},
 	{"table", NULL, "§9 Table", SANDBOX_WS_BIT_DEFAULT, 480u, 256u, NULL},
 	{"tab_bar", "tab", "§10 TabBar", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 384u, 96u, NULL},
-	{"menu", "menubar", "§11 MenuBar / Menu / MenuItem", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 160u, NULL},
+	{"menu", "menubar", "§11 MenuBar / Menu / MenuItem", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 640u, 280u,
+	 sandbox_widget_build_menu},
+	{"menu_open", "menuopen", "§11 open File menu + shortcut/check/sep", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED, 640u, 280u,
+	 sandbox_widget_build_menu_open},
+	{"menu_submenu", "submenu", "§11 nested submenu", SANDBOX_WS_BIT_DEFAULT, 640u, 280u, sandbox_widget_build_menu_submenu},
+	{"menu_popup", "menupopup", "§11 MenuItem inside popup", SANDBOX_WS_BIT_DEFAULT, 480u, 240u, sandbox_widget_build_menu_popup},
 	{"popup", "modal", "§12 Popup / Modal", SANDBOX_WS_BIT_DEFAULT, 384u, 192u, NULL},
 	{"window", NULL, "§13 named window + close", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 480u, 280u, sandbox_widget_build_window},
 	{"fullscreen", NULL, "§13 ImGuiBeginFullscreen", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_fullscreen},
@@ -962,6 +1077,7 @@ void sandbox_widget_list(void) {
 	printf("         inputml=text_input_multiline inputro=text_input_readonly\n");
 	printf("         sliderint=slider_int sliderf3=slider_float3 drag=drag_float\n");
 	printf("         dragint=drag_int dragf3=drag_float3\n");
+	printf("         menuopen=menu_open submenu=menu_submenu menupopup=menu_popup\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

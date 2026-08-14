@@ -1814,6 +1814,18 @@ static const sk_ui_api_t ui_api = {
 	ui_widget_horizontal_impl,
 	ui_widget_vertical_impl,
 	ui_widget_spring_impl,
+	ui_menu_set_enabled_impl,
+	ui_menu_get_enabled_impl,
+	ui_menu_item_set_enabled_impl,
+	ui_menu_item_get_enabled_impl,
+	ui_menu_item_set_shortcut_impl,
+	ui_menu_item_get_shortcut_impl,
+	ui_menu_item_measure_shortcut_impl,
+	ui_menu_item_get_shortcut_rect_impl,
+	ui_menu_item_set_selected_impl,
+	ui_menu_item_get_selected_impl,
+	ui_widget_menu_separator_impl,
+	ui_menu_item_clicked_impl,
 };
 
 /**

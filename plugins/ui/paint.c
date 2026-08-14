@@ -714,7 +714,8 @@ static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font
  * vertical_align (0=top 1=center 2=bottom), content_w/h from layout for wrap/align.
  * Caret/selection when props caret/sel_start/sel_end are set (text input).
  */
-static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot, f32 content_x, f32 content_y, f32 content_w, f32 content_h, f32 opacity) {
+static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot, f32 content_x, f32 content_y, f32 content_w, f32 content_h, f32 opacity, const_chr_t text_src,
+							  const sk_ui_color_t* color_src) {
 	const_chr_t text;
 	sk_ui_font_system_t* sys;
 	sk_ui_font_t* font;
@@ -754,7 +755,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	if (sys == NULL || font == NULL) {
 		return 0;
 	}
-	text = ui_paint_prop_str(slot, "text");
+	text = text_src != NULL ? text_src : ui_paint_prop_str(slot, "text");
 	if (text == NULL) {
 		text = "";
 	}
@@ -852,7 +853,9 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		return 0;
 	}
 
-	if (using_hint != 0) {
+	if (color_src != NULL) {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(*color_src, opacity));
+	} else if (using_hint != 0) {
 		color = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.50f, 0.52f, 0.55f, 1.0f), opacity));
 	} else {
 		color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
@@ -1141,6 +1144,20 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 
 	if (slot == NULL) {
 		return -1;
+	}
+
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 hidden = 0;
+		i32 open = 1;
+		(void)ui_paint_prop_i32(slot, "hidden", &hidden);
+		(void)ui_paint_prop_i32(slot, "open", &open);
+		if (hidden != 0) {
+			return 0;
+		}
+		if (wtype != NULL && (strcmp(wtype, "menu_popup") == 0 || strcmp(wtype, "context_menu") == 0) && open == 0) {
+			return 0;
+		}
 	}
 
 	/* Absolute logical → physical (scale applied once). */
@@ -1659,6 +1676,48 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 			}
 		}
+		if (wtype != NULL && strcmp(wtype, "menu_separator") == 0) {
+			f32 mid = cy + ch * 0.5f;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.38f, 0.40f, 0.46f, 1.0f), opacity));
+			if (ui_paint_add_thick_line(em, bx + 6.0f * avg, mid, bx + bw - 6.0f * avg, mid, t, rule_col) != 0) {
+				return -1;
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "menu_item") == 0) {
+			i32 selected = 0;
+			(void)ui_paint_prop_i32(slot, "selected", &selected);
+			if (selected != 0) {
+				/* Tick mark in the left check column (ImGui MenuItem selected). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+				f32 col_w = pad_l > 1.0f ? pad_l : 22.0f * avg;
+				f32 s = col_w * 0.55f;
+				f32 tick_x = bx + (col_w - s) * 0.45f;
+				f32 tick_y = by + (bh - s) * 0.5f;
+				f32 thick = 1.8f * avg;
+				if (ui_paint_add_thick_line(em, tick_x + s * 0.12f, tick_y + s * 0.52f, tick_x + s * 0.38f, tick_y + s * 0.82f, thick, mk) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, tick_x + s * 0.38f, tick_y + s * 0.82f, tick_x + s * 0.90f, tick_y + s * 0.18f, thick, mk) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "submenu") == 0) {
+			/* Right-pointing chevron for nested menus. */
+			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			f32 s = 7.0f * avg;
+			f32 chv_x = bx + bw - 12.0f * avg;
+			f32 chv_y = by + (bh - s) * 0.5f;
+			f32 thick = 1.6f * avg;
+			if (ui_paint_add_thick_line(em, chv_x, chv_y, chv_x + s * 0.7f, chv_y + s * 0.5f, thick, mk) != 0) {
+				return -1;
+			}
+			if (ui_paint_add_thick_line(em, chv_x + s * 0.7f, chv_y + s * 0.5f, chv_x, chv_y + s, thick, mk) != 0) {
+				return -1;
+			}
+		}
 	}
 
 	/* Scrollbars for scroll_view when content overflows. */
@@ -1748,6 +1807,22 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				text_x = cx + 12.0f * avg;
 				text_w = cw - 12.0f * avg;
 			}
+			if (wtype != NULL && (strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "submenu") == 0)) {
+				const_chr_t sc = ui_paint_prop_str(slot, "shortcut");
+				f32 sw = ui_paint_prop_f32_or(slot, "shortcut_w", 0.0f);
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				if (sc != NULL && sc[0] != '\0' && sw <= 0.0f) {
+					sw = (f32)strlen(sc) * 14.0f * 0.55f * avg;
+				} else {
+					sw *= avg;
+				}
+				if (sw > 0.0f) {
+					text_w = cw - sw - 8.0f * avg;
+					if (text_w < 8.0f * avg) {
+						text_w = 8.0f * avg;
+					}
+				}
+			}
 			if (is_input != 0) {
 				f32 scx = ui_paint_prop_f32_or(slot, "scroll_x", 0.0f) * em->scale_x;
 				f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f) * em->scale_y;
@@ -1761,14 +1836,38 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 				text_x = cx - scx;
 				text_y = cy - scy;
-				if (ui_paint_emit_text(em, slot, text_x, text_y, text_w, text_h, opacity) != 0) {
+				if (ui_paint_emit_text(em, slot, text_x, text_y, text_w, text_h, opacity, NULL, NULL) != 0) {
 					return -1;
 				}
 				if (ui_paint_pop_clip(em) != 0) {
 					return -1;
 				}
-			} else if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity) != 0) {
+			} else if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity, NULL, NULL) != 0) {
 				return -1;
+			}
+			if (wtype != NULL && strcmp(wtype, "menu_item") == 0) {
+				const_chr_t sc = ui_paint_prop_str(slot, "shortcut");
+				if (sc != NULL && sc[0] != '\0') {
+					f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+					f32 sw = ui_paint_prop_f32_or(slot, "shortcut_w", 0.0f);
+					f32 pad_r = slot->layout_style.padding.right * em->scale_x;
+					sk_ui_color_t sc_col;
+					if (sw <= 0.0f) {
+						sw = (f32)strlen(sc) * 14.0f * 0.55f;
+					}
+					sw *= avg;
+					if (pad_r < 1.0f) {
+						pad_r = 8.0f * avg;
+					}
+					if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) {
+						sc_col = slot->computed.color;
+					} else {
+						sc_col = sk_ui_rgba(0.62f, 0.64f, 0.70f, 1.0f);
+					}
+					if (ui_paint_emit_text(em, slot, cx + cw - pad_r - sw, cy, sw + pad_r, ch, opacity, sc, &sc_col) != 0) {
+						return -1;
+					}
+				}
 			}
 		}
 	}

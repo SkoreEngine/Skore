@@ -790,9 +790,13 @@ registration tree is already caller-owned; keep it.
 **sk-ui today:** `widget_menu_bar` / `widget_menu` / `widget_menu_item` /
 submenu.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_menu_family_open_close_enabled`,
+  `ui_widget_menu_family_shortcut_check_separator`)
+- [x] Headless UI automation — `plugins/ui/menu_family_tests.c`
+  (`ui_author_menu_family_bar_submenu_activate_disabled_outside`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget menu`,
+  `menu_open`, `menu_submenu`, `menu_popup`; states default/hovered/disabled/focused)
 
 ---
 

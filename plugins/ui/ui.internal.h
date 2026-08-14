@@ -572,6 +572,19 @@ sk_ui_node_t ui_widget_submenu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, c
 i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
 i32 ui_menu_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 sk_ui_node_t ui_menu_get_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_menu_set_enabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+i32 ui_menu_get_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_menu_item_set_enabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+i32 ui_menu_item_get_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_menu_item_set_shortcut_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t shortcut);
+const_chr_t ui_menu_item_get_shortcut_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+f32 ui_menu_item_measure_shortcut_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_menu_item_get_shortcut_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out);
+i32 ui_menu_item_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+i32 ui_menu_item_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_widget_menu_separator_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+i32 ui_menu_item_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+void ui_menu_dismiss_outside_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y);
 
 sk_ui_node_t ui_widget_dock_space_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_dock_node_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 orientation, const_chr_t id);

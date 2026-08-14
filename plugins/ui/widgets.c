@@ -5,7 +5,7 @@
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
  * checkbox/slider/drag (APX-343: SliderFloat/Int + DragFloat/Int + N)/text_input (APX-342: multiline/hint/search/scalar)/scroll_view, menu surfaces (menu_bar, menu,
- * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234), and
+ * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234/APX-346), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
  * tab, editor_window, window_title_bar, window_content — APX-235). Child /
  * window / layout family (APX-345): widget_window + close, fullscreen, child
@@ -762,25 +762,29 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 
 	/* Menu bar (horizontal strip) */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH;
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_COLUMN_GAP;
 	base.background_color = sk_ui_rgba(0.18f, 0.19f, 0.22f, 1.0f);
 	base.layout.flex_direction = SK_UI_FLEX_ROW;
 	base.layout.align_items = SK_UI_ALIGN_CENTER;
 	base.layout.min_height = sk_ui_pt(28.0f);
 	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.padding.left = 8.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.column_gap = 4.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_BAR, &base) != 0) {
 		return -1;
 	}
 
 	/* Menu / dropdown trigger (in-bar or standalone) */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS |
-				SK_UI_SP_POSITION;
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_JUSTIFY_CONTENT |
+				SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_POSITION;
 	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
 	ui_style_fill_layout_pad(&base, 6.0f);
 	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
 	base.font_size = 14.0f;
 	base.layout.min_height = sk_ui_pt(28.0f);
+	base.layout.min_width = sk_ui_pt(48.0f);
 	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
 	base.layout.align_items = SK_UI_ALIGN_CENTER;
 	base.layout.position = SK_UI_POSITION_RELATIVE;
@@ -799,15 +803,25 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU, SK_UI_STATE_HOVER, &var);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DROPDOWN, SK_UI_STATE_HOVER, &var);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SUBMENU, SK_UI_STATE_HOVER, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_COLOR | SK_UI_SP_BACKGROUND_COLOR;
+	var.color = sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f);
+	var.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU, SK_UI_STATE_DISABLED, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DROPDOWN, SK_UI_STATE_DISABLED, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SUBMENU, SK_UI_STATE_DISABLED, &var);
 
-	/* Menu item row */
+	/* Menu item row: left pad reserves the checkmark column. */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS;
 	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
-	ui_style_fill_layout_pad(&base, 6.0f);
+	base.layout.padding.left = 22.0f;
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.bottom = 4.0f;
 	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
 	base.font_size = 14.0f;
-	base.layout.min_height = sk_ui_pt(28.0f);
+	base.layout.min_height = sk_ui_pt(22.0f);
 	base.layout.width = sk_ui_percent(100.0f);
 	base.layout.align_items = SK_UI_ALIGN_CENTER;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_ITEM, &base) != 0) {
@@ -817,11 +831,28 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.mask = SK_UI_SP_BACKGROUND_COLOR;
 	var.background_color = sk_ui_rgba(0.28f, 0.42f, 0.72f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU_ITEM, SK_UI_STATE_HOVER, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_COLOR | SK_UI_SP_BACKGROUND_COLOR;
+	var.color = sk_ui_rgba(0.40f, 0.41f, 0.43f, 1.0f);
+	var.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU_ITEM, SK_UI_STATE_DISABLED, &var);
+
+	/* Priority-group separator inside a menu popup. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.height = sk_ui_pt(8.0f);
+	base.layout.min_height = sk_ui_pt(8.0f);
+	base.layout.max_height = sk_ui_pt(8.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_SEPARATOR, &base) != 0) {
+		return -1;
+	}
 
 	/* Floating popup / context menu panel */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
-				SK_UI_SP_MIN_WIDTH | SK_UI_SP_POSITION;
+				SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_POSITION;
 	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
 	base.border_color = sk_ui_rgba(0.32f, 0.34f, 0.40f, 1.0f);
 	base.layout.border.left = 1.0f;
@@ -831,7 +862,8 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.corner_radius = 3.0f;
 	ui_style_fill_layout_pad(&base, 4.0f);
 	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
-	base.layout.min_width = sk_ui_pt(120.0f);
+	base.layout.min_width = sk_ui_pt(240.0f);
+	base.layout.min_height = sk_ui_pt(160.0f);
 	base.layout.position = SK_UI_POSITION_ABSOLUTE;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_POPUP, &base) != 0) {
 		return -1;
@@ -3536,8 +3568,14 @@ sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32
 }
 
 /* -------------------------------------------------------------------------- */
-/* Menu surfaces (APX-234)                                                    */
+/* Menu surfaces (APX-234 / APX-346 editor BeginMenu / MenuItem)              */
 /* -------------------------------------------------------------------------- */
+
+#define UI_MENU_SHORTCUT_EM 0.55f
+#define UI_MENU_SHORTCUT_GAP 28.0f
+#define UI_MENU_SHORTCUT_PAD_R 8.0f
+#define UI_MENU_CHECK_PAD 22.0f
+#define UI_MENU_FONT_SIZE 14.0f
 
 static sk_ui_node_t ui_menu_find_popup_child(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
@@ -3570,10 +3608,21 @@ static void ui_menu_set_popup_open(sk_ui_context_t* ctx, sk_ui_node_t owner, i32
 	ui_mark_dirty_up(ctx, owner, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
 }
 
+static i32 ui_menu_event_on_trigger(const sk_ui_context_t* ctx, sk_ui_node_t menu, sk_ui_node_t target) {
+	sk_ui_node_t popup;
+	if (!sk_ui_node_is_valid(target) || sk_ui_node_eq(target, menu)) {
+		return 1;
+	}
+	popup = ui_menu_find_popup_child(ctx, menu);
+	return sk_ui_node_eq(target, popup) ? 1 : 0;
+}
+
 static void ui_menu_toggle_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	i32 open = 0;
 	(void)user;
-	(void)event;
+	if (event != NULL && ui_menu_event_on_trigger(ctx, node, event->target) == 0) {
+		return;
+	}
 	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
@@ -3639,9 +3688,10 @@ static sk_ui_node_t ui_menu_make_popup(sk_ui_context_t* ctx, sk_ui_node_t parent
 	ui_layout_style_init_default(&ls);
 	ls.position = SK_UI_POSITION_ABSOLUTE;
 	ls.flex_direction = SK_UI_FLEX_COLUMN;
-	ls.min_width = sk_ui_pt(120.0f);
+	ls.min_width = sk_ui_pt(attach != 0 ? 140.0f : 240.0f);
+	ls.min_height = sk_ui_pt(attach != 0 ? 52.0f : 160.0f);
 	if (attach != 0) {
-		ls.left = sk_ui_pt(0.0f); /* writeback uses style; Clay attach=right for hover */
+		ls.left = sk_ui_pt(2.0f);
 		ls.top = sk_ui_pt(0.0f);
 	} else {
 		ls.left = sk_ui_pt(0.0f);
@@ -3655,8 +3705,23 @@ sk_ui_node_t ui_widget_menu_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, 
 	return ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_MENU_BAR, "menu_bar", "ui-menu-bar", id);
 }
 
+static void ui_menu_close_ancestors(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+static void ui_menu_item_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	ui_button_on_event(ctx, node, event, user);
+	if (event != NULL && event->type == SK_UI_EVENT_CLICK) {
+		event->consumed = 1;
+	}
+	if (wd != NULL && wd->edge_clicked != 0) {
+		ui_menu_close_ancestors(ctx, node);
+	}
+}
+
 sk_ui_node_t ui_widget_menu_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
 	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
 	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_MENU_ITEM, "menu_item", "ui-menu-item", id);
 	if (!sk_ui_node_is_valid(n)) {
 		return n;
@@ -3664,7 +3729,16 @@ sk_ui_node_t ui_widget_menu_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent,
 	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
 	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
 	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "selected", 0);
 	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_BUTTON);
+	if (wd != NULL) {
+		wd->button_flags = SK_UI_BUTTON_FLAG_MOUSE_LEFT;
+	}
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_event = ui_menu_item_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
 	return n;
 }
 
@@ -3747,7 +3821,7 @@ sk_ui_node_t ui_widget_context_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t pare
 	ui_layout_style_init_default(&ls);
 	ls.position = SK_UI_POSITION_ABSOLUTE;
 	ls.flex_direction = SK_UI_FLEX_COLUMN;
-	ls.min_width = sk_ui_pt(120.0f);
+	ls.min_width = sk_ui_pt(240.0f);
 	ls.left = sk_ui_pt(0.0f);
 	ls.top = sk_ui_pt(0.0f);
 	(void)ui->node_set_layout_style(ctx, n, &ls);
@@ -3790,6 +3864,9 @@ i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open) {
 	if (slot == NULL) {
 		return -1;
 	}
+	if (open != 0 && (ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return 0;
+	}
 	w = ui_prop_str_const(slot, "widget");
 	if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0)) {
 		const sk_ui_api_t* ui = ui_wapi();
@@ -3825,6 +3902,305 @@ i32 ui_menu_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 sk_ui_node_t ui_menu_get_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	return ui_menu_find_popup_child(ctx, node);
+}
+
+static i32 ui_menu_node_contains(const sk_ui_context_t* ctx, sk_ui_node_t ancestor, sk_ui_node_t node) {
+	sk_ui_node_t cur = node;
+	if (!sk_ui_node_is_valid(ancestor) || !sk_ui_node_is_valid(cur)) {
+		return 0;
+	}
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot;
+		if (sk_ui_node_eq(cur, ancestor)) {
+			return 1;
+		}
+		slot = ui_slot(ctx, cur);
+		if (slot == NULL) {
+			break;
+		}
+		cur = slot->parent;
+	}
+	return 0;
+}
+
+static i32 ui_menu_point_in_rect(const sk_ui_context_t* ctx, sk_ui_node_t node, f32 x, f32 y) {
+	sk_ui_rect_t r;
+	if (ui_wapi()->node_get_abs_rect(ctx, node, &r, NULL) != 0) {
+		return 0;
+	}
+	return (x >= r.x && y >= r.y && x < (r.x + r.width) && y < (r.y + r.height)) ? 1 : 0;
+}
+
+static i32 ui_menu_surface_is_closed(const ui_node_slot_t* slot) {
+	const_chr_t w;
+	i32 open = 1;
+	i32 hidden = 0;
+	if (slot == NULL) {
+		return 1;
+	}
+	w = ui_prop_str_const(slot, "widget");
+	if (w == NULL) {
+		return 0;
+	}
+	if (strcmp(w, "menu_popup") != 0 && strcmp(w, "context_menu") != 0) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "open", &open);
+	(void)ui_prop_i32_const(slot, "hidden", &hidden);
+	return (open == 0 || hidden != 0) ? 1 : 0;
+}
+
+static i32 ui_menu_point_in_surface(const sk_ui_context_t* ctx, sk_ui_node_t node, f32 x, f32 y) {
+	sk_ui_node_t stack[64];
+	u32 n = 0u;
+	if (!sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	stack[n++] = node;
+	while (n > 0u) {
+		sk_ui_node_t cur = stack[--n];
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		u32 i;
+		if (slot == NULL || ui_menu_surface_is_closed(slot) != 0) {
+			continue;
+		}
+		if (ui_menu_point_in_rect(ctx, cur, x, y) != 0) {
+			return 1;
+		}
+		for (i = 0u; i < slot->children.count && n < 64u; ++i) {
+			stack[n++] = slot->children.items[i];
+		}
+	}
+	return 0;
+}
+
+static i32 ui_menu_hit_in_owner(const sk_ui_context_t* ctx, sk_ui_node_t owner, sk_ui_node_t hit, f32 x, f32 y) {
+	if (ui_menu_point_in_surface(ctx, owner, x, y) != 0) {
+		return 1;
+	}
+	if (sk_ui_node_is_valid(hit) && ui_menu_node_contains(ctx, owner, hit)) {
+		return 1;
+	}
+	return 0;
+}
+
+static i32 ui_menu_is_owner_widget(const_chr_t w) {
+	if (w == NULL) {
+		return 0;
+	}
+	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0) ? 1 : 0;
+}
+
+static void ui_menu_close_ancestors(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	while (slot != NULL && sk_ui_node_is_valid(slot->parent)) {
+		sk_ui_node_t parent = slot->parent;
+		const ui_node_slot_t* ps = ui_slot(ctx, parent);
+		const_chr_t w;
+		slot = ps;
+		if (ps == NULL) {
+			break;
+		}
+		w = ui_prop_str_const(ps, "widget");
+		if (ui_menu_is_owner_widget(w) || (w != NULL && (strcmp(w, "menu_popup") == 0))) {
+			(void)ui_menu_set_open_impl(ctx, parent, 0);
+		}
+	}
+}
+
+typedef struct ui_menu_dismiss_t {
+	sk_ui_node_t hit;
+	f32 x;
+	f32 y;
+} ui_menu_dismiss_t;
+
+static i32 ui_menu_dismiss_walk(sk_ui_context_t* ctx, sk_ui_node_t node, u32 depth, void_ptr_t user) {
+	const ui_menu_dismiss_t* d = (const ui_menu_dismiss_t*)user;
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t w;
+	(void)depth;
+	if (slot == NULL || d == NULL) {
+		return 0;
+	}
+	w = ui_prop_str_const(slot, "widget");
+	if (ui_menu_is_owner_widget(w)) {
+		if (ui_menu_get_open_impl(ctx, node) != 0 && ui_menu_hit_in_owner(ctx, node, d->hit, d->x, d->y) == 0) {
+			(void)ui_menu_set_open_impl(ctx, node, 0);
+		}
+		return 0;
+	}
+	if (w != NULL && strcmp(w, "menu_popup") == 0) {
+		const ui_node_slot_t* ps = ui_slot(ctx, slot->parent);
+		const_chr_t pw = ps != NULL ? ui_prop_str_const(ps, "widget") : NULL;
+		if (pw != NULL && (strcmp(pw, "menu") == 0 || strcmp(pw, "dropdown") == 0 || strcmp(pw, "submenu") == 0)) {
+			return 0;
+		}
+		if (ui_menu_get_open_impl(ctx, node) != 0 && ui_menu_point_in_surface(ctx, node, d->x, d->y) == 0 &&
+			(sk_ui_node_is_valid(d->hit) == 0 || ui_menu_node_contains(ctx, node, d->hit) == 0)) {
+			(void)ui_menu_set_open_impl(ctx, node, 0);
+		}
+	}
+	return 0;
+}
+
+void ui_menu_dismiss_outside_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y) {
+	ui_menu_dismiss_t d;
+	const sk_ui_api_t* ui;
+	if (ctx == NULL) {
+		return;
+	}
+	ui = ui_wapi();
+	d.hit = hit;
+	d.x = x;
+	d.y = y;
+	(void)ui->traverse_preorder(ctx, ui->context_root(ctx), ui_menu_dismiss_walk, &d);
+}
+
+static f32 ui_menu_text_advance(const_chr_t text, f32 font_size) {
+	u32 n;
+	if (text == NULL || text[0] == '\0') {
+		return 0.0f;
+	}
+	n = (u32)strlen(text);
+	if (font_size < 1.0f) {
+		font_size = UI_MENU_FONT_SIZE;
+	}
+	return (f32)n * font_size * UI_MENU_SHORTCUT_EM;
+}
+
+static void ui_menu_item_apply_min_width(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t label = ui->label_get_text(ctx, node);
+	const_chr_t shortcut = slot != NULL ? ui_prop_str_const(slot, "shortcut") : NULL;
+	f32 sw = ui_menu_text_advance(shortcut, UI_MENU_FONT_SIZE);
+	f32 lw = ui_menu_text_advance(label, UI_MENU_FONT_SIZE);
+	f32 min_w = UI_MENU_CHECK_PAD + lw + UI_MENU_SHORTCUT_PAD_R;
+	sk_ui_style_props_t p;
+	if (sw > 0.0f) {
+		min_w += UI_MENU_SHORTCUT_GAP + sw;
+	}
+	(void)ui->node_set_prop_f32(ctx, node, "shortcut_w", sw);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_MIN_WIDTH;
+	p.layout.min_width = sk_ui_pt(min_w);
+	(void)ui->node_merge_inline_style(ctx, node, &p);
+}
+
+i32 ui_menu_set_enabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled) {
+	i32 rc;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	rc = ui_button_set_disabled_impl(ctx, node, enabled != 0 ? 0 : 1);
+	if (rc == 0 && enabled == 0) {
+		(void)ui_menu_set_open_impl(ctx, node, 0);
+	}
+	return rc;
+}
+
+i32 ui_menu_get_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	return (ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) == 0u ? 1 : 0;
+}
+
+i32 ui_menu_item_set_enabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled) {
+	return ui_menu_set_enabled_impl(ctx, node, enabled);
+}
+
+i32 ui_menu_item_get_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_menu_get_enabled_impl(ctx, node);
+}
+
+i32 ui_menu_item_set_shortcut_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t shortcut) {
+	const sk_ui_api_t* ui = ui_wapi();
+	i32 rc;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	rc = ui->node_set_prop_str(ctx, node, "shortcut", shortcut != NULL ? shortcut : "");
+	if (rc != 0) {
+		return rc;
+	}
+	ui_menu_item_apply_min_width(ctx, node);
+	ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+	return 0;
+}
+
+const_chr_t ui_menu_item_get_shortcut_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t s;
+	if (slot == NULL) {
+		return "";
+	}
+	s = ui_prop_str_const(slot, "shortcut");
+	return s != NULL ? s : "";
+}
+
+f32 ui_menu_item_measure_shortcut_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_menu_text_advance(ui_menu_item_get_shortcut_impl(ctx, node), UI_MENU_FONT_SIZE);
+}
+
+i32 ui_menu_item_get_shortcut_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_rect_t r;
+	f32 sw;
+	if (out == NULL || ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	sw = ui_menu_item_measure_shortcut_impl(ctx, node);
+	if (sw <= 0.0f) {
+		out->x = 0.0f;
+		out->y = 0.0f;
+		out->width = 0.0f;
+		out->height = 0.0f;
+		return -1;
+	}
+	if (ui->node_get_abs_rect(ctx, node, &r, NULL) != 0) {
+		return -1;
+	}
+	out->width = sw;
+	out->height = r.height;
+	out->y = r.y;
+	out->x = r.x + r.width - UI_MENU_SHORTCUT_PAD_R - sw;
+	return 0;
+}
+
+i32 ui_menu_item_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	(void)ui->node_set_prop_i32(ctx, node, "selected", selected != 0 ? 1 : 0);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	return 0;
+}
+
+i32 ui_menu_item_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 selected = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "selected", &selected);
+	return selected != 0 ? 1 : 0;
+}
+
+sk_ui_node_t ui_widget_menu_separator_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_MENU_SEPARATOR, "menu_separator", "ui-menu-separator", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_focusable(ctx, n, 0);
+	return n;
+}
+
+i32 ui_menu_item_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_button_clicked_impl(ctx, node);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -8797,6 +9173,163 @@ SK_TEST(ui_widget_spring_flex_distribution) {
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, s1, &rs1, NULL));
 	TEST_ASSERT_FLOAT_WITHIN(8.0f, rs0.width, rs1.width);
 	TEST_ASSERT_TRUE(rs0.width > 40.0f);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_menu_family_open_close_enabled) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t bar;
+	sk_ui_node_t file_m;
+	sk_ui_node_t popup;
+	sk_ui_node_t open_it;
+	sk_ui_node_t dis_it;
+	sk_ui_node_t recent;
+	sk_ui_node_t sub_it;
+
+	bar = ui->widget_menu_bar(ctx, root, "mf-bar");
+	file_m = ui->widget_menu(ctx, bar, "File", "mf-file");
+	popup = ui->menu_get_popup(ctx, file_m);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(popup));
+	open_it = ui->widget_menu_item(ctx, popup, "Open", "mf-open");
+	dis_it = ui->widget_menu_item(ctx, popup, "Locked", "mf-locked");
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_set_enabled(ctx, dis_it, 0));
+	recent = ui->widget_submenu(ctx, popup, "Recent", "mf-recent");
+	sub_it = ui->widget_menu_item(ctx, ui->menu_get_popup(ctx, recent), "A.skore", "mf-a");
+	(void)sub_it;
+
+	wtest_set_size(ui, ctx, bar, 320.0f, 28.0f);
+	wtest_set_size(ui, ctx, file_m, 64.0f, 24.0f);
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, file_m));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, recent));
+	TEST_ASSERT_EQUAL_INT(1, ui->menu_get_enabled(ctx, file_m));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_get_enabled(ctx, dis_it));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->menu_get_open(ctx, file_m));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, recent, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->menu_get_open(ctx, recent));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, recent, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, recent));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, file_m));
+
+	/* Disabled BeginMenu does not open. */
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_enabled(ctx, file_m, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_enabled(ctx, file_m));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, file_m));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_enabled(ctx, file_m, 1));
+
+	/* Place File / items and click. */
+	{
+		sk_ui_layout_style_t ls;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, file_m, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(8.0f);
+		ls.top = sk_ui_pt(4.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, file_m, &ls));
+	}
+	wtest_set_size(ui, ctx, open_it, 160.0f, 22.0f);
+	wtest_set_size(ui, ctx, dis_it, 160.0f, 22.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 1));
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, open_it, &r, NULL));
+		wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+		wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+		TEST_ASSERT_EQUAL_INT(1, ui->menu_item_clicked(ctx, open_it));
+		TEST_ASSERT_EQUAL_INT(0, ui->menu_item_clicked(ctx, open_it));
+		TEST_ASSERT_EQUAL_INT(0, ui->menu_get_open(ctx, file_m));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 1));
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dis_it, &r, NULL));
+		wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+		wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+		TEST_ASSERT_EQUAL_INT(0, ui->menu_item_clicked(ctx, dis_it));
+	}
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_menu_family_shortcut_check_separator) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t bar;
+	sk_ui_node_t file_m;
+	sk_ui_node_t popup;
+	sk_ui_node_t save;
+	sk_ui_node_t sep;
+	sk_ui_node_t checked;
+	sk_ui_node_t pop_host;
+	sk_ui_node_t standalone;
+	sk_ui_node_t pop_item;
+	sk_ui_rect_t sc_rect;
+	sk_ui_rect_t item_rect;
+	sk_ui_rect_t sep_rect;
+	sk_ui_prop_value_t pv;
+	f32 sw;
+
+	bar = ui->widget_menu_bar(ctx, root, "ms-bar");
+	file_m = ui->widget_menu(ctx, bar, "File", "ms-file");
+	popup = ui->menu_get_popup(ctx, file_m);
+	save = ui->widget_menu_item(ctx, popup, "Save", "ms-save");
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_set_shortcut(ctx, save, "Ctrl+S"));
+	TEST_ASSERT_EQUAL_STRING("Ctrl+S", ui->menu_item_get_shortcut(ctx, save));
+	sw = ui->menu_item_measure_shortcut(ctx, save);
+	TEST_ASSERT_TRUE(sw > 20.0f);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, (f32)strlen("Ctrl+S") * 14.0f * 0.55f, sw);
+
+	sep = ui->widget_menu_separator(ctx, popup, "ms-sep");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sep));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, sep, SK_UI_CLASS_MENU_SEPARATOR));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, sep, "widget", &pv));
+	TEST_ASSERT_EQUAL_STRING("menu_separator", pv.data.str_value);
+
+	checked = ui->widget_menu_item(ctx, popup, "Show Grid", "ms-grid");
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_get_selected(ctx, checked));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_set_selected(ctx, checked, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->menu_item_get_selected(ctx, checked));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, file_m, 1));
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, save, &item_rect, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_item_get_shortcut_rect(ctx, save, &sc_rect));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, sw, sc_rect.width);
+	TEST_ASSERT_TRUE(sc_rect.x > item_rect.x);
+	TEST_ASSERT_TRUE(sc_rect.x + sc_rect.width <= item_rect.x + item_rect.width + 0.5f);
+	TEST_ASSERT_TRUE(sc_rect.x > item_rect.x + item_rect.width * 0.35f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sep, &sep_rect, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 8.0f, sep_rect.height);
+	TEST_ASSERT_TRUE(sep_rect.y > item_rect.y);
+
+	/* Same MenuItem inside a standalone popup (workspace-type popup). */
+	pop_host = ui->widget_view(ctx, root, "ms-pop-host");
+	standalone = ui->widget_menu_popup(ctx, pop_host, 0, "ms-popup");
+	pop_item = ui->widget_menu_item(ctx, standalone, "Scene", "ms-scene");
+	TEST_ASSERT_EQUAL_INT(0, ui->menu_set_open(ctx, standalone, 1));
+	wtest_set_size(ui, ctx, pop_item, 140.0f, 22.0f);
+	wtest_layout(ui, ctx, 400.0f, 240.0f);
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, pop_item, &r, NULL));
+		wtest_pointer(ui, ctx, r.x + 20.0f, r.y + 10.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+		wtest_pointer(ui, ctx, r.x + 20.0f, r.y + 10.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+		TEST_ASSERT_EQUAL_INT(1, ui->menu_item_clicked(ctx, pop_item));
+	}
 
 	ui->context_destroy(ctx);
 }

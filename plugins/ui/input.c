@@ -788,6 +788,8 @@ static void ui_handle_pointer_button(sk_ui_context_t* ctx, f32 x, f32 y, i32 but
 		if (bit != 0u) {
 			ctx->pointer_buttons |= bit;
 		}
+		/* Click-outside dismisses open menus / popups (ImGui menu bar). */
+		ui_menu_dismiss_outside_impl(ctx, hit, x, y);
 		route = hit;
 		if (sk_ui_node_is_valid(route)) {
 			ctx->pointer_capture = route;
