@@ -7,8 +7,9 @@
  * checkbox/slider/text_input/scroll_view, menu surfaces (menu_bar, menu,
  * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
- * tab, editor_window, window_title_bar, window_content — APX-235). Not full
- * ImGui parity — no tables, trees, or multi-viewport docking.
+ * tab, editor_window, window_title_bar, window_content — APX-235). Item-array
+ * binding for tree / list / combo / table is in item_bind.c (APX-338). Not
+ * full ImGui parity — no multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -57,12 +58,13 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 	if (slot == NULL || slot->user_data == NULL) {
 		return;
 	}
-	if (!SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_WIDGET_DATA_TYPE_ID)) {
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_WIDGET_DATA_TYPE_ID)) {
+		ctx->allocator->free(ctx->allocator->instance, slot->user_data);
+		slot->user_data = NULL;
+		slot->user_data_type = SK_TYPE_ID_ZERO;
 		return;
 	}
-	ctx->allocator->free(ctx->allocator->instance, slot->user_data);
-	slot->user_data = NULL;
-	slot->user_data_type = SK_TYPE_ID_ZERO;
+	ui_item_bind_release_user_data(ctx, slot);
 }
 
 static ui_widget_data_t* ui_widget_data(sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -693,6 +695,59 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.layout.width = sk_ui_percent(100.0f);
 	ui_style_fill_layout_pad(&base, 4.0f);
 	if (ui->style_class_register(ctx, SK_UI_CLASS_WINDOW_CONTENT, &base) != 0) {
+		return -1;
+	}
+
+	/* Item-array hosts (tree / list / combo / table): column of rows. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TREE, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_LIST, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COMBO_ITEMS, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
+				SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.min_height = sk_ui_pt(20.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	ui_style_fill_layout_pad(&base, 2.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_ITEM_ROW, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.22f, 0.26f, 0.34f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_ITEM_ROW, SK_UI_STATE_HOVER, &var);
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.layout.width = sk_ui_pt(16.0f);
+	base.layout.height = sk_ui_pt(16.0f);
+	base.layout.min_width = sk_ui_pt(16.0f);
+	base.layout.min_height = sk_ui_pt(16.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.color = sk_ui_rgba(0.80f, 0.82f, 0.86f, 1.0f);
+	base.font_size = 12.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TREE_ARROW, &base) != 0) {
 		return -1;
 	}
 

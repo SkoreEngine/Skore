@@ -233,6 +233,7 @@ struct sk_ui_context_t {
 	sk_ui_clipboard_set_fn clipboard_set;
 	void_ptr_t clipboard_user;
 	i32 widgets_defaults_registered;
+	ui_node_list_t item_binds; /**< Hosts with a live item-array bind (item_bind.c). */
 
 	/* Dock model (dock.c). Unused when dockspace_count == 0. */
 	ui_dock_slot_array_t dock_slots;
@@ -498,9 +499,35 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 
 /** Type id for widget-owned user_data (freed on node destroy). */
 #define SK_UI_WIDGET_DATA_TYPE_ID SK_TYPE_ID("sk.ui_widget_data", 0xa1b2c3d4e5f60718ULL, 0x918273645a5b6c7dULL)
+/** Type id for item-array bind user_data (item_bind.c). */
+#define SK_UI_ITEM_BIND_DATA_TYPE_ID SK_TYPE_ID("sk.ui_item_bind_data", 0x4cd9667484ce0c69ULL, 0xd02fc4d8299c22b5ULL)
 
 /** Free widget user_data if present (called from slot release). */
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Free item-bind user_data if present (called from widget release). */
+void ui_item_bind_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Sync every bound item-array host (style_resolve / harness_step). */
+void ui_item_bind_sync_all(sk_ui_context_t* ctx);
+
+sk_ui_node_t ui_widget_item_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind, const_chr_t id);
+sk_ui_node_t ui_widget_tree_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+sk_ui_node_t ui_widget_list_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+i32 ui_item_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind);
+i32 ui_item_bind_set_array_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items);
+i32 ui_item_bind_sync_impl(sk_ui_context_t* ctx, sk_ui_node_t host);
+sk_ui_item_array_t* ui_item_bind_get_array_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+sk_ui_item_bind_kind_t ui_item_bind_get_kind_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+sk_ui_node_t ui_item_bind_find_impl(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+u32 ui_item_bind_row_count_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+i32 ui_item_bind_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+i32 ui_item_bind_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open);
+i32 ui_item_bind_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+i32 ui_item_bind_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 selected);
+u64 ui_item_bind_last_activate_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+i32 ui_item_bind_last_was_arrow_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+i32 ui_item_bind_clear_state_impl(sk_ui_context_t* ctx, sk_ui_node_t host);
+i32 ui_item_bind_set_on_activate_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+i32 ui_item_bind_set_on_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
 
 i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx);
 void ui_set_clipboard_fns_impl(sk_ui_context_t* ctx, sk_ui_clipboard_get_fn get_fn, sk_ui_clipboard_set_fn set_fn, void_ptr_t user);

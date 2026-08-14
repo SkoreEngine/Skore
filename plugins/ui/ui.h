@@ -782,6 +782,11 @@ typedef i32 (*sk_ui_clipboard_set_fn)(void_ptr_t user, const_chr_t text);
 typedef void (*sk_ui_widget_bool_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value, void_ptr_t user);
 /** Widget float change (slider). */
 typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user);
+/**
+ * Item-array interaction (activate a row, toggle expand).
+ * @p host is the bound widget; @p item_id is the stable caller id.
+ */
+typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, void_ptr_t user);
 
 /** Default style class names (stable automation surface). */
 #define SK_UI_CLASS_PANEL "ui-panel"
@@ -814,6 +819,144 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_EDITOR_WINDOW "ui-editor-window"
 #define SK_UI_CLASS_WINDOW_TITLE_BAR "ui-window-title-bar"
 #define SK_UI_CLASS_WINDOW_CONTENT "ui-window-content"
+/** Item-array hosts (APX-338): tree / list / combo / table share one binding. */
+#define SK_UI_CLASS_TREE "ui-tree"
+#define SK_UI_CLASS_LIST "ui-list"
+#define SK_UI_CLASS_COMBO_ITEMS "ui-combo-items"
+#define SK_UI_CLASS_TABLE "ui-table"
+#define SK_UI_CLASS_ITEM_ROW "ui-item-row"
+#define SK_UI_CLASS_TREE_ARROW "ui-tree-arrow"
+
+/* ------------------------------------------------------------------ */
+/*  Retained item-array binding (APX-338)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Caller-owned, mutable item array bound by pointer to a retained widget.
+ *
+ * This is the **only** collection-binding contract for hierarchical and
+ * flat editor surfaces (TreeNode, ListBox, Combo items, Table rows,
+ * content-item grids). Later widget tasks must use these types unchanged.
+ *
+ * ---------------------------------------------------------------------------
+ * Ownership
+ * ---------------------------------------------------------------------------
+ * - The **caller** allocates and frees `sk_ui_item_array_t` and `items[]`.
+ * - The **caller** owns every `label` string. A label pointer must stay
+ *   valid until the next `item_bind_sync` after that item is removed or
+ *   the pointer is replaced.
+ * - The widget stores the **pointer** to the `sk_ui_item_array_t` (not a
+ *   copy of the items). It never frees the array, the items, or the labels.
+ * - Destroying the host widget frees only widget-owned row nodes and the
+ *   id → state maps. The caller array is untouched.
+ * - The `sk_ui_item_array_t` object itself must outlive the bind (do not
+ *   pass a temporary). Replacing `array->items` / `array->count` in place
+ *   is the supported grow/shrink path (realloc of the item buffer).
+ *
+ * ---------------------------------------------------------------------------
+ * What invalidates
+ * ---------------------------------------------------------------------------
+ * - Freeing or moving the `sk_ui_item_array_t` while a widget still holds
+ *   the pointer is invalid. Call `item_bind_set_array(ctx, host, NULL)`
+ *   (or destroy the host) first.
+ * - `items == NULL` with `count > 0` is treated as empty.
+ * - `id == 0` (`SK_UI_ITEM_ID_NONE`) is skipped.
+ * - Duplicate ids: the first occurrence in `items[]` wins; later copies
+ *   are ignored for hierarchy and row identity.
+ *
+ * ---------------------------------------------------------------------------
+ * What happens when the pointer's contents change between frames
+ * ---------------------------------------------------------------------------
+ * The host widget is **not** recreated. On each `item_bind_sync` (also
+ * invoked automatically from `style_resolve` / `harness_step`):
+ * - New ids get a row node.
+ * - Removed ids have their row node destroyed.
+ * - Surviving ids keep the same row handle (generation-stable).
+ * - Labels, flags, parent, and sibling order are applied in place.
+ * - TREE: rows whose ancestors are collapsed are not materialized.
+ *
+ * ---------------------------------------------------------------------------
+ * Stable identity (selection / expansion survive mutation)
+ * ---------------------------------------------------------------------------
+ * `id` is the identity. Open and selected state live in widget-owned maps
+ * keyed by `id`, seeded once from `SK_UI_ITEM_FLAG_OPEN` /
+ * `SK_UI_ITEM_FLAG_SELECTED`. Insert, remove, reorder, and relabel do not
+ * drop that state. Removing an item and adding it back with the same `id`
+ * restores open/selected (e.g. a filter). `item_bind_clear_state` wipes maps.
+ * After interaction the widget writes OPEN/SELECTED back onto the live
+ * item flags so the caller can read them.
+ *
+ * Hierarchy: `parent_id == 0` is a root. If the parent item has
+ * `child_count > 0` and `first_child + child_count` is in range, children
+ * are that slice (in slice order). Otherwise children are every item whose
+ * `parent_id` matches, in array order. Cycles stop at depth 64.
+ *
+ * Expand-arrow vs row-activate: click the arrow node (`{host}/a{id}`) to
+ * toggle open without changing selection (`item_bind_last_was_arrow` is
+ * non-zero). Click the row (`{host}/i{id}`) to select (exclusive) and
+ * activate (`last_was_arrow` is 0).
+ */
+
+/** Sentinel index: no parent / unused child range. */
+#define SK_UI_ITEM_NONE 0xFFFFFFFFu
+/** Invalid item id. Live items must use a non-zero id. */
+#define SK_UI_ITEM_ID_NONE 0ull
+
+/** Bits for sk_ui_item_t::flags. */
+typedef enum sk_ui_item_flag_t {
+	SK_UI_ITEM_FLAG_NONE = 0,
+	SK_UI_ITEM_FLAG_LEAF = 1u << 0,		/**< No expand arrow (tree). */
+	SK_UI_ITEM_FLAG_SELECTED = 1u << 1, /**< Selected row. */
+	SK_UI_ITEM_FLAG_OPEN = 1u << 2,		/**< Expanded (tree). */
+	SK_UI_ITEM_FLAG_DISABLED = 1u << 3, /**< Ignore activate / toggle. */
+	SK_UI_ITEM_FLAG_ERROR = 1u << 4,	/**< Error tint (label colour). */
+} sk_ui_item_flag_t;
+
+/**
+ * How a bound array is presented. Same items / ids / flags for all kinds;
+ * only visibility and expand behaviour differ.
+ */
+typedef enum sk_ui_item_bind_kind_t {
+	SK_UI_ITEM_BIND_TREE = 0,  /**< Hierarchical; expand/collapse by id. */
+	SK_UI_ITEM_BIND_LIST = 1,  /**< Flat; every live item is a row. */
+	SK_UI_ITEM_BIND_COMBO = 2, /**< Flat item list for a combo popup. */
+	SK_UI_ITEM_BIND_TABLE = 3, /**< Flat table rows. */
+} sk_ui_item_bind_kind_t;
+
+/**
+ * One row / node in a caller-owned item array.
+ * Layout is 40 bytes on LP64/LLP64 (no implicit hole).
+ */
+typedef struct sk_ui_item_t {
+	u64 id;			   /**< Stable identity. Unique among live items; not 0. */
+	u64 parent_id;	   /**< 0 = root. Must be another item's id or 0. */
+	u32 first_child;   /**< Optional packed children; SK_UI_ITEM_NONE if unused. */
+	u32 child_count;   /**< 0 = derive children by scanning parent_id. */
+	u32 flags;		   /**< sk_ui_item_flag_t bits. */
+	u32 icon;		   /**< Optional host icon / texture id; 0 = none. */
+	const_chr_t label; /**< Caller-owned UTF-8; NULL treated as "". */
+} sk_ui_item_t;
+
+/**
+ * Caller-owned array header. The widget stores this pointer and rereads
+ * `items` / `count` / `revision` on every sync.
+ */
+typedef struct sk_ui_item_array_t {
+	sk_ui_item_t* items; /**< Caller-owned storage; NULL iff count == 0. */
+	u32 count;			 /**< Live item count. */
+	u32 revision;		 /**< Optional; bump on mutation (not required). */
+} sk_ui_item_array_t;
+
+/** Fill an item (unused child range, icon 0). */
+SK_FINLINE void sk_ui_item_set(sk_ui_item_t* item, u64 id, u64 parent_id, const_chr_t label, u32 flags) {
+	item->id = id;
+	item->parent_id = parent_id;
+	item->first_child = SK_UI_ITEM_NONE;
+	item->child_count = 0u;
+	item->flags = flags;
+	item->icon = 0u;
+	item->label = label;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Headless harness (automation / UI tester foundation)              */
@@ -2384,6 +2527,54 @@ typedef struct sk_ui_api_t {
 	i32 (*scroll_view_set_content_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 	i32 (*image_set_texture)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+	/* ---- retained item-array binding (APX-338; tree / list / combo / table) ---- */
+
+	/**
+	 * Host widget bound to @p items (pointer kept). @p kind selects tree / list /
+	 * combo / table presentation. Same item struct for every kind.
+	 * @p id is the automation test id (auto-generated when NULL/empty).
+	 */
+	sk_ui_node_t (*widget_item_view)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind, const_chr_t id);
+	/** widget_item_view(..., SK_UI_ITEM_BIND_TREE, id). Tree-widget task entry. */
+	sk_ui_node_t (*widget_tree)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+	/** widget_item_view(..., SK_UI_ITEM_BIND_LIST, id). */
+	sk_ui_node_t (*widget_list)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+
+	/**
+	 * Bind @p items to an existing host (or rebind). Pass items == NULL to
+	 * unbind (row nodes destroyed; open/selected maps kept until clear_state
+	 * or host destroy).
+	 * @return 0 on success, non-zero on dead host / OOM.
+	 */
+	i32 (*item_bind)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind);
+	/** Replace the stored array pointer (NULL unbinds) and sync. */
+	i32 (*item_bind_set_array)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items);
+	/**
+	 * Diff the caller array by id and update row nodes in place.
+	 * Also runs from style_resolve / harness_step.
+	 */
+	i32 (*item_bind_sync)(sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Stored array pointer, or NULL if unbound. */
+	sk_ui_item_array_t* (*item_bind_get_array)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	sk_ui_item_bind_kind_t (*item_bind_get_kind)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Live row node for @p item_id, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*item_bind_find)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	/** Number of materialized row nodes (visible rows). */
+	u32 (*item_bind_row_count)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+
+	i32 (*item_bind_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	i32 (*item_bind_set_open)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open);
+	i32 (*item_bind_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	i32 (*item_bind_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 selected);
+	/** Last activated item id, or SK_UI_ITEM_ID_NONE. */
+	u64 (*item_bind_last_activate)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Non-zero if the last interaction was the expand arrow (not row activate). */
+	i32 (*item_bind_last_was_arrow)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Drop open / selected / seed maps (row nodes stay until next sync). */
+	i32 (*item_bind_clear_state)(sk_ui_context_t* ctx, sk_ui_node_t host);
+	i32 (*item_bind_set_on_activate)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+	i32 (*item_bind_set_on_toggle)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
 
 	/* ---- automation / UI tester contract (query, accessors, actions) ---- */
 

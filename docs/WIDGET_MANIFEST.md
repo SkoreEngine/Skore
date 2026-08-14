@@ -449,8 +449,8 @@ are `Selectable`s. `Combo` uses the `\0`-separated items overload only
 
 **Retained data-pointer binding:** no for enum combos (small static lists).
 History and the entity picker are **caller-owned item lists** that change;
-bind a pointer to that list (flat, not hierarchical) rather than creating
-one retained node per undo entry / entity every frame.
+bind `sk_ui_item_array_t*` with `SK_UI_ITEM_BIND_LIST` / `COMBO` (§21)
+rather than creating one retained node per undo entry / entity every frame.
 
 **Minimum behaviour**
 
@@ -528,9 +528,9 @@ browser.
 
 **Retained data-pointer binding:** **required** (see §21). Entity trees,
 project-browser folders, animator trees, and settings categories are
-rebuilt every `Draw()` from live engine data. A sk-ui tree must take a
-pointer to a **caller-owned, mutable, hierarchical item array** and update
-in place. Do not emit one retained node per entity by walking the scene
+rebuilt every `Draw()` from live engine data. Bind
+`sk_ui_item_array_t*` via `widget_tree` / `item_bind` (APX-338). Diff by
+`id`. Do not emit one retained node per entity by walking the scene
 every frame.
 
 **Minimum behaviour**
@@ -546,7 +546,9 @@ every frame.
 - `CollapsingHeader` for property sections without indent/TreePop.
 - Header with an extra `…` button (`ImGuiCollapsingHeaderProps`).
 
-**sk-ui today:** no tree factory.
+**sk-ui today:** `widget_tree` + `item_bind_*` (APX-338) is the retained
+array contract. Full TreeNode chrome (table host, inline rename, header
+`…` button) is a later wave on this binding.
 
 - [ ] Unit test
 - [ ] Headless UI automation
@@ -607,8 +609,9 @@ resource-selection grid — clipper is table-adjacent, not a separate widget.
 **Holds state:** yes — column widths, sort-not-used, scroll (when ScrollX/Y).
 
 **Retained data-pointer binding:** not hierarchical. Row *contents* for
-packages / pending-save / debugger instances should bind a caller-owned
-row array. Property 2-column “label | widget” tables are layout only.
+packages / pending-save / debugger instances should bind
+`sk_ui_item_array_t*` with `SK_UI_ITEM_BIND_TABLE` (§21). Property
+2-column “label | widget” tables are layout only.
 
 **Minimum behaviour**
 
@@ -1017,11 +1020,12 @@ rename finish + `newName` / screen rect.
 **Holds state:** image itself is stateless. Content items hold hover/select/
 rename interaction; selection set is caller-owned.
 
-**Retained data-pointer binding:** **yes, flat item array.** The browser
-rebuilds the grid every frame from the current folder + filter + zoom.
-Pass a pointer to a caller-owned `item[]` (`id`, label, icon/texture,
-selected, error). Do not create one retained thumbnail node per asset per
-frame. (Not hierarchical — folders use the Tree family.)
+**Retained data-pointer binding:** **yes, flat item array** (`sk_ui_item_t`
++ `SK_UI_ITEM_BIND_TABLE` / `LIST`, §21). The browser rebuilds the grid
+every frame from the current folder + filter + zoom. Pass a pointer to a
+caller-owned `sk_ui_item_array_t` (`id`, label, icon, selected, error).
+Do not create one retained thumbnail node per asset per frame. (Not
+hierarchical — folders use the Tree family.)
 
 **Minimum behaviour**
 
@@ -1121,7 +1125,8 @@ Flags used: `Disabled`, `SpanAllColumns`, `SpanAvailWidth`,
 **Holds state:** selected is a caller `bool` passed in; ImGui owns hover.
 
 **Retained data-pointer binding:** no per control. Lists of selectables
-(history, types) should bind a caller-owned item array (flat).
+(history, types) should bind `sk_ui_item_array_t*` with
+`SK_UI_ITEM_BIND_LIST` (§21).
 
 **Minimum behaviour**
 
@@ -1230,15 +1235,125 @@ composed popup; that is not this widget).
 ImGui rebuilds the *description* of the UI every `Draw()`. Most editor
 widgets bind a **scalar** (`bool*`, `float*`, `String&`). Three surfaces
 feed **collections that change every frame** and must not be turned into
-“create N retained nodes every tick”:
+“create N retained nodes every tick”.
 
-### 21.1 Hierarchical item array (required)
+**This section is the verbatim contract.** Hierarchical-widget tasks
+(TreeNode, and any later list / combo / table that binds a mutating
+collection) must use the types and rules below unchanged. Public
+definitions live in `plugins/ui/ui.h` (`sk_ui_item_t`,
+`sk_ui_item_array_t`, `widget_tree` / `widget_list` / `widget_item_view`,
+`item_bind_*`).
 
-**Widget:** TreeNode / CollapsingHeader family (§8).
+### 21.1 Item / array types (use these, do not invent another)
 
-**Known producer:** `EntityTreeWindow::DrawEntity` walks
-`SceneEditor` RID children (and a runtime `Entity*` path) **every frame**.
-Sibling surfaces with the same shape:
+```c
+#define SK_UI_ITEM_NONE     0xFFFFFFFFu
+#define SK_UI_ITEM_ID_NONE  0ull
+
+typedef enum sk_ui_item_flag_t {
+    SK_UI_ITEM_FLAG_NONE     = 0,
+    SK_UI_ITEM_FLAG_LEAF     = 1u << 0,
+    SK_UI_ITEM_FLAG_SELECTED = 1u << 1,
+    SK_UI_ITEM_FLAG_OPEN     = 1u << 2,
+    SK_UI_ITEM_FLAG_DISABLED = 1u << 3,
+    SK_UI_ITEM_FLAG_ERROR    = 1u << 4,
+} sk_ui_item_flag_t;
+
+typedef enum sk_ui_item_bind_kind_t {
+    SK_UI_ITEM_BIND_TREE  = 0,
+    SK_UI_ITEM_BIND_LIST  = 1,
+    SK_UI_ITEM_BIND_COMBO = 2,
+    SK_UI_ITEM_BIND_TABLE = 3,
+} sk_ui_item_bind_kind_t;
+
+typedef struct sk_ui_item_t {
+    u64 id;            /* Stable identity. Unique among live items; not 0. */
+    u64 parent_id;     /* 0 = root. Must be another item's id or 0. */
+    u32 first_child;   /* Optional packed children; SK_UI_ITEM_NONE if unused. */
+    u32 child_count;   /* 0 = derive children by scanning parent_id. */
+    u32 flags;         /* sk_ui_item_flag_t bits. */
+    u32 icon;          /* Optional host icon / texture id; 0 = none. */
+    const_chr_t label; /* Caller-owned UTF-8; NULL treated as "". */
+} sk_ui_item_t;
+
+typedef struct sk_ui_item_array_t {
+    sk_ui_item_t* items; /* Caller-owned storage; NULL iff count == 0. */
+    u32 count;
+    u32 revision;        /* Optional; bump on mutation (not required). */
+} sk_ui_item_array_t;
+```
+
+`widget_tree(ctx, parent, &array, id)` is `widget_item_view` with
+`SK_UI_ITEM_BIND_TREE`. Lists, combo popups, and table row sets use the
+**same** `sk_ui_item_array_t*` with `SK_UI_ITEM_BIND_LIST` /
+`COMBO` / `TABLE` (or `widget_list`). Do not add a second item struct.
+
+### 21.2 Ownership
+
+- The **caller** allocates and frees `sk_ui_item_array_t` and `items[]`.
+- The **caller** owns every `label` string. A label pointer must stay
+  valid until the next `item_bind_sync` after that item is removed or
+  the pointer is replaced.
+- The widget stores the **pointer** to the `sk_ui_item_array_t` (not a
+  copy of the items). It never frees the array, the items, or the labels.
+- Destroying the host widget frees only widget-owned row nodes and the
+  id → state maps. The caller array is untouched.
+- The `sk_ui_item_array_t` object itself must outlive the bind (do not
+  pass a temporary). Replacing `array->items` / `array->count` in place
+  is the supported grow/shrink path (realloc of the item buffer).
+
+### 21.3 What invalidates
+
+- Freeing or moving the `sk_ui_item_array_t` while a widget still holds
+  the pointer is invalid. Call `item_bind_set_array(ctx, host, NULL)`
+  (or destroy the host) first.
+- `items == NULL` with `count > 0` is treated as empty.
+- `id == 0` (`SK_UI_ITEM_ID_NONE`) is skipped.
+- Duplicate ids: the first occurrence in `items[]` wins; later copies
+  are ignored for hierarchy and row identity.
+
+### 21.4 What happens when the pointer's contents change between frames
+
+The host widget is **not** recreated. On each `item_bind_sync` (also
+invoked automatically from `style_resolve` / `harness_step`):
+
+- New ids get a row node.
+- Removed ids have their row node destroyed.
+- Surviving ids keep the same row handle (generation-stable).
+- Labels, flags, parent, and sibling order are applied in place.
+- TREE: rows whose ancestors are collapsed are not materialized.
+
+Callers mutate the array (add, remove, reorder, relabel) and step a
+frame. Do not destroy / recreate the tree widget.
+
+### 21.5 Stable identity (selection / expansion survive mutation)
+
+`id` is the identity. Open and selected state live in widget-owned maps
+keyed by `id`, seeded once from `SK_UI_ITEM_FLAG_OPEN` /
+`SK_UI_ITEM_FLAG_SELECTED`. Insert, remove, reorder, and relabel do not
+drop that state. Removing an item and adding it back with the same `id`
+restores open/selected (e.g. a filter). `item_bind_clear_state` wipes
+maps. After interaction the widget writes OPEN/SELECTED back onto the
+live item flags so the caller can read them.
+
+`item_bind_set_selected` adds or removes without clearing others
+(multi-select). A row click is exclusive select.
+
+### 21.6 Hierarchy
+
+`parent_id == 0` is a root. If the parent item has `child_count > 0`
+and `first_child + child_count` is in range, children are that slice
+(in slice order). Otherwise children are every item whose `parent_id`
+matches, in array order. Cycles stop at depth 64.
+
+### 21.7 Expand-arrow vs row-activate
+
+Click the arrow node (`{host}/a{id}`) to toggle open without changing
+selection (`item_bind_last_was_arrow` is non-zero). Click the row
+(`{host}/i{id}`) to select (exclusive) and activate (`last_was_arrow`
+is 0). This is the EntityTree `TreeNodeUpdateNextOpen` distinction.
+
+### 21.8 Known hierarchical producers
 
 | Panel | Item identity | Children come from |
 | --- | --- | --- |
@@ -1248,34 +1363,22 @@ Sibling surfaces with the same shape:
 | Settings categories | settings object id | nested settings |
 | Bone tree (FieldRenderers) | bone id | skeleton |
 
-**Required sk-ui contract (do not invent a second one later):**
+### 21.9 Flat item array (same binding, `SK_UI_ITEM_BIND_LIST` / `COMBO` / `TABLE`)
 
-- Caller owns a mutable array of items. Each item has at least: stable
-  `id`, `label`, `parent` / child index range, `flags` (leaf, selected,
-  open, disabled, error colour), optional icon.
-- The tree widget receives a **pointer** to that array + count (and keeps
-  the pointer). The caller mutates items when the scene/filter/selection
-  changes; the widget diffs by `id` instead of dropping the tree.
-- Open/close and multi-select live either in the item flags or in a
-  parallel caller-owned selection set — not in nodes the caller must
-  recreate.
-- Expand-arrow vs row-activate must remain distinguishable (EntityTree
-  uses `TreeNodeUpdateNextOpen` for this).
-
-### 21.2 Flat item array (required where listed)
-
-| Surface | Widget | Item |
+| Surface | Widget kind | Item `id` |
 | --- | --- | --- |
-| Project Browser / launcher tiles | Content item (§16) | `ImGuiContentItemDesc` |
-| History | ListBox + Selectable | undo/redo action name + index |
-| Packages | Table rows | package path |
-| Console lines | Text (already ported) | dirty-rebuild on sink version; not a tree |
-| Resource picker | Content item or ListBox | RID + label + thumbnail |
+| Project Browser / launcher tiles | TABLE or LIST (§16) | asset / project id |
+| History | LIST | undo/redo index |
+| Packages | TABLE | package path / id |
+| Console lines | Text (already ported) | dirty-rebuild on sink version; not this binding |
+| Resource picker | LIST or TABLE | RID |
+| Combo enum popup | COMBO | enum value / index |
 
-Same rule: pointer to caller-owned mutable items, not per-frame node
-construction.
+Flat kinds ignore expand: every live item is a visible row, in array
+order. `parent_id` may still be stored (entity picker nesting) but does
+not hide children.
 
-### 21.3 Not this problem
+### 21.10 Not this problem
 
 Buttons, checkboxes, sliders, single text fields, menus, tabs, popups,
 colour pickers, drag-drop payloads, tooltips — bind scalars or transient

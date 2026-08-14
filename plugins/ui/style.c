@@ -838,6 +838,8 @@ i32 ui_style_resolve_impl(sk_ui_context_t* ctx) {
 	if (ctx == NULL) {
 		return -1;
 	}
+	/* Pick up caller item-array mutations before style/layout this frame. */
+	ui_item_bind_sync_all(ctx);
 	max_passes = ctx->live_count + 2u;
 	if (max_passes < 4u) {
 		max_passes = 4u;

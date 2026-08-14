@@ -464,6 +464,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	ctx->wants_keyboard = 0;
 	sk_array_init(&ctx->slots, a);
 	sk_array_init(&ctx->freelist, a);
+	sk_array_init(&ctx->item_binds, a);
 	if (sk_hash_map_init(&ctx->id_map, a, sk_hash_cstr, sk_equals_cstr) != 0) {
 		a->free(a->instance, ctx);
 		return NULL;
@@ -476,6 +477,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
 		a->free(a->instance, ctx);
@@ -488,6 +490,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
 		a->free(a->instance, ctx);
@@ -542,6 +545,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 
 	sk_array_free(&ctx->slots);
 	sk_array_free(&ctx->freelist);
+	sk_array_free(&ctx->item_binds);
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
@@ -1553,6 +1557,25 @@ static const sk_ui_api_t ui_api = {
 	ui_scroll_view_get_scroll_impl,
 	ui_scroll_view_set_content_size_impl,
 	ui_image_set_texture_impl,
+	ui_widget_item_view_impl,
+	ui_widget_tree_impl,
+	ui_widget_list_impl,
+	ui_item_bind_impl,
+	ui_item_bind_set_array_impl,
+	ui_item_bind_sync_impl,
+	ui_item_bind_get_array_impl,
+	ui_item_bind_get_kind_impl,
+	ui_item_bind_find_impl,
+	ui_item_bind_row_count_impl,
+	ui_item_bind_get_open_impl,
+	ui_item_bind_set_open_impl,
+	ui_item_bind_get_selected_impl,
+	ui_item_bind_set_selected_impl,
+	ui_item_bind_last_activate_impl,
+	ui_item_bind_last_was_arrow_impl,
+	ui_item_bind_clear_state_impl,
+	ui_item_bind_set_on_activate_impl,
+	ui_item_bind_set_on_toggle_impl,
 	ui_query_by_test_id_impl,
 	ui_query_by_class_impl,
 	ui_query_by_widget_impl,
