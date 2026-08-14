@@ -985,8 +985,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			need_text = 1;
 		}
 		if (widget != NULL && fully_fixed == 0 &&
-			(strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 ||
-			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0)) {
+			(strcmp(widget, "button") == 0 || strcmp(widget, "selectable") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 ||
+			 strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 ||
+			 strcmp(widget, "window_title_bar") == 0)) {
 			need_text = 1;
 		}
 		if (need_text != 0 && text_prop != NULL) {
@@ -1617,6 +1618,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	ui_same_line_reset_pending(ctx);
 	ui_clay_sameline_postpass(ctx);
 	ui_dock_layout_end(ctx);
+	ui_selectable_apply_spans(ctx);
 
 	(void)limitations;
 	return 0;

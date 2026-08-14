@@ -27,6 +27,7 @@ typedef enum sandbox_widget_state_t {
 	SANDBOX_WS_MAX,
 	SANDBOX_WS_DRAGGING,
 	SANDBOX_WS_TEXT_ENTRY,
+	SANDBOX_WS_SELECTED,
 	SANDBOX_WS_COUNT
 } sandbox_widget_state_t;
 
@@ -45,7 +46,9 @@ typedef enum sandbox_widget_state_t {
 #define SANDBOX_WS_BIT_MAX (1u << SANDBOX_WS_MAX)
 #define SANDBOX_WS_BIT_DRAGGING (1u << SANDBOX_WS_DRAGGING)
 #define SANDBOX_WS_BIT_TEXT_ENTRY (1u << SANDBOX_WS_TEXT_ENTRY)
+#define SANDBOX_WS_BIT_SELECTED (1u << SANDBOX_WS_SELECTED)
 #define SANDBOX_WS_BITS_SLIDER (SANDBOX_WS_BIT_MIN | SANDBOX_WS_BIT_MID | SANDBOX_WS_BIT_MAX | SANDBOX_WS_BIT_DRAGGING | SANDBOX_WS_BIT_TEXT_ENTRY | SANDBOX_WS_BIT_DISABLED)
+#define SANDBOX_WS_BITS_SELECTABLE (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_SELECTED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_PRESSED)
 
 typedef i32 (*sandbox_widget_build_fn)(const sandbox_widget_host_t* host, sk_ui_node_t* out_target);
 
@@ -85,6 +88,8 @@ static const_chr_t sandbox_ws_name(sandbox_widget_state_t st) {
 		return "dragging";
 	case SANDBOX_WS_TEXT_ENTRY:
 		return "text_entry";
+	case SANDBOX_WS_SELECTED:
+		return "selected";
 	case SANDBOX_WS_COUNT:
 	default:
 		return "unknown";
@@ -1547,6 +1552,74 @@ static i32 sandbox_widget_build_table_scroll(const sandbox_widget_host_t* host, 
 	return 0;
 }
 
+static i32 sandbox_widget_build_selectable(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t row;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-sel-col");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.align_items = SK_UI_ALIGN_STRETCH;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+	/* History / combo row: full-width Selectable with SpanAvailWidth. */
+	row = ui->widget_selectable(host->ctx, col, "Create Entity", 0, SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH, "review-selectable", 0.0f, 0.0f);
+	if (!sk_ui_node_is_valid(row)) {
+		fprintf(stderr, "sk-sandbox: widget_selectable failed\n");
+		return -1;
+	}
+	*out_target = row;
+	return 0;
+}
+
+static i32 sandbox_widget_build_selectable_list(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t first;
+	sk_ui_style_props_t p;
+	const_chr_t labels[6] = {"Create Entity", "Move Entity", "Rename Entity", "Delete Entity", "Assign Material", "Set Parent"};
+	u32 i;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-sel-list");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.align_items = SK_UI_ALIGN_STRETCH;
+	p.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+	p.layout.padding.left = 4.0f;
+	p.layout.padding.right = 4.0f;
+	p.layout.padding.top = 4.0f;
+	p.layout.padding.bottom = 4.0f;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+	first = SK_UI_NODE_INVALID;
+	for (i = 0u; i < 6u; ++i) {
+		char id[32];
+		sk_ui_node_t row;
+		i32 selected = (i == 1u) ? 1 : 0;
+		u32 flags = SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH;
+		if (i == 5u) {
+			flags |= SK_UI_SELECTABLE_FLAG_DISABLED;
+		}
+		(void)snprintf(id, sizeof(id), "review-sel-row%u", i);
+		row = ui->widget_selectable(host->ctx, col, labels[i], selected, flags, id, 0.0f, 0.0f);
+		if (i == 0u) {
+			first = row;
+		}
+	}
+	if (!sk_ui_node_is_valid(first)) {
+		fprintf(stderr, "sk-sandbox: selectable list failed\n");
+		return -1;
+	}
+	*out_target = first;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1604,7 +1677,8 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"separator", NULL, "§19 Separator / Spacing / SameLine", SANDBOX_WS_BIT_DEFAULT, 760u, 280u, sandbox_widget_build_separator},
 	{"color", NULL, "§15 ColorEdit / ColorPicker", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 320u, 192u, NULL},
 	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
-	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, NULL},
+	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_SELECTABLE, 360u, 128u, sandbox_widget_build_selectable},
+	{"selectable_list", "selectable_rows", "§18 Selectable list of rows", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_selectable_list},
 	{"tooltip", NULL, "§20 Tooltip", SANDBOX_WS_BIT_DEFAULT, 320u, 128u, NULL},
 };
 
@@ -1661,6 +1735,7 @@ void sandbox_widget_list(void) {
 	printf("         dragint=drag_int dragf3=drag_float3\n");
 	printf("         menuopen=menu_open submenu=menu_submenu menupopup=menu_popup\n");
 	printf("         contextmenu=popup_menu savecontent=modal_save\n");
+	printf("         selectable_rows=selectable_list\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -1704,6 +1779,8 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	(void)ui->slider_set_disabled(host->ctx, node, 0);
 	(void)ui->slider_set_text_input(host->ctx, node, 0);
 	(void)ui->set_disabled(host->ctx, node, 0);
+	(void)ui->selectable_set_selected(host->ctx, node, 0);
+	(void)ui->selectable_set_disabled(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -1716,8 +1793,11 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 		(void)ui->radio_set_disabled(host->ctx, node, 1);
 		(void)ui->text_input_set_disabled(host->ctx, node, 1);
 		(void)ui->slider_set_disabled(host->ctx, node, 1);
+		(void)ui->selectable_set_disabled(host->ctx, node, 1);
 		(void)ui->set_disabled(host->ctx, node, 1);
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_DISABLED);
+	case SANDBOX_WS_SELECTED:
+		return ui->selectable_set_selected(host->ctx, node, 1);
 	case SANDBOX_WS_FOCUSED:
 		if (ui->focus_set(host->ctx, node) == 0) {
 			return 0;
@@ -1832,7 +1912,8 @@ i32 sandbox_widget_run(const sandbox_widget_host_t* host, const_chr_t name, cons
 	}
 	if (state_filter != NULL && state_filter[0] != '\0' && strcmp(state_filter, "all") != 0) {
 		if (sandbox_ws_parse(state_filter, &only) != 0) {
-			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|min|mid|max|dragging|text_entry|all)\n", state_filter);
+			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|min|mid|max|dragging|text_entry|selected|all)\n",
+					state_filter);
 			return -1;
 		}
 		if ((d->states & (1u << (u32)only)) == 0u) {

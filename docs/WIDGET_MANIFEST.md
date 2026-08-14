@@ -1257,11 +1257,19 @@ Flags used: `Disabled`, `SpanAllColumns`, `SpanAvailWidth`,
 - Double-click detection when `AllowDoubleClick` is set.
 - Optional fixed size.
 
-**sk-ui today:** no selectable factory (lists are faked with buttons/labels).
+**sk-ui today:** `widget_selectable` (ImGui Selectable). Caller `selected`
+bool paints the Header / selection-button accent; click is consume-on-read
+(`selectable_changed`). Flags: Disabled, SpanAllColumns (hit/highlight
+spans the table row), SpanAvailWidth, AllowDoubleClick (entity picker).
+Zero on a size axis is auto; explicit size is the project-launcher tile.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_selectable_click_changed_selected_disabled`,
+  `ui_widget_selectable_double_click_and_span_size`)
+- [x] Headless UI automation — `plugins/ui/selectable_family_tests.c`
+  (`ui_author_selectable_family_click_double_hover`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget selectable`,
+  `selectable_list`; states default/hovered/selected/disabled/pressed)
 
 ---
 

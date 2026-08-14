@@ -1902,6 +1902,18 @@ static const sk_ui_api_t ui_api = {
 	ui_table_get_scroll_impl,
 	ui_table_set_scroll_impl,
 	ui_table_bind_items_impl,
+	ui_widget_selectable_impl,
+	ui_selectable_set_selected_impl,
+	ui_selectable_get_selected_impl,
+	ui_selectable_set_disabled_impl,
+	ui_selectable_get_disabled_impl,
+	ui_selectable_set_flags_impl,
+	ui_selectable_get_flags_impl,
+	ui_selectable_set_size_impl,
+	ui_selectable_changed_impl,
+	ui_selectable_double_clicked_impl,
+	ui_selectable_is_hovered_impl,
+	ui_selectable_is_active_impl,
 };
 
 /**

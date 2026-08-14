@@ -15,8 +15,9 @@
  * Indent, group, horizontal/vertical + Spring-as-flex-grow. Item-array
  * binding for tree / list / combo / table is in item_bind.c (APX-338). TreeNode
  * / CollapsingHeader chrome is APX-350. Table family (BeginTable / columns /
- * headers / scroll-freeze / CellBg) is APX-351 in table.c. Not full ImGui
- * parity — no multi-viewport docking.
+ * headers / scroll-freeze / CellBg) is APX-351 in table.c. Selectable
+ * (history / combo / type-list / entity-picker rows) is APX-352. Not full
+ * ImGui parity — no multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -82,6 +83,9 @@ typedef struct ui_widget_data_t {
 	i32 edge_clicked;
 	i32 edge_pressed;
 	i32 edge_released;
+	/* selectable (APX-352): second-click arm + consume-on-read double */
+	i32 edge_double_clicked;
+	i32 click_armed;
 	/* checkbox / radio (APX-341): bound caller scalar + flags mask / option */
 	i32* bound_i32;
 	i32 bound_kind;
@@ -530,6 +534,55 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_ARROW, &base) != 0) {
 		return -1;
 	}
+
+	/*
+	 * Selectable (APX-352 / §18): full-row list item. Default is transparent
+	 * (no chrome). Hover / active / selected reuse the widget_selection_button
+	 * Header accent (0.26, 0.59, 0.98) so History / combo / type-list rows
+	 * match editor chrome.
+	 */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
+				SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.layout.border.left = 0.0f;
+	base.layout.border.top = 0.0f;
+	base.layout.border.right = 0.0f;
+	base.layout.border.bottom = 0.0f;
+	base.corner_radius = 0.0f;
+	base.layout.padding.left = 6.0f;
+	base.layout.padding.right = 6.0f;
+	base.layout.padding.top = 2.0f;
+	base.layout.padding.bottom = 2.0f;
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	base.layout.justify_content = SK_UI_JUSTIFY_FLEX_START;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.min_height = sk_ui_pt(22.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SELECTABLE, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	/* Same RGB as SK_UI_CLASS_BUTTON_SELECTED; lighter alpha for hover. */
+	var.background_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.40f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SELECTABLE, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.80f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SELECTABLE, SK_UI_STATE_ACTIVE, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
+	var.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	var.color = sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SELECTABLE, SK_UI_STATE_DISABLED, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	var.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.85f);
+	var.layout.border.left = 1.0f;
+	var.layout.border.top = 1.0f;
+	var.layout.border.right = 1.0f;
+	var.layout.border.bottom = 1.0f;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SELECTABLE, SK_UI_STATE_FOCUSED, &var);
 
 	/* Checkbox: light empty face + border so unchecked is not a solid "on" block. */
 	ui_style_props_clear(&base);
@@ -3779,6 +3832,346 @@ sk_ui_node_t ui_widget_arrow_button_impl(sk_ui_context_t* ctx, sk_ui_node_t pare
 		glyph = "v";
 	}
 	return ui_button_make(ctx, parent, glyph, id, SK_UI_CLASS_BUTTON_ARROW, "arrow_button", 22.0f, 22.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+}
+
+static i32 ui_node_is_selectable(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t wtype;
+	if (slot == NULL) {
+		return 0;
+	}
+	wtype = ui_prop_str_const(slot, "widget");
+	return (wtype != NULL && strcmp(wtype, "selectable") == 0) ? 1 : 0;
+}
+
+static u32 ui_selectable_flags_of(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return SK_UI_SELECTABLE_FLAG_NONE;
+	}
+	return wd->button_flags;
+}
+
+static void ui_selectable_apply_span_style(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags, f32 width, f32 height) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	i32 span = ((flags & (SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH | SK_UI_SELECTABLE_FLAG_SPAN_ALL_COLUMNS)) != 0u) ? 1 : 0;
+
+	ui_style_props_clear(&p);
+	if (width > 0.0f) {
+		p.mask |= SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH;
+		p.layout.width = sk_ui_pt(width);
+		p.layout.min_width = sk_ui_pt(width);
+		p.layout.max_width = sk_ui_pt(width);
+	} else if (span != 0) {
+		p.mask |= SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_ALIGN_SELF;
+		p.layout.width = sk_ui_percent(100.0f);
+		p.layout.flex_grow = 1.0f;
+		p.layout.align_self = SK_UI_ALIGN_STRETCH;
+	} else {
+		p.mask |= SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW;
+		p.layout.width = sk_ui_auto();
+		p.layout.flex_grow = 0.0f;
+	}
+	if (height > 0.0f) {
+		p.mask |= SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT;
+		p.layout.height = sk_ui_pt(height);
+		p.layout.min_height = sk_ui_pt(height);
+		p.layout.max_height = sk_ui_pt(height);
+	} else {
+		p.mask |= SK_UI_SP_HEIGHT;
+		p.layout.height = sk_ui_auto();
+	}
+	(void)ui->node_merge_inline_style(ctx, node, &p);
+}
+
+static void ui_selectable_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	sk_ui_node_t hit;
+	u32 flags;
+	if (wd == NULL || event == NULL) {
+		return;
+	}
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	flags = wd->button_flags;
+	if ((flags & SK_UI_SELECTABLE_FLAG_DISABLED) != 0u) {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_DOWN) {
+		if (event->button != SK_UI_POINTER_BUTTON_LEFT) {
+			return;
+		}
+		wd->edge_pressed = 1;
+		wd->edge_released = 0;
+		wd->edge_clicked = 0;
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (event->button != SK_UI_POINTER_BUTTON_LEFT) {
+			return;
+		}
+		wd->edge_released = 1;
+		hit = ui->hit_test(ctx, event->x, event->y);
+		if (sk_ui_node_eq(hit, node)) {
+			if ((flags & SK_UI_SELECTABLE_FLAG_ALLOW_DOUBLE_CLICK) != 0u && wd->click_armed != 0) {
+				wd->edge_double_clicked = 1;
+				wd->click_armed = 0;
+			} else {
+				wd->click_armed = 1;
+			}
+			wd->edge_clicked = 1;
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_CLICK) {
+		if (event->button == SK_UI_POINTER_BUTTON_LEFT) {
+			if ((flags & SK_UI_SELECTABLE_FLAG_ALLOW_DOUBLE_CLICK) != 0u && wd->click_armed != 0 && wd->edge_clicked == 0) {
+				wd->edge_double_clicked = 1;
+				wd->click_armed = 0;
+			} else if (wd->edge_clicked == 0) {
+				wd->click_armed = 1;
+			}
+			wd->edge_clicked = 1;
+		}
+	}
+}
+
+sk_ui_node_t ui_widget_selectable_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, u32 flags, const_chr_t id, f32 width, f32 height) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	char visible[256];
+	const_chr_t id_suffix = NULL;
+	const_chr_t use_id = id;
+	sk_ui_node_t n;
+
+	ui_split_imgui_label(label, visible, (u32)sizeof(visible), &id_suffix);
+	if ((use_id == NULL || use_id[0] == '\0') && id_suffix != NULL && id_suffix[0] != '\0') {
+		use_id = id_suffix;
+	}
+
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_SELECTABLE, "selectable", "ui-selectable", use_id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", visible);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_BUTTON);
+	if (wd != NULL) {
+		wd->button_flags = flags;
+		wd->edge_clicked = 0;
+		wd->edge_pressed = 0;
+		wd->edge_released = 0;
+		wd->edge_double_clicked = 0;
+		wd->click_armed = 0;
+	}
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_event = ui_selectable_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	ui_selectable_apply_span_style(ctx, n, flags, width, height);
+	if (selected != 0) {
+		(void)ui_button_set_selected_impl(ctx, n, 1);
+	} else {
+		(void)ui->node_set_prop_i32(ctx, n, "selected", 0);
+	}
+	if ((flags & SK_UI_SELECTABLE_FLAG_DISABLED) != 0u) {
+		(void)ui_button_set_disabled_impl(ctx, n, 1);
+	}
+	return n;
+}
+
+i32 ui_selectable_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected) {
+	if (ui_node_is_selectable(ctx, node) == 0) {
+		return -1;
+	}
+	return ui_button_set_selected_impl(ctx, node, selected);
+}
+
+i32 ui_selectable_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	if (ui_node_is_selectable(ctx, node) == 0) {
+		return 0;
+	}
+	return ui_button_get_selected_impl(ctx, node);
+}
+
+i32 ui_selectable_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	ui_widget_data_t* wd;
+	if (ui_node_is_selectable(ctx, node) == 0) {
+		return -1;
+	}
+	wd = ui_widget_data_ensure(ctx, node, UI_WD_BUTTON);
+	if (wd != NULL) {
+		if (disabled != 0) {
+			wd->button_flags |= SK_UI_SELECTABLE_FLAG_DISABLED;
+		} else {
+			wd->button_flags &= ~SK_UI_SELECTABLE_FLAG_DISABLED;
+		}
+	}
+	return ui_button_set_disabled_impl(ctx, node, disabled);
+}
+
+i32 ui_selectable_get_disabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return 1;
+	}
+	return ((ui_selectable_flags_of(ctx, node) & SK_UI_SELECTABLE_FLAG_DISABLED) != 0u) ? 1 : 0;
+}
+
+i32 ui_selectable_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+	ui_widget_data_t* wd;
+	if (ui_node_is_selectable(ctx, node) == 0) {
+		return -1;
+	}
+	wd = ui_widget_data_ensure(ctx, node, UI_WD_BUTTON);
+	f32 width = 0.0f;
+	f32 height = 0.0f;
+	sk_ui_layout_style_t ls;
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->button_flags = flags;
+	if ((flags & SK_UI_SELECTABLE_FLAG_DISABLED) != 0u) {
+		(void)ui_button_set_disabled_impl(ctx, node, 1);
+	} else {
+		(void)ui_button_set_disabled_impl(ctx, node, 0);
+	}
+	if (ui_wapi()->node_get_layout_style(ctx, node, &ls) == 0) {
+		if (ls.width.unit == SK_UI_LENGTH_POINT && ls.width.value > 0.0f) {
+			width = ls.width.value;
+		}
+		if (ls.height.unit == SK_UI_LENGTH_POINT && ls.height.value > 0.0f) {
+			height = ls.height.value;
+		}
+	}
+	ui_selectable_apply_span_style(ctx, node, flags, width, height);
+	return 0;
+}
+
+u32 ui_selectable_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_selectable_flags_of(ctx, node);
+}
+
+i32 ui_selectable_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height) {
+	u32 flags;
+	if (ui_node_is_selectable(ctx, node) == 0) {
+		return -1;
+	}
+	flags = ui_selectable_flags_of(ctx, node);
+	ui_selectable_apply_span_style(ctx, node, flags, width, height);
+	return 0;
+}
+
+i32 ui_selectable_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_button_clicked_impl(ctx, node);
+}
+
+i32 ui_selectable_double_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_double_clicked != 0 ? 1 : 0;
+	wd->edge_double_clicked = 0;
+	return v;
+}
+
+i32 ui_selectable_is_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_button_is_hovered_impl(ctx, node);
+}
+
+i32 ui_selectable_is_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_button_is_active_impl(ctx, node);
+}
+
+void ui_selectable_apply_spans(sk_ui_context_t* ctx) {
+	u32 i;
+	if (ctx == NULL) {
+		return;
+	}
+	for (i = 1u; i < ctx->slots.count; ++i) {
+		ui_node_slot_t* slot = &ctx->slots.items[i];
+		sk_ui_node_t node;
+		sk_ui_node_t cur;
+		sk_ui_node_t row;
+		sk_ui_rect_t sel_b;
+		sk_ui_rect_t row_b;
+		u32 flags;
+		const_chr_t wtype;
+		f32 dx;
+		f32 dw;
+		if (slot->alive == 0u) {
+			continue;
+		}
+		wtype = NULL;
+		{
+			u32 p;
+			for (p = 0u; p < slot->props.count; ++p) {
+				if (slot->props.items[p].type == SK_UI_PROP_STR && slot->props.items[p].key != NULL && strcmp(slot->props.items[p].key, "widget") == 0) {
+					wtype = slot->props.items[p].data.str_value;
+					break;
+				}
+			}
+		}
+		if (wtype == NULL || strcmp(wtype, "selectable") != 0) {
+			continue;
+		}
+		node.index = i;
+		node.generation = slot->generation;
+		flags = ui_selectable_flags_of(ctx, node);
+		if ((flags & SK_UI_SELECTABLE_FLAG_SPAN_ALL_COLUMNS) == 0u) {
+			continue;
+		}
+		row = SK_UI_NODE_INVALID;
+		cur = slot->parent;
+		while (sk_ui_node_is_valid(cur)) {
+			const ui_node_slot_t* ps = ui_slot(ctx, cur);
+			u32 c;
+			i32 is_row = 0;
+			if (ps == NULL) {
+				break;
+			}
+			for (c = 0u; c < ps->classes.count; ++c) {
+				const_chr_t cls = ps->classes.items[c];
+				if (cls != NULL && (strcmp(cls, SK_UI_CLASS_TABLE_ROW) == 0 || strcmp(cls, SK_UI_CLASS_TABLE_HEADER) == 0)) {
+					is_row = 1;
+					break;
+				}
+			}
+			if (is_row != 0) {
+				row = cur;
+				break;
+			}
+			cur = ps->parent;
+		}
+		if (!sk_ui_node_is_valid(row)) {
+			continue;
+		}
+		if (ui_node_get_abs_rect_impl(ctx, node, &sel_b, NULL) != 0 || ui_node_get_abs_rect_impl(ctx, row, &row_b, NULL) != 0) {
+			continue;
+		}
+		dx = row_b.x - sel_b.x;
+		dw = row_b.width - sel_b.width;
+		if (dx > -0.01f && dx < 0.01f && dw > -0.01f && dw < 0.01f) {
+			continue;
+		}
+		slot->layout_border.x += dx;
+		slot->layout_border.width += dw;
+		slot->layout_content.x += dx;
+		slot->layout_content.width += dw;
+	}
 }
 
 sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id) {
@@ -9262,6 +9655,7 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_SELECTED));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_BORDERED));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_ARROW));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SELECTABLE));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_CHECKBOX));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));
@@ -11791,6 +12185,144 @@ SK_TEST(ui_widget_collapsing_header_open_button) {
 	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
 	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_button_clicked(ctx, ch));
 	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_get_open(ctx, ch));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_selectable_click_changed_selected_disabled) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t row;
+	sk_ui_node_t dis;
+	sk_ui_computed_style_t cs;
+	sk_ui_rect_t r;
+
+	row = ui->widget_selectable(ctx, root, "Create Entity", 0, SK_UI_SELECTABLE_FLAG_NONE, "sel-hist", 0.0f, 0.0f);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, row, SK_UI_CLASS_SELECTABLE));
+	TEST_ASSERT_EQUAL_STRING("Create Entity", ui->label_get_text(ctx, row));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_get_selected(ctx, row));
+
+	/* Selected look uses the same Header token as widget_selection_button. */
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_set_selected(ctx, row, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_get_selected(ctx, row));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, row, SK_UI_CLASS_BUTTON_SELECTED));
+	wtest_layout(ui, ctx, 280.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, row, &cs));
+	TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.26f, cs.background_color.r);
+	TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.59f, cs.background_color.g);
+	TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.98f, cs.background_color.b);
+	TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.67f, cs.background_color.a);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, row, &r, NULL));
+	wtest_move(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_is_hovered(ctx, row));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_is_active(ctx, row));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_changed(ctx, row));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_changed(ctx, row));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_changed(ctx, row)); /* consume-on-read */
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_double_clicked(ctx, row));
+
+	dis = ui->widget_selectable(ctx, root, "Locked Type", 0, SK_UI_SELECTABLE_FLAG_DISABLED, "sel-dis", 120.0f, 22.0f);
+	{
+		sk_ui_layout_style_t ls;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, dis, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(0.0f);
+		ls.top = sk_ui_pt(40.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, dis, &ls));
+	}
+	wtest_layout(ui, ctx, 280.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_get_disabled(ctx, dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dis, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + 8.0f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + 8.0f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_changed(ctx, dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_double_clicked(ctx, dis));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_selectable_double_click_and_span_size) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t plain;
+	sk_ui_node_t avail;
+	sk_ui_node_t sized;
+	sk_ui_node_t dbl;
+	sk_ui_node_t table;
+	sk_ui_node_t span;
+	sk_ui_node_t cell0;
+	sk_ui_rect_t r_plain;
+	sk_ui_rect_t r_avail;
+	sk_ui_rect_t r_sized;
+	sk_ui_rect_t r_span;
+	sk_ui_rect_t r_cell;
+	sk_ui_rect_t r_row;
+	sk_ui_style_props_t p;
+
+	col = ui->widget_vertical(ctx, root, "sel-col");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_ALIGN_ITEMS;
+	p.layout.width = sk_ui_pt(280.0f);
+	p.layout.height = sk_ui_pt(200.0f);
+	p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, col, &p));
+
+	plain = ui->widget_selectable(ctx, col, "Hi", 0, SK_UI_SELECTABLE_FLAG_NONE, "sel-plain", 0.0f, 0.0f);
+	avail = ui->widget_selectable(ctx, col, "Avail", 0, SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH, "sel-avail", 0.0f, 0.0f);
+	sized = ui->widget_selectable(ctx, col, "Launch", 0, SK_UI_SELECTABLE_FLAG_NONE, "sel-size", 160.0f, 28.0f);
+	dbl = ui->widget_selectable(ctx, col, "EntityA", 0, SK_UI_SELECTABLE_FLAG_ALLOW_DOUBLE_CLICK, "sel-dbl", 0.0f, 0.0f);
+
+	table = ui->widget_table(ctx, col, "sel-tbl", 3, SK_UI_TABLE_FLAG_SIZING_FIXED_SAME | SK_UI_TABLE_FLAG_BORDERS, 280.0f, 40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->table_setup_column(ctx, table, "A", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 90.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->table_setup_column(ctx, table, "B", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 90.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->table_setup_column(ctx, table, "C", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 90.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->table_next_row(ctx, table, SK_UI_TABLE_ROW_FLAG_NONE, 0.0f));
+	TEST_ASSERT_EQUAL_INT(1, ui->table_next_column(ctx, table));
+	span = ui->widget_selectable(ctx, ui->table_current_cell(ctx, table), "Type", 0, SK_UI_SELECTABLE_FLAG_SPAN_ALL_COLUMNS, "sel-span", 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->table_next_column(ctx, table));
+	(void)ui->widget_text(ctx, ui->table_current_cell(ctx, table), "col1", "sel-c1");
+	TEST_ASSERT_EQUAL_INT(1, ui->table_next_column(ctx, table));
+	(void)ui->widget_text(ctx, ui->table_current_cell(ctx, table), "col2", "sel-c2");
+	TEST_ASSERT_EQUAL_INT(0, ui->table_end(ctx, table));
+
+	wtest_layout(ui, ctx, 320.0f, 280.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, plain, &r_plain, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, avail, &r_avail, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sized, &r_sized, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, span, &r_span, NULL));
+	cell0 = ui->table_get_cell(ctx, table, 0, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, cell0, &r_cell, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->table_get_row(ctx, table, 0), &r_row, NULL));
+
+	/* Default is content-sized; span-avail fills the column. */
+	TEST_ASSERT_TRUE(r_plain.width + 8.0f < r_avail.width);
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, 280.0f, r_avail.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 160.0f, r_sized.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 28.0f, r_sized.height);
+
+	/* SpanAllColumns hit rect covers the table row, not just column 0. */
+	TEST_ASSERT_TRUE(r_span.width + 1.0f > r_cell.width);
+	TEST_ASSERT_FLOAT_WITHIN(4.0f, r_row.width, r_span.width);
+	TEST_ASSERT_FLOAT_WITHIN(4.0f, r_row.x, r_span.x);
+
+	/* Double-click is distinct from a single activate. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dbl, &r_plain, NULL));
+	wtest_pointer(ui, ctx, r_plain.x + 12.0f, r_plain.y + r_plain.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r_plain.x + 12.0f, r_plain.y + r_plain.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_changed(ctx, dbl));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_double_clicked(ctx, dbl));
+	wtest_pointer(ui, ctx, r_plain.x + 12.0f, r_plain.y + r_plain.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r_plain.x + 12.0f, r_plain.y + r_plain.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_changed(ctx, dbl));
+	TEST_ASSERT_EQUAL_INT(1, ui->selectable_double_clicked(ctx, dbl));
+	TEST_ASSERT_EQUAL_INT(0, ui->selectable_double_clicked(ctx, dbl));
+
 	ui->context_destroy(ctx);
 }
 

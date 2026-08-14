@@ -691,6 +691,22 @@ i32 ui_button_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_button_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
 u32 ui_button_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
+/* Selectable family (APX-352; manifest §18). */
+sk_ui_node_t ui_widget_selectable_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, u32 flags, const_chr_t id, f32 width, f32 height);
+i32 ui_selectable_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+i32 ui_selectable_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_selectable_get_disabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+u32 ui_selectable_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+i32 ui_selectable_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_double_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_is_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_selectable_is_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+/** Expand SpanAllColumns hit/highlight rects after Clay writeback. */
+void ui_selectable_apply_spans(sk_ui_context_t* ctx);
+
 sk_ui_node_t ui_widget_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_text_wrapped_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_text_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);

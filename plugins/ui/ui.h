@@ -844,6 +844,7 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_BUTTON_SELECTED "ui-button-selected"
 #define SK_UI_CLASS_BUTTON_BORDERED "ui-button-bordered"
 #define SK_UI_CLASS_BUTTON_ARROW "ui-button-arrow"
+#define SK_UI_CLASS_SELECTABLE "ui-selectable"
 #define SK_UI_CLASS_CHECKBOX "ui-checkbox"
 #define SK_UI_CLASS_RADIO "ui-radio"
 #define SK_UI_CLASS_TOGGLE "ui-toggle"
@@ -856,6 +857,17 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 /** Slider / Drag flags (ImGuiSliderFlags the editor actually sets). */
 #define SK_UI_SLIDER_FLAG_NONE 0u
 #define SK_UI_SLIDER_FLAG_ALWAYS_CLAMP (1u << 0)
+
+/**
+ * ImGuiSelectableFlags the editor actually sets (manifest §18).
+ * Disabled, SpanAllColumns, SpanAvailWidth, AllowDoubleClick.
+ */
+#define SK_UI_SELECTABLE_FLAG_NONE 0u
+#define SK_UI_SELECTABLE_FLAG_DISABLED (1u << 0)
+#define SK_UI_SELECTABLE_FLAG_SPAN_ALL_COLUMNS (1u << 1)
+#define SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH (1u << 2)
+#define SK_UI_SELECTABLE_FLAG_ALLOW_DOUBLE_CLICK (1u << 3)
+
 #define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_TEXT_INPUT_ERROR "ui-text-input-error"
@@ -4239,6 +4251,44 @@ typedef struct sk_ui_api_t {
 	 * table host is not rebuilt. Label goes in column 0.
 	 */
 	i32 (*table_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_item_array_t* items);
+
+	/* ---- selectable family (APX-352; manifest §18) ---- */
+
+	/**
+	 * ImGui Selectable: clickable full-row item with a label. @p selected is
+	 * a caller-owned look (does not toggle itself). @p flags is
+	 * SK_UI_SELECTABLE_FLAG_*. Zero on a size axis is auto. Explicit size is
+	 * the project-launcher tile; SpanAvailWidth / SpanAllColumns expand the
+	 * hit / highlight rect.
+	 */
+	sk_ui_node_t (*widget_selectable)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, u32 flags, const_chr_t id, f32 width, f32 height);
+
+	/** Caller-owned selected look. Does not own the mode. */
+	i32 (*selectable_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*selectable_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Visible but not clickable (flag or explicit). */
+	i32 (*selectable_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	i32 (*selectable_get_disabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	i32 (*selectable_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*selectable_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Explicit size. Zero on an axis means auto (ImGui ImVec2 convention). */
+	i32 (*selectable_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Consume-on-read activate (ImGui Selectable return / "changed").
+	 * True once after a press+release over the row. Disabled swallows input.
+	 */
+	i32 (*selectable_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Consume-on-read double-click. Only set when ALLOW_DOUBLE_CLICK is on
+	 * and the second click lands on the same row.
+	 */
+	i32 (*selectable_double_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*selectable_is_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*selectable_is_active)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 } sk_ui_api_t;
 
 #ifdef __cplusplus
