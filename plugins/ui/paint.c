@@ -1117,7 +1117,14 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		 * border strips square-off the rounded fill and make hover-off look
 		 * like a lone scalloped circle to vision (D2). */
 		const_chr_t box_wtype = ui_paint_prop_str(slot, "widget");
+		i32 labeled = 0;
 		i32 skip_box_chrome = (box_wtype != NULL && strcmp(box_wtype, "toggle") == 0) ? 1 : 0;
+		if (box_wtype != NULL && (strcmp(box_wtype, "checkbox") == 0 || strcmp(box_wtype, "radio") == 0)) {
+			(void)ui_paint_prop_i32(slot, "labeled", &labeled);
+			if (labeled != 0) {
+				skip_box_chrome = 1;
+			}
+		}
 
 		/* Background */
 		if (skip_box_chrome == 0 && ui_paint_color_visible(slot->computed.background_color)) {
@@ -1161,22 +1168,71 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 	 */
 	{
 		i32 checked = 0;
+		i32 mixed = 0;
+		i32 labeled = 0;
 		i32 on = 0;
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "checkbox") == 0 && ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
-			/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
-			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
-			f32 m = (cw < ch ? cw : ch) * 0.22f;
-			f32 thick = (cw < ch ? cw : ch) * 0.16f;
+		(void)ui_paint_prop_i32(slot, "checked", &checked);
+		(void)ui_paint_prop_i32(slot, "mixed", &mixed);
+		(void)ui_paint_prop_i32(slot, "labeled", &labeled);
+		if (wtype != NULL && strcmp(wtype, "checkbox") == 0) {
 			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
-			if (thick < 1.5f * avg) {
-				thick = 1.5f * avg;
+			f32 box_s = 18.0f * avg;
+			f32 box_x = bx;
+			f32 box_y = by;
+			f32 mx;
+			f32 my;
+			f32 mw;
+			f32 mh;
+			if (labeled != 0) {
+				if (box_s > bh) {
+					box_s = bh;
+				}
+				box_y = by + (bh - box_s) * 0.5f;
+				{
+					u32 face = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
+					u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.border_color, opacity));
+					f32 r = slot->computed.corner_radius * avg;
+					f32 t = 2.0f * avg;
+					if (ui_paint_add_rounded_rect_filled(em, box_x, box_y, box_s, box_s, r, face) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_border(em, box_x, box_y, box_s, box_s, t, t, t, t, bd) != 0) {
+						return -1;
+					}
+				}
+				mx = box_x + 2.0f * avg;
+				my = box_y + 2.0f * avg;
+				mw = box_s - 4.0f * avg;
+				mh = box_s - 4.0f * avg;
+			} else {
+				mx = cx;
+				my = cy;
+				mw = cw;
+				mh = ch;
 			}
-			if (ui_paint_add_thick_line(em, cx + m, cy + m, cx + cw - m, cy + ch - m, thick, mk) != 0) {
-				return -1;
-			}
-			if (ui_paint_add_thick_line(em, cx + cw - m, cy + m, cx + m, cy + ch - m, thick, mk) != 0) {
-				return -1;
+			if (mixed != 0) {
+				/* Indeterminate: filled inner square (not an X, not empty). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 inset = (mw < mh ? mw : mh) * 0.22f;
+				f32 rr = 1.5f * avg;
+				if (ui_paint_add_rounded_rect_filled(em, mx + inset, my + inset, mw - inset * 2.0f, mh - inset * 2.0f, rr, mk) != 0) {
+					return -1;
+				}
+			} else if (checked != 0) {
+				/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 m = (mw < mh ? mw : mh) * 0.22f;
+				f32 thick = (mw < mh ? mw : mh) * 0.16f;
+				if (thick < 1.5f * avg) {
+					thick = 1.5f * avg;
+				}
+				if (ui_paint_add_thick_line(em, mx + m, my + m, mx + mw - m, my + mh - m, thick, mk) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, mx + mw - m, my + m, mx + m, my + mh - m, thick, mk) != 0) {
+					return -1;
+				}
 			}
 		}
 		if (wtype != NULL && strcmp(wtype, "radio") == 0) {
@@ -1184,22 +1240,39 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			 * Circular ring: outer disc (ring color) minus inner hole (dark face).
 			 * When checked, a smaller filled disc sits in the center.
 			 * Uses border-box so the control is round even without layout border.
+			 * Labeled radios paint the ring in the left 18px padding.
 			 */
 			u32 ring_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
 			u32 hole_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f), opacity));
-			f32 side = bw < bh ? bw : bh;
-			f32 rx = bx + (bw - side) * 0.5f;
-			f32 ry = by + (bh - side) * 0.5f;
-			f32 hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
-			f32 hx = rx + (side - hole) * 0.5f;
-			f32 hy = ry + (side - hole) * 0.5f;
+			f32 side;
+			f32 rx;
+			f32 ry;
+			f32 hole;
+			f32 hx;
+			f32 hy;
+			if (labeled != 0) {
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				side = 18.0f * avg;
+				if (side > bh) {
+					side = bh;
+				}
+				rx = bx;
+				ry = by + (bh - side) * 0.5f;
+			} else {
+				side = bw < bh ? bw : bh;
+				rx = bx + (bw - side) * 0.5f;
+				ry = by + (bh - side) * 0.5f;
+			}
+			hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
+			hx = rx + (side - hole) * 0.5f;
+			hy = ry + (side - hole) * 0.5f;
 			if (ui_paint_add_rounded_rect_filled(em, rx, ry, side, side, side * 0.5f, ring_col) != 0) {
 				return -1;
 			}
 			if (ui_paint_add_rounded_rect_filled(em, hx, hy, hole, hole, hole * 0.5f, hole_col) != 0) {
 				return -1;
 			}
-			if (ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+			if (checked != 0) {
 				/* Solid disc clearly smaller than the outer ring; dim when disabled. */
 				i32 radio_disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
 				/* Disabled: still a solid light disc (must read as filled), just less bright. */

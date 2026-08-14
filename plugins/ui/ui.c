@@ -1716,6 +1716,19 @@ static const sk_ui_api_t ui_api = {
 	ui_text_get_disabled_impl,
 	ui_text_with_label_parts_impl,
 	ui_text_centered_text_impl,
+	ui_checkbox_set_label_impl,
+	ui_checkbox_get_label_impl,
+	ui_checkbox_bind_impl,
+	ui_checkbox_bind_flags_impl,
+	ui_checkbox_set_mixed_impl,
+	ui_checkbox_get_mixed_impl,
+	ui_checkbox_changed_impl,
+	ui_checkbox_set_disabled_impl,
+	ui_radio_set_label_impl,
+	ui_radio_get_label_impl,
+	ui_radio_bind_impl,
+	ui_radio_changed_impl,
+	ui_radio_set_disabled_impl,
 };
 
 /**

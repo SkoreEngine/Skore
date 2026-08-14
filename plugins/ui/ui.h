@@ -3461,6 +3461,53 @@ typedef struct sk_ui_api_t {
 	i32 (*text_with_label_parts)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_label, sk_ui_node_t* out_value);
 	/** Text child of a widget_text_centered host. */
 	i32 (*text_centered_text)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_text);
+
+	/* ---- checkbox / radio (APX-341; editor Checkbox + flags / radio group) ---- */
+
+	/**
+	 * Visible label on the same item as the box (ImGui Checkbox).
+	 * Empty / `##id` → box only. `###id` strips the hidden id suffix.
+	 */
+	i32 (*checkbox_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*checkbox_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Bind a caller-owned i32* (0/1). Click writes back. External mutation is
+	 * pulled on the next style_resolve / harness_step. NULL unbinds.
+	 */
+	i32 (*checkbox_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value);
+
+	/**
+	 * Bind a flags word + bit mask (ImGui CheckboxFlags). Mixed/indeterminate
+	 * when some but not all bits of @p flags_value are set in *@p flags.
+	 * Click sets all bits if not fully set, otherwise clears them.
+	 */
+	i32 (*checkbox_bind_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* flags, i32 flags_value);
+
+	/** Mixed / indeterminate (0/1). Also derived from a flags bind. */
+	i32 (*checkbox_set_mixed)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 mixed);
+	i32 (*checkbox_get_mixed)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Edge-triggered: 1 once after a value-changing click, then clears.
+	 * Programmatic set / external bind mutation do not set this.
+	 */
+	i32 (*checkbox_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*checkbox_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	i32 (*radio_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*radio_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Bind an int* + this option's value (ImGui RadioButton(label, int*, int)).
+	 * Click writes *@p value = @p option and clears sibling radios.
+	 * NULL unbinds.
+	 */
+	i32 (*radio_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value, i32 option);
+
+	/** Edge-triggered: 1 once after this radio becomes selected by a click. */
+	i32 (*radio_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*radio_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

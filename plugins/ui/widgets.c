@@ -45,6 +45,13 @@ enum {
 	UI_WD_PROGRESS = 15,
 };
 
+enum {
+	UI_BIND_NONE = 0,
+	UI_BIND_BOOL = 1,
+	UI_BIND_FLAGS = 2,
+	UI_BIND_RADIO = 3,
+};
+
 typedef struct ui_widget_data_t {
 	u32 kind;
 	sk_ui_widget_bool_fn on_bool;
@@ -60,6 +67,10 @@ typedef struct ui_widget_data_t {
 	i32 edge_clicked;
 	i32 edge_pressed;
 	i32 edge_released;
+	/* checkbox / radio (APX-341): bound caller scalar + flags mask / option */
+	i32* bound_i32;
+	i32 bound_kind;
+	i32 bound_arg;
 } ui_widget_data_t;
 
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -927,20 +938,136 @@ static sk_ui_node_t ui_widget_base(sk_ui_context_t* ctx, sk_ui_node_kind_t kind,
 /* Behavior handlers                                                          */
 /* -------------------------------------------------------------------------- */
 
+static i32 ui_checkbox_read_checked(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 checked = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "checked", &checked);
+	return checked != 0 ? 1 : 0;
+}
+
+static i32 ui_checkbox_read_mixed(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 mixed = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "mixed", &mixed);
+	return mixed != 0 ? 1 : 0;
+}
+
+static void ui_checkbox_set_visual(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked, i32 mixed) {
+	const sk_ui_api_t* ui = ui_wapi();
+	(void)ui->node_set_prop_i32(ctx, node, "checked", checked != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, node, "mixed", mixed != 0 ? 1 : 0);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+}
+
+static void ui_checkbox_visual_from_flags(sk_ui_context_t* ctx, sk_ui_node_t node, i32 flags, i32 mask) {
+	i32 bits;
+	if (mask == 0) {
+		ui_checkbox_set_visual(ctx, node, 0, 0);
+		return;
+	}
+	bits = flags & mask;
+	if (bits == mask) {
+		ui_checkbox_set_visual(ctx, node, 1, 0);
+	} else if (bits == 0) {
+		ui_checkbox_set_visual(ctx, node, 0, 0);
+	} else {
+		ui_checkbox_set_visual(ctx, node, 0, 1);
+	}
+}
+
+static void ui_checkbox_write_bind(ui_widget_data_t* wd, i32 checked) {
+	if (wd == NULL || wd->bound_i32 == NULL) {
+		return;
+	}
+	if (wd->bound_kind == UI_BIND_BOOL) {
+		*wd->bound_i32 = checked != 0 ? 1 : 0;
+	} else if (wd->bound_kind == UI_BIND_FLAGS) {
+		if (checked != 0) {
+			*wd->bound_i32 |= wd->bound_arg;
+		} else {
+			*wd->bound_i32 &= ~wd->bound_arg;
+		}
+	} else if (wd->bound_kind == UI_BIND_RADIO && checked != 0) {
+		*wd->bound_i32 = wd->bound_arg;
+	}
+}
+
+static void ui_checkbox_sync_one(sk_ui_context_t* ctx, sk_ui_node_t node, ui_widget_data_t* wd) {
+	if (wd == NULL || wd->bound_i32 == NULL || wd->bound_kind == UI_BIND_NONE) {
+		return;
+	}
+	if (wd->bound_kind == UI_BIND_BOOL) {
+		ui_checkbox_set_visual(ctx, node, *wd->bound_i32 != 0 ? 1 : 0, 0);
+	} else if (wd->bound_kind == UI_BIND_FLAGS) {
+		ui_checkbox_visual_from_flags(ctx, node, *wd->bound_i32, wd->bound_arg);
+	} else if (wd->bound_kind == UI_BIND_RADIO) {
+		ui_checkbox_set_visual(ctx, node, *wd->bound_i32 == wd->bound_arg ? 1 : 0, 0);
+	}
+}
+
+void ui_checkbox_radio_sync_all(sk_ui_context_t* ctx) {
+	u32 i;
+	if (ctx == NULL) {
+		return;
+	}
+	for (i = 1u; i < ctx->slots.count; ++i) {
+		ui_node_slot_t* slot = &ctx->slots.items[i];
+		ui_widget_data_t* wd;
+		sk_ui_node_t node;
+		if (slot->alive == 0u || slot->user_data == NULL) {
+			continue;
+		}
+		if (!SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_WIDGET_DATA_TYPE_ID)) {
+			continue;
+		}
+		wd = (ui_widget_data_t*)slot->user_data;
+		if (wd->kind != UI_WD_CHECKBOX && wd->kind != UI_WD_RADIO) {
+			continue;
+		}
+		node.index = i;
+		node.generation = slot->generation;
+		ui_checkbox_sync_one(ctx, node, wd);
+	}
+}
+
 static void ui_checkbox_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	const sk_ui_api_t* ui = ui_wapi();
-	i32 checked = 0;
 	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	i32 checked;
+	i32 mixed;
 	(void)event;
 	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
-	(void)ui_prop_i32_const(ui_slot(ctx, node), "checked", &checked);
-	checked = checked != 0 ? 0 : 1;
-	(void)ui->node_set_prop_i32(ctx, node, "checked", checked);
-	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
-	if (wd != NULL && wd->on_bool != NULL) {
-		wd->on_bool(ctx, node, checked, wd->cb_user);
+	if (wd != NULL && wd->bound_kind == UI_BIND_FLAGS && wd->bound_i32 != NULL) {
+		i32 mask = wd->bound_arg;
+		if (mask != 0 && (*wd->bound_i32 & mask) == mask) {
+			*wd->bound_i32 &= ~mask;
+		} else if (mask != 0) {
+			*wd->bound_i32 |= mask;
+		}
+		ui_checkbox_visual_from_flags(ctx, node, *wd->bound_i32, mask);
+	} else {
+		mixed = ui_checkbox_read_mixed(ctx, node);
+		if (mixed != 0) {
+			checked = 1;
+		} else {
+			checked = ui_checkbox_read_checked(ctx, node) != 0 ? 0 : 1;
+		}
+		ui_checkbox_set_visual(ctx, node, checked, 0);
+		ui_checkbox_write_bind(wd, checked);
+	}
+	if (wd != NULL) {
+		wd->edge_clicked = 1;
+		if (wd->on_bool != NULL) {
+			wd->on_bool(ctx, node, ui_checkbox_read_checked(ctx, node), wd->cb_user);
+		}
 	}
 }
 
@@ -984,16 +1111,27 @@ static void ui_radio_clear_sibling_peers(sk_ui_context_t* ctx, sk_ui_node_t node
 static void ui_radio_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	const sk_ui_api_t* ui = ui_wapi();
 	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	i32 already;
 	(void)event;
 	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
+	already = ui_checkbox_read_checked(ctx, node);
+	if (already != 0 && (wd == NULL || wd->bound_kind != UI_BIND_RADIO || wd->bound_i32 == NULL || *wd->bound_i32 == wd->bound_arg)) {
+		/* Already selected; re-click does not toggle off and is not a change. */
+		return;
+	}
 	/* Radio selects; does not toggle off on re-click. Group = sibling radios. */
 	ui_radio_clear_sibling_peers(ctx, node);
-	(void)ui->node_set_prop_i32(ctx, node, "checked", 1);
-	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
-	if (wd != NULL && wd->on_bool != NULL) {
-		wd->on_bool(ctx, node, 1, wd->cb_user);
+	ui_checkbox_set_visual(ctx, node, 1, 0);
+	if (wd != NULL && wd->bound_kind == UI_BIND_RADIO) {
+		ui_checkbox_write_bind(wd, 1);
+	}
+	if (wd != NULL) {
+		wd->edge_clicked = 1;
+		if (wd->on_bool != NULL) {
+			wd->on_bool(ctx, node, 1, wd->cb_user);
+		}
 	}
 }
 
@@ -1462,10 +1600,12 @@ sk_ui_node_t ui_widget_text_centered_impl(sk_ui_context_t* ctx, sk_ui_node_t par
 }
 
 /**
- * Split an ImGui-style label at `###`. Visible text is the prefix; the
- * suffix is a hidden id. No `###` → the whole string is visible.
+ * Split an ImGui-style label.
+ *   `###id` — visible prefix; suffix is a hidden id.
+ *   `##id` at start (not `###`) — no visible text; suffix after `##`.
+ *   otherwise the whole string is visible.
  */
-static void ui_button_split_label(const_chr_t label, char* visible, u32 vis_cap, const_chr_t* out_id_suffix) {
+static void ui_split_imgui_label(const_chr_t label, char* visible, u32 vis_cap, const_chr_t* out_id_suffix) {
 	const_chr_t hash;
 	u32 n;
 	if (visible != NULL && vis_cap > 0u) {
@@ -1478,6 +1618,13 @@ static void ui_button_split_label(const_chr_t label, char* visible, u32 vis_cap,
 		return;
 	}
 	hash = strstr(label, "###");
+	if (hash == NULL && label[0] == '#' && label[1] == '#' && label[2] != '#') {
+		/* `##id` — box only; hidden id is the suffix. */
+		if (out_id_suffix != NULL && label[2] != '\0') {
+			*out_id_suffix = label + 2;
+		}
+		return;
+	}
 	if (hash == NULL) {
 		if (visible != NULL && vis_cap > 0u) {
 			n = (u32)strlen(label);
@@ -1703,7 +1850,7 @@ static sk_ui_node_t ui_button_make(sk_ui_context_t* ctx, sk_ui_node_t parent, co
 	const_chr_t use_id = id;
 	sk_ui_node_t n;
 
-	ui_button_split_label(label, visible, (u32)sizeof(visible), &id_suffix);
+	ui_split_imgui_label(label, visible, (u32)sizeof(visible), &id_suffix);
 	if ((use_id == NULL || use_id[0] == '\0') && id_suffix != NULL && id_suffix[0] != '\0') {
 		use_id = id_suffix;
 	}
@@ -1783,6 +1930,9 @@ sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, 
 		return n;
 	}
 	(void)ui->node_set_prop_i32(ctx, n, "checked", checked != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, n, "mixed", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "labeled", 0);
+	(void)ui->node_set_prop_str(ctx, n, "text", "");
 	(void)ui->node_set_focusable(ctx, n, 1);
 	wd = ui_widget_data_ensure(ctx, n, UI_WD_CHECKBOX);
 	memset(&cbs, 0, sizeof(cbs));
@@ -1801,6 +1951,9 @@ sk_ui_node_t ui_widget_radio_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32
 		return n;
 	}
 	(void)ui->node_set_prop_i32(ctx, n, "checked", checked != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, n, "mixed", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "labeled", 0);
+	(void)ui->node_set_prop_str(ctx, n, "text", "");
 	(void)ui->node_set_focusable(ctx, n, 1);
 	wd = ui_widget_data_ensure(ctx, n, UI_WD_RADIO);
 	memset(&cbs, 0, sizeof(cbs));
@@ -2813,22 +2966,137 @@ i32 ui_button_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 dis
 	return ui->node_set_state(ctx, node, st);
 }
 
-i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked) {
-	i32 rc = ui_wapi()->node_set_prop_i32(ctx, node, "checked", checked != 0 ? 1 : 0);
-	if (rc == 0) {
-		ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+static sk_ui_node_t ui_checkbox_find_label_child(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 n = ui->node_child_count(ctx, node);
+	u32 i;
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t ch = ui->node_child_at(ctx, node, i);
+		const_chr_t w;
+		const ui_node_slot_t* cs = ui_slot(ctx, ch);
+		if (cs == NULL) {
+			continue;
+		}
+		w = ui_prop_str_const(cs, "widget");
+		if (w != NULL && strcmp(w, "label") == 0) {
+			return ch;
+		}
+		if ((sk_ui_node_kind_t)cs->kind == SK_UI_NODE_KIND_TEXT) {
+			return ch;
+		}
 	}
-	return rc;
+	return SK_UI_NODE_INVALID;
+}
+
+static void ui_checkbox_apply_box_layout(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	(void)ui->node_set_inline_style(ctx, node, &p);
+	(void)ui->node_set_prop_i32(ctx, node, "labeled", 0);
+}
+
+static void ui_checkbox_apply_labeled_layout(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	/* Keep class face/border colours so the 18px mark paints a light box + X.
+	 * skip_box_chrome on labeled nodes so the row itself stays transparent. */
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_FLEX_DIRECTION |
+			 SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_PADDING | SK_UI_SP_COLUMN_GAP | SK_UI_SP_BORDER_WIDTH;
+	p.layout.width = sk_ui_auto();
+	p.layout.height = sk_ui_auto();
+	p.layout.min_width = sk_ui_auto();
+	p.layout.min_height = sk_ui_pt(18.0f);
+	p.layout.max_width = sk_ui_auto();
+	p.layout.max_height = sk_ui_auto();
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.align_items = SK_UI_ALIGN_CENTER;
+	p.layout.padding.left = 22.0f;
+	p.layout.padding.top = 1.0f;
+	p.layout.padding.right = 6.0f;
+	p.layout.padding.bottom = 1.0f;
+	p.layout.column_gap = 4.0f;
+	p.layout.border.left = 0.0f;
+	p.layout.border.top = 0.0f;
+	p.layout.border.right = 0.0f;
+	p.layout.border.bottom = 0.0f;
+	(void)ui->node_set_inline_style(ctx, node, &p);
+	(void)ui->node_set_prop_i32(ctx, node, "labeled", 1);
+}
+
+static i32 ui_checkbox_apply_label(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label) {
+	const sk_ui_api_t* ui = ui_wapi();
+	char visible[256];
+	const_chr_t id_suffix = NULL;
+	sk_ui_node_t child;
+
+	ui_split_imgui_label(label, visible, (u32)sizeof(visible), &id_suffix);
+	(void)ui->node_set_prop_str(ctx, node, "text", visible);
+	child = ui_checkbox_find_label_child(ctx, node);
+	if (visible[0] == '\0') {
+		if (sk_ui_node_is_valid(child)) {
+			(void)ui->node_destroy(ctx, child);
+		}
+		ui_checkbox_apply_box_layout(ctx, node);
+		return 0;
+	}
+	ui_checkbox_apply_labeled_layout(ctx, node);
+	if (!sk_ui_node_is_valid(child)) {
+		child = ui->widget_label(ctx, node, visible, NULL);
+		if (!sk_ui_node_is_valid(child)) {
+			return -1;
+		}
+		(void)ui->node_set_pointer_events(ctx, child, SK_UI_POINTER_EVENTS_NONE);
+		(void)ui->label_set_wrap(ctx, child, 0);
+	} else {
+		(void)ui->label_set_text(ctx, child, visible);
+		(void)ui->label_set_wrap(ctx, child, 0);
+	}
+	return 0;
+}
+
+static i32 ui_widget_set_disabled(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 st;
+	sk_ui_node_t child;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	st = ui->node_get_state(ctx, node);
+	if (disabled) {
+		st |= (u32)SK_UI_STATE_DISABLED;
+	} else {
+		st &= ~(u32)SK_UI_STATE_DISABLED;
+	}
+	if (ui->node_set_state(ctx, node, st) != 0) {
+		return -1;
+	}
+	child = ui_checkbox_find_label_child(ctx, node);
+	if (sk_ui_node_is_valid(child)) {
+		u32 cst = ui->node_get_state(ctx, child);
+		if (disabled) {
+			cst |= (u32)SK_UI_STATE_DISABLED;
+		} else {
+			cst &= ~(u32)SK_UI_STATE_DISABLED;
+		}
+		(void)ui->node_set_state(ctx, child, cst);
+	}
+	return 0;
+}
+
+i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	ui_checkbox_set_visual(ctx, node, checked != 0 ? 1 : 0, 0);
+	ui_checkbox_write_bind(wd, checked != 0 ? 1 : 0);
+	return 0;
 }
 
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
-	const ui_node_slot_t* slot = ui_slot(ctx, node);
-	i32 checked = 0;
-	if (slot == NULL) {
+	if (ui_checkbox_read_mixed(ctx, node) != 0) {
 		return 0;
 	}
-	(void)ui_prop_i32_const(slot, "checked", &checked);
-	return checked != 0 ? 1 : 0;
+	return ui_checkbox_read_checked(ctx, node);
 }
 
 i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user) {
@@ -2841,22 +3109,95 @@ i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 	return 0;
 }
 
-i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked) {
-	i32 rc = ui_wapi()->node_set_prop_i32(ctx, node, "checked", checked != 0 ? 1 : 0);
-	if (rc == 0) {
-		ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+i32 ui_checkbox_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label) {
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
 	}
-	return rc;
+	return ui_checkbox_apply_label(ctx, node, label);
+}
+
+const_chr_t ui_checkbox_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t text;
+	if (slot == NULL) {
+		return "";
+	}
+	text = ui_prop_str_const(slot, "text");
+	return text != NULL ? text : "";
+}
+
+i32 ui_checkbox_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_CHECKBOX);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->bound_i32 = value;
+	wd->bound_kind = value != NULL ? UI_BIND_BOOL : UI_BIND_NONE;
+	wd->bound_arg = 0;
+	if (value != NULL) {
+		ui_checkbox_sync_one(ctx, node, wd);
+	}
+	return 0;
+}
+
+i32 ui_checkbox_bind_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* flags, i32 flags_value) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_CHECKBOX);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->bound_i32 = flags;
+	wd->bound_kind = flags != NULL ? UI_BIND_FLAGS : UI_BIND_NONE;
+	wd->bound_arg = flags_value;
+	if (flags != NULL) {
+		ui_checkbox_sync_one(ctx, node, wd);
+	}
+	return 0;
+}
+
+i32 ui_checkbox_set_mixed_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 mixed) {
+	i32 checked = ui_checkbox_read_checked(ctx, node);
+	if (mixed != 0) {
+		checked = 0;
+	}
+	ui_checkbox_set_visual(ctx, node, checked, mixed != 0 ? 1 : 0);
+	return 0;
+}
+
+i32 ui_checkbox_get_mixed_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_checkbox_read_mixed(ctx, node);
+}
+
+i32 ui_checkbox_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_clicked != 0 ? 1 : 0;
+	wd->edge_clicked = 0;
+	return v;
+}
+
+i32 ui_checkbox_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	return ui_widget_set_disabled(ctx, node, disabled);
+}
+
+i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	if (checked != 0) {
+		ui_radio_clear_sibling_peers(ctx, node);
+		ui_checkbox_set_visual(ctx, node, 1, 0);
+		if (wd != NULL && wd->bound_kind == UI_BIND_RADIO) {
+			ui_checkbox_write_bind(wd, 1);
+		}
+	} else {
+		ui_checkbox_set_visual(ctx, node, 0, 0);
+	}
+	return 0;
 }
 
 i32 ui_radio_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
-	const ui_node_slot_t* slot = ui_slot(ctx, node);
-	i32 checked = 0;
-	if (slot == NULL) {
-		return 0;
-	}
-	(void)ui_prop_i32_const(slot, "checked", &checked);
-	return checked != 0 ? 1 : 0;
+	return ui_checkbox_read_checked(ctx, node);
 }
 
 i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user) {
@@ -2867,6 +3208,39 @@ i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_w
 	wd->on_bool = fn;
 	wd->cb_user = user;
 	return 0;
+}
+
+i32 ui_radio_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label) {
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	return ui_checkbox_apply_label(ctx, node, label);
+}
+
+const_chr_t ui_radio_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_checkbox_get_label_impl(ctx, node);
+}
+
+i32 ui_radio_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value, i32 option) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_RADIO);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->bound_i32 = value;
+	wd->bound_kind = value != NULL ? UI_BIND_RADIO : UI_BIND_NONE;
+	wd->bound_arg = option;
+	if (value != NULL) {
+		ui_checkbox_sync_one(ctx, node, wd);
+	}
+	return 0;
+}
+
+i32 ui_radio_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_checkbox_changed_impl(ctx, node);
+}
+
+i32 ui_radio_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	return ui_widget_set_disabled(ctx, node, disabled);
 }
 
 i32 ui_toggle_set_on_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on) {
@@ -4299,6 +4673,209 @@ SK_TEST(ui_widget_checkbox_toggle_and_callback) {
 	TEST_ASSERT_EQUAL_INT(1, g_bool_cb_value);
 	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_checked(ctx, cb, 0));
 	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_checkbox_bind_flags_mixed_disabled) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t cb;
+	sk_ui_node_t hidden;
+	sk_ui_node_t dis;
+	i32 bound = 0;
+	i32 flags = 0x1; /* bit 0 set, bit 1 clear → mixed for mask 0x3 */
+	sk_ui_input_event_t ev;
+
+	cb = ui->widget_checkbox(ctx, root, 0, "cb-bind");
+	wtest_set_size(ui, ctx, cb, 18.0f, 18.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_bind(ctx, cb, &bound));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_changed(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_label(ctx, cb, "Trace"));
+	TEST_ASSERT_EQUAL_STRING("Trace", ui->checkbox_get_label(ctx, cb));
+	/* ## label is box-only. */
+	hidden = ui->widget_checkbox(ctx, root, 0, "cb-hid");
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_label(ctx, hidden, "##v"));
+	TEST_ASSERT_EQUAL_STRING("", ui->checkbox_get_label(ctx, hidden));
+
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.x = 9.0f;
+	ev.y = 9.0f;
+	ev.button = SK_UI_POINTER_BUTTON_LEFT;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(1, bound);
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_changed(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_changed(ctx, cb)); /* consume-on-read */
+
+	/* Toggle back writes 0. */
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, bound);
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_changed(ctx, cb));
+
+	/* External mutation is pulled on style_resolve. */
+	bound = 1;
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_changed(ctx, cb));
+
+	/* Flags: mixed when some but not all bits are set. */
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_bind_flags(ctx, cb, &flags, 0x3));
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_get_mixed(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+	/* Click mixed → set all bits. */
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(0x3, flags);
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_mixed(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_changed(ctx, cb));
+	/* Click checked flags → clear all bits. */
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(0, flags);
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_mixed(ctx, cb));
+
+	/* Programmatic mixed (no flags bind). */
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_bind(ctx, cb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_mixed(ctx, cb, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->checkbox_get_mixed(ctx, cb));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, cb));
+
+	/* Disabled: no toggle, no changed. */
+	dis = ui->widget_checkbox(ctx, root, 0, "cb-dis");
+	wtest_set_size(ui, ctx, dis, 18.0f, 18.0f);
+	{
+		sk_ui_layout_style_t ls;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, dis, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(80.0f);
+		ls.top = sk_ui_pt(0.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, dis, &ls));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_disabled(ctx, dis, 1));
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	ev.x = 89.0f;
+	ev.y = 9.0f;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_get_checked(ctx, dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_changed(ctx, dis));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_radio_group_exclusivity_and_bind) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t group;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	i32 mode = 0;
+	sk_ui_input_event_t ev;
+	sk_ui_layout_style_t ls;
+
+	group = ui->widget_view(ctx, root, "rg");
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, group, &ls));
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, group, &ls));
+	a = ui->widget_radio(ctx, group, 1, "rd-a");
+	b = ui->widget_radio(ctx, group, 0, "rd-b");
+	c = ui->widget_radio(ctx, group, 0, "rd-c");
+	wtest_set_size(ui, ctx, a, 18.0f, 18.0f);
+	wtest_set_size(ui, ctx, b, 18.0f, 18.0f);
+	wtest_set_size(ui, ctx, c, 18.0f, 18.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_set_label(ctx, a, "Move"));
+	TEST_ASSERT_EQUAL_STRING("Move", ui->radio_get_label(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_bind(ctx, a, &mode, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_bind(ctx, b, &mode, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_bind(ctx, c, &mode, 2));
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_get_checked(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, b));
+	wtest_layout(ui, ctx, 120.0f, 80.0f);
+
+	/* Click B: A clears, B selected, bound value = 1, changed once. */
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, b, &r, NULL));
+		memset(&ev, 0, sizeof(ev));
+		ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+		ev.x = r.x + r.width * 0.5f;
+		ev.y = r.y + r.height * 0.5f;
+		ev.button = SK_UI_POINTER_BUTTON_LEFT;
+		ev.down = 1;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		ev.down = 0;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, a));
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_get_checked(ctx, b));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, c));
+	TEST_ASSERT_EQUAL_INT(1, mode);
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_changed(ctx, b));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_changed(ctx, b));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_changed(ctx, a));
+
+	/* Re-click selected: no change. */
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, b, &r, NULL));
+		ev.x = r.x + r.width * 0.5f;
+		ev.y = r.y + r.height * 0.5f;
+		ev.down = 1;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		ev.down = 0;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	}
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_get_checked(ctx, b));
+	TEST_ASSERT_EQUAL_INT(1, mode);
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_changed(ctx, b));
+
+	/* External mutation reflected next frame. */
+	mode = 2;
+	wtest_layout(ui, ctx, 120.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, a));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, b));
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_get_checked(ctx, c));
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_changed(ctx, c));
+
+	/* Disabled radio ignores click. */
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_set_disabled(ctx, a, 1));
+	wtest_layout(ui, ctx, 120.0f, 80.0f);
+	{
+		sk_ui_rect_t r;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, a, &r, NULL));
+		ev.x = r.x + r.width * 0.5f;
+		ev.y = r.y + r.height * 0.5f;
+		ev.down = 1;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+		ev.down = 0;
+		TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_get_checked(ctx, a));
+	TEST_ASSERT_EQUAL_INT(1, ui->radio_get_checked(ctx, c));
+	TEST_ASSERT_EQUAL_INT(2, mode);
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_changed(ctx, a));
+
 	ui->context_destroy(ctx);
 }
 

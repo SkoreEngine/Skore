@@ -263,11 +263,26 @@ grid owned by the settings object; bind cells, do not invent a radio group.
 **Not used:** `RadioButton(label, bool)` and `RadioButton(label, int*, int)`.
 sk-ui `widget_radio` / `widget_toggle` are **not** editor-ImGui requirements.
 
-**sk-ui today:** `widget_checkbox` (Console port).
+**sk-ui today:** `widget_checkbox` (Console port) plus bind / flags / radio.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- Toggle writes a caller `i32*` (`checkbox_bind`); `checkbox_changed` is
+  consume-on-read and true once per value-changing click (ImGui return).
+- `checkbox_bind_flags` implements CheckboxFlags: set / clear the mask,
+  mixed/indeterminate when some but not all bits are set.
+- `widget_radio` siblings under the same parent are exclusive. `radio_bind`
+  is the `RadioButton(label, int*, int)` form. Editor does not call Radio
+  or CheckboxFlags today; both are covered because the three checks require
+  them.
+- Empty / `##` label is box-only; a visible label sits on the same item.
+
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_checkbox_toggle_and_callback`,
+  `ui_widget_checkbox_bind_flags_mixed_disabled`,
+  `ui_widget_radio_group_exclusivity_and_bind`)
+- [x] Headless UI automation — `plugins/ui/checkbox_radio_tests.c`
+  (`ui_author_checkbox_radio_toggle_bind_group_and_external`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget checkbox`,
+  `radio`, `radio_group`; states default/hovered/disabled/checked/mixed)
 
 ---
 

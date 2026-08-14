@@ -616,10 +616,26 @@ i32 ui_text_centered_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk
 i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+i32 ui_checkbox_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+const_chr_t ui_checkbox_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_checkbox_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value);
+i32 ui_checkbox_bind_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* flags, i32 flags_value);
+i32 ui_checkbox_set_mixed_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 mixed);
+i32 ui_checkbox_get_mixed_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_checkbox_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_checkbox_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
 
 i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
 i32 ui_radio_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+i32 ui_radio_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+const_chr_t ui_radio_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_radio_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value, i32 option);
+i32 ui_radio_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_radio_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+/** Pull bound checkbox/radio pointers before style/layout (style_resolve). */
+void ui_checkbox_radio_sync_all(sk_ui_context_t* ctx);
 
 i32 ui_toggle_set_on_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
 i32 ui_toggle_get_on_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);

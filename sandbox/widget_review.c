@@ -20,6 +20,8 @@ typedef enum sandbox_widget_state_t {
 	SANDBOX_WS_PRESSED,
 	SANDBOX_WS_DISABLED,
 	SANDBOX_WS_FOCUSED,
+	SANDBOX_WS_CHECKED,
+	SANDBOX_WS_MIXED,
 	SANDBOX_WS_COUNT
 } sandbox_widget_state_t;
 
@@ -28,7 +30,11 @@ typedef enum sandbox_widget_state_t {
 #define SANDBOX_WS_BIT_PRESSED (1u << SANDBOX_WS_PRESSED)
 #define SANDBOX_WS_BIT_DISABLED (1u << SANDBOX_WS_DISABLED)
 #define SANDBOX_WS_BIT_FOCUSED (1u << SANDBOX_WS_FOCUSED)
+#define SANDBOX_WS_BIT_CHECKED (1u << SANDBOX_WS_CHECKED)
+#define SANDBOX_WS_BIT_MIXED (1u << SANDBOX_WS_MIXED)
 #define SANDBOX_WS_BITS_INTERACTIVE (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_PRESSED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED)
+#define SANDBOX_WS_BITS_CHECKBOX (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_CHECKED | SANDBOX_WS_BIT_MIXED)
+#define SANDBOX_WS_BITS_RADIO (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_CHECKED)
 
 typedef i32 (*sandbox_widget_build_fn)(const sandbox_widget_host_t* host, sk_ui_node_t* out_target);
 
@@ -54,6 +60,10 @@ static const_chr_t sandbox_ws_name(sandbox_widget_state_t st) {
 		return "disabled";
 	case SANDBOX_WS_FOCUSED:
 		return "focused";
+	case SANDBOX_WS_CHECKED:
+		return "checked";
+	case SANDBOX_WS_MIXED:
+		return "mixed";
 	case SANDBOX_WS_COUNT:
 	default:
 		return "unknown";
@@ -302,6 +312,76 @@ static i32 sandbox_widget_build_bullet_text(const sandbox_widget_host_t* host, s
 	return 0;
 }
 
+/* ---- checkbox / radio (APX-341) ---- */
+
+static i32 sandbox_widget_build_checkbox(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* ConsoleWindow: Checkbox("Trace", &v) — box + label on the same item. */
+	n = ui->widget_checkbox(host->ctx, root, 0, "review-checkbox");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_checkbox failed\n");
+		return -1;
+	}
+	(void)ui->checkbox_set_label(host->ctx, n, "Trace");
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_radio(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	n = ui->widget_radio(host->ctx, root, 0, "review-radio");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_radio failed\n");
+		return -1;
+	}
+	(void)ui->radio_set_label(host->ctx, n, "Smooth Camera");
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_radio_group(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t group;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_stage(host);
+	group = ui->widget_view(host->ctx, root, "review-radio-group");
+	if (!sk_ui_node_is_valid(group)) {
+		fprintf(stderr, "sk-sandbox: radio group view failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP;
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+	p.layout.row_gap = 8.0f;
+	(void)ui->node_merge_inline_style(host->ctx, group, &p);
+	a = ui->widget_radio(host->ctx, group, 1, "review-radio-a");
+	b = ui->widget_radio(host->ctx, group, 0, "review-radio-b");
+	c = ui->widget_radio(host->ctx, group, 0, "review-radio-c");
+	if (!sk_ui_node_is_valid(a) || !sk_ui_node_is_valid(b) || !sk_ui_node_is_valid(c)) {
+		fprintf(stderr, "sk-sandbox: widget_radio (group) failed\n");
+		return -1;
+	}
+	(void)ui->radio_set_label(host->ctx, a, "Move");
+	(void)ui->radio_set_label(host->ctx, b, "Rotate");
+	(void)ui->radio_set_label(host->ctx, c, "Scale");
+	*out_target = group;
+	return 0;
+}
+
 static i32 sandbox_widget_build_separator_text(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
 	const sk_ui_api_t* ui = host->ui;
 	sk_ui_node_t root = ui->context_root(host->ctx);
@@ -331,7 +411,9 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"text_wrapped", "wrapped", "§3 TextWrapped", SANDBOX_WS_BIT_DEFAULT, 320u, 160u, sandbox_widget_build_text_wrapped},
 	{"bullet_text", "bullet", "§3 BulletText", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, sandbox_widget_build_bullet_text},
 	{"separator_text", "separatortext", "§3 SeparatorText", SANDBOX_WS_BIT_DEFAULT, 360u, 96u, sandbox_widget_build_separator_text},
-	{"checkbox", NULL, "§4 Checkbox", SANDBOX_WS_BITS_INTERACTIVE, 256u, 128u, NULL},
+	{"checkbox", NULL, "§4 Checkbox", SANDBOX_WS_BITS_CHECKBOX, 320u, 96u, sandbox_widget_build_checkbox},
+	{"radio", NULL, "§4 RadioButton", SANDBOX_WS_BITS_RADIO, 320u, 96u, sandbox_widget_build_radio},
+	{"radio_group", "radiogroup", "§4 Radio group", SANDBOX_WS_BIT_DEFAULT, 320u, 160u, sandbox_widget_build_radio_group},
 	{"text_input", "input", "§5 InputText", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
 	{"slider", NULL, "§6 Slider / Drag", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
 	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
@@ -394,7 +476,7 @@ void sandbox_widget_list(void) {
 	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");
-	printf("         separatortext=separator_text\n");
+	printf("         separatortext=separator_text radiogroup=radio_group\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -431,6 +513,9 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	if (ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_NONE) != 0) {
 		return -1;
 	}
+	/* Clear leftover disabled on the node + label child from a prior frame. */
+	(void)ui->checkbox_set_disabled(host->ctx, node, 0);
+	(void)ui->radio_set_disabled(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -439,12 +524,22 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	case SANDBOX_WS_PRESSED:
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_ACTIVE);
 	case SANDBOX_WS_DISABLED:
+		(void)ui->checkbox_set_disabled(host->ctx, node, 1);
+		(void)ui->radio_set_disabled(host->ctx, node, 1);
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_DISABLED);
 	case SANDBOX_WS_FOCUSED:
 		if (ui->focus_set(host->ctx, node) == 0) {
 			return 0;
 		}
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_FOCUSED);
+	case SANDBOX_WS_CHECKED:
+		(void)ui->checkbox_set_mixed(host->ctx, node, 0);
+		(void)ui->checkbox_set_checked(host->ctx, node, 1);
+		(void)ui->radio_set_checked(host->ctx, node, 1);
+		return 0;
+	case SANDBOX_WS_MIXED:
+		(void)ui->checkbox_set_mixed(host->ctx, node, 1);
+		return 0;
 	case SANDBOX_WS_COUNT:
 	default:
 		return -1;
@@ -509,7 +604,7 @@ i32 sandbox_widget_run(const sandbox_widget_host_t* host, const_chr_t name, cons
 	}
 	if (state_filter != NULL && state_filter[0] != '\0' && strcmp(state_filter, "all") != 0) {
 		if (sandbox_ws_parse(state_filter, &only) != 0) {
-			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|all)\n", state_filter);
+			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|all)\n", state_filter);
 			return -1;
 		}
 		if ((d->states & (1u << (u32)only)) == 0u) {
