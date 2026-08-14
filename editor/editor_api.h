@@ -21,11 +21,14 @@
  * free functions declared in project.h / editor_ui_host.h / console_panel.h /
  * imgui_shell.h are the internal wiring the table points at.
  *
- * Window/workspace scaffolding (APX-329) is on the table: window impls and
- * workspace types register via app_api->add_impl and the entries below
+ * Window/workspace scaffolding (APX-329/330) is on the table: window impls
+ * and workspace types register via app_api->add_impl and the entries below
  * create/destroy/switch/list workspaces, open/close/iterate windows by
- * type_id, and init/reset dockspaces. The 14 concrete editor windows land in
- * a later task; sk_editor_window_t (editor_window.h) is their contract.
+ * type_id, and init/reset dockspaces. The 14 main editor windows register
+ * as static sk_editor_window_t impls (main_windows.h/c); dockspace
+ * init/reset project the default layout onto a workspace-owned sk-ui
+ * dockspace and the window registry wires chrome close/undock/redock/tab
+ * ops through the sk-ui dock APIs (editor_window.h).
  */
 
 #include "app.h"
@@ -200,6 +203,9 @@ typedef struct sk_editor_api_t {
 
 	/** @see sk_editor_workspace_active */
 	sk_editor_workspace_t* (*workspace_active)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/** @see sk_editor_workspace_dock_context */
+	sk_ui_context_t* (*workspace_dock_context)(const sk_editor_workspace_t* workspace);
 
 	/* ---- windows (APX-329 scaffolding) ---- */
 

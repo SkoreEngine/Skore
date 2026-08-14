@@ -2,7 +2,7 @@
 
 /**
  * @file editor_window.h
- * @brief Editor window + workspace scaffolding (APX-329).
+ * @brief Editor window + workspace scaffolding (APX-329 / APX-330).
  *
  * EditorWindow is a classic struct-with-function-pointers table (a
  * multi-instance FP bag, not a global `sk_*_api_t`) that mirrors the main
@@ -13,9 +13,14 @@
  * `app_api->get_all_impls`. Workspace types are plain descriptors that
  * register the same way under SK_EDITOR_WORKSPACE_IMPL_TYPE_ID.
  *
- * The 14 concrete editor windows land in a later task; this module defines
- * the contract, the workspace/window registry, and the dockspace layout
- * scaffolding the real windows will plug into.
+ * APX-330 scaffolds the 14 main editor windows (main_windows.h/c): one
+ * `add_impl sk_editor_window_t` per window with title + dock metadata only
+ * (empty Draw). Dockspace init/reset additionally project the default
+ * layout onto a sk-ui dockspace (main InitDockSpace splits: center/left/
+ * right-top/right-bottom/bottom-left/bottom-right) and the window registry
+ * wires chrome close/undock/redock/tab ops through the sk-ui dock APIs
+ * (dock_tab_close / dock_window_to_node / dock_window_undock /
+ * dock_tab_reorder / dock_set_tab_callback).
  *
  * Host-facing surface (APX-328/329): the functions below are the internal
  * wiring behind sk_editor_api_t. Hosts and tests resolve the editor only via
@@ -47,15 +52,28 @@ extern "C" {
 /** Single-bit mask for one workspace type in a window's workspace_mask. */
 #define SK_EDITOR_WORKSPACE_MASK(_workspace_id) (1u << ((_workspace_id) - 1u))
 
-/** Default dock slot a window asks for when its dockspace is initialized/reset. */
+/**
+ * Default dock slot a window asks for when its dockspace is initialized/reset.
+ *
+ * Zone names match the main InitDockSpace splits (APX-330): the dock model
+ * of a workspace splits into a bottom strip (BOTTOM_LEFT | BOTTOM_RIGHT), a
+ * LEFT column, a CENTER leaf, and a right column split into RIGHT_TOP /
+ * RIGHT_BOTTOM. SK_EDITOR_DOCK_NONE windows (menu-opened, e.g. Packages /
+ * Settings) and on-demand windows (e.g. ResourceDebugger) are never opened
+ * by dockspace init; they appear only when opened explicitly.
+ */
 typedef enum sk_editor_dock_position_t {
 	SK_EDITOR_DOCK_NONE = 0,
 	SK_EDITOR_DOCK_LEFT = 1,
 	SK_EDITOR_DOCK_RIGHT = 2,
 	SK_EDITOR_DOCK_TOP = 3,
 	SK_EDITOR_DOCK_BOTTOM = 4,
-	SK_EDITOR_DOCK_FILL = 5,
+	SK_EDITOR_DOCK_FILL = 5, /* center leaf */
 	SK_EDITOR_DOCK_FLOATING = 6,
+	SK_EDITOR_DOCK_RIGHT_TOP = 7,
+	SK_EDITOR_DOCK_RIGHT_BOTTOM = 8,
+	SK_EDITOR_DOCK_BOTTOM_LEFT = 9,
+	SK_EDITOR_DOCK_BOTTOM_RIGHT = 10,
 } sk_editor_dock_position_t;
 
 /**
@@ -101,6 +119,10 @@ typedef struct sk_editor_window_t {
 
 	/** Display title shown on the dock tab / title bar. Borrowed. */
 	const_chr_t title;
+
+	/** Stable sk-ui dock window id (node id) used by the dock chrome and the
+	 *  tab close/undock/redock APIs. Borrowed, process-lifetime. */
+	const_chr_t dock_id;
 
 	/** Default dock slot requested by dockspace init/reset (sk_editor_dock_position_t). */
 	i32 dock_position;
@@ -200,15 +222,34 @@ u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* 
  * impls whose workspace_mask admits the workspace's type: the default dock
  * layout (type/dock position/order slots) is recorded and one instance of
  * each matching window is opened (deduped by type_id). Idempotent.
+ *
+ * When the sk-ui API is registered on the workspace's app context (editor
+ * host, or tests that loaded the ui plugin), init also projects the default
+ * layout onto a workspace-owned sk-ui dockspace: it creates a UI context,
+ * splits it into the main InitDockSpace zones (center/left/right-top/
+ * right-bottom/bottom-left/bottom-right), creates the editor-window chrome
+ * for each default window, docks them tab-ordered by `order`, and installs
+ * the tab close callback (close/undock/redock/reorder stay live through the
+ * sk-ui dock chrome).
  */
 void sk_editor_dockspace_init(sk_editor_workspace_t* workspace);
 
 /**
  * Reset the dockspace layout of @p workspace to the same default derived by
  * sk_editor_dockspace_init (restores defaults after future runtime dock
- * mutations; open windows are left as-is).
+ * mutations; open windows are left as-is). Rebuilds the sk-ui dockspace
+ * model when one exists.
  */
 void sk_editor_dockspace_reset(sk_editor_workspace_t* workspace);
+
+/**
+ * sk-ui context backing @p workspace's dockspace, or NULL before
+ * sk_editor_dockspace_init (or when no ui API is registered on the app
+ * context). The dockspace is named `sk.editor.dock.ws<type_id>` on this
+ * context; dock queries (dock_find_node_for_window, dock_leaf_tabs, ...)
+ * run against it.
+ */
+struct sk_ui_context_t* sk_editor_workspace_dock_context(const sk_editor_workspace_t* workspace);
 
 #ifdef __cplusplus
 }

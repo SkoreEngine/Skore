@@ -17,6 +17,7 @@
 #include "editor_api.h"
 #include "editor_ui_host.h"
 #include "logger.h"
+#include "main_windows.h"
 #include "platform_window.h"
 #include "project.h"
 #include "repository.h"
@@ -237,6 +238,8 @@ int main(int argc, char* argv[]) {
 	sk_editor_bind_tables(app, app_api);
 	/* APX-329: register the four built-in workspace types (Scene/Graph/Animator/Material). */
 	sk_editor_workspace_register_impls(app, app_api);
+	/* APX-330: register the 14 main editor windows (titles + dock metadata, empty Draw). */
+	sk_editor_windows_register_impls(app, app_api);
 	editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
 
 	logger_api = app_api->logger_api(app);

@@ -69,6 +69,7 @@ static const sk_editor_api_t editor_api = {
 	sk_editor_workspace_switch,
 	sk_editor_workspace_list,
 	sk_editor_workspace_active,
+	sk_editor_workspace_dock_context,
 	sk_editor_window_open,
 	sk_editor_window_close,
 	sk_editor_window_by_type,
