@@ -1324,12 +1324,21 @@ springs).
 - Horizontal packing with optional x-offset and gap override.
 - Vertical spacer (`Spacing` / `Dummy`).
 
-**sk-ui today:** flex gap / dummy boxes. No dedicated separator widget
-(menu already draws separators).
+**sk-ui today:** `widget_separator` (ImGui Separator; horizontal rule that
+renders VERTICAL when the parent is a horizontal layout / menu bar or a
+SameLine was issued immediately before it, `separator_get_vertical`), `widget_spacing` (fixed-height `SK_UI_SPACING_DEFAULT` spacer), `widget_dummy`
+(explicit-size chrome-less box, zero on an axis legal), `widget_same_line`
+(positional command: `(0, -1)` default gap, `(0, 0)` tight icon buttons,
+`(0, gap)` override, `(offset, -1)` absolute row alignment). Menu separators
+(`widget_menu_separator`) stay on the menu family.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_separator_family_orientation_and_extents`)
+- [x] Headless UI automation — `plugins/ui/separator_layout_family_tests.c`
+  (`ui_author_separator_layout_family_toolbar_and_matrix_packing`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget separator`;
+  menu bar + ConsoleWindow-style toolbar + collision-matrix rows,
+  spacing/dummy lanes; state default)
 
 ---
 
