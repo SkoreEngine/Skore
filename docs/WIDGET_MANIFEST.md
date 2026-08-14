@@ -73,7 +73,7 @@ multiline, hint/search, read-only, InputScalar / InputFloat / InputFloat3),
 scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
 editor_window. Missing factories that this audit makes load-bearing:
-**drag-drop payload**, **color picker**. Tooltip (APX-354) now has a factory.
+**drag-drop payload**. Color picker (APX-357) now has a factory. Tooltip (APX-354) now has a factory.
 Combo that binds an
 int + zero-separated items (APX-353) now has factories. Tree (APX-350) and
 table (APX-351) now have factories.
@@ -1099,11 +1099,19 @@ Commit via `IsItemDeactivatedAfterEdit`.
 
 **Not used:** `ColorEdit4`, `ColorPicker3`, `SetColorEditOptions`.
 
-**sk-ui today:** no color factory.
+**sk-ui today:** `widget_color_button` (property-column swatch, §12 popup_menu +
+ColorPicker4), `widget_color_picker4` (SV square, hue bar, alpha bar,
+half-alpha preview), `widget_color_edit3` (compact float[3]), and
+`widget_color_swatch` (14×14 NoPicker|NoTooltip). Bind `float*` / `Color*`.
+Commit via consume-on-read changed + deactivate-after-edit.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/color.c`
+  (`ui_color_rgb_hsv_roundtrip`,
+  `ui_color_alpha_bind_writeback_changed_committed_clamp_swatch`)
+- [x] Headless UI automation — `plugins/ui/color_family_tests.c`
+  (`ui_author_color_family_open_drag_type_close`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget color`,
+  `color_picker`, `color_edit3`, `color_swatch`; states default/hovered/focused/open)
 
 ---
 

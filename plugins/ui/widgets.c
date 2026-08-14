@@ -141,6 +141,10 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 		ui_tooltip_release_user_data(ctx, slot);
 		return;
 	}
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_COLOR_DATA_TYPE_ID)) {
+		ui_color_release_user_data(ctx, slot);
+		return;
+	}
 	ui_item_bind_release_user_data(ctx, slot);
 }
 
@@ -1699,7 +1703,108 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
+	/* Color family (APX-357): chrome only; paint draws the swatch / picker. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.38f, 0.40f, 0.46f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	base.layout.height = sk_ui_pt(SK_UI_COLOR_BUTTON_HEIGHT);
+	base.layout.min_width = sk_ui_pt(40.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_BUTTON, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BORDER_COLOR;
+	var.border_color = sk_ui_rgba(0.62f, 0.72f, 0.95f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLOR_BUTTON, SK_UI_STATE_HOVER, &var);
+	var.border_color = sk_ui_rgba(0.35f, 0.55f, 0.90f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLOR_BUTTON, SK_UI_STATE_FOCUSED, &var);
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.32f, 0.34f, 0.38f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.layout.width = sk_ui_pt(SK_UI_COLOR_SWATCH_SIZE);
+	base.layout.height = sk_ui_pt(SK_UI_COLOR_SWATCH_SIZE);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_SWATCH, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_HEIGHT;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.column_gap = 4.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.layout.height = sk_ui_pt(SK_UI_COLOR_BUTTON_HEIGHT);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_EDIT, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ROW_GAP | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.row_gap = 8.0f;
+	base.layout.padding.left = 8.0f;
+	base.layout.padding.top = 8.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.bottom = 8.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_PICKER, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.20f, 0.21f, 0.24f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_SV, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_HUE, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_ALPHA, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLOR_PREVIEW, &base) != 0) {
+		return -1;
+	}
+
 	/* Drag-drop preview: same floating card as tooltip (payload label). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
+				SK_UI_SP_POSITION | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.12f, 0.13f, 0.16f, 0.96f);
+	base.border_color = sk_ui_rgba(0.42f, 0.44f, 0.50f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	base.layout.padding.left = 8.0f;
+	base.layout.padding.top = 6.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.bottom = 6.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	base.layout.min_width = sk_ui_pt(32.0f);
+	base.layout.min_height = sk_ui_pt(20.0f);
+	base.color = sk_ui_rgba(0.90f, 0.91f, 0.93f, 1.0f);
+	base.font_size = 13.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG_DROP_PREVIEW, &base) != 0) {
 		return -1;
 	}
@@ -5048,7 +5153,7 @@ static i32 ui_menu_is_owner_widget(const_chr_t w) {
 		return 0;
 	}
 	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0 ||
-			strcmp(w, "combo") == 0) ?
+			strcmp(w, "combo") == 0 || strcmp(w, "color_button") == 0 || strcmp(w, "color_picker") == 0 || strcmp(w, "color_edit3") == 0) ?
 			   1 :
 			   0;
 }
@@ -9795,6 +9900,10 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SCROLL_VIEW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_IMAGE));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOOLTIP));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_COLOR_BUTTON));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_COLOR_SWATCH));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_COLOR_EDIT));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_COLOR_PICKER));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG_DROP_PREVIEW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG_DROP_TARGET));
 	ui->context_destroy(ctx);

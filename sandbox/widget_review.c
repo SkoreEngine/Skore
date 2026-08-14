@@ -28,6 +28,7 @@ typedef enum sandbox_widget_state_t {
 	SANDBOX_WS_DRAGGING,
 	SANDBOX_WS_TEXT_ENTRY,
 	SANDBOX_WS_SELECTED,
+	SANDBOX_WS_OPEN,
 	SANDBOX_WS_COUNT
 } sandbox_widget_state_t;
 
@@ -47,8 +48,10 @@ typedef enum sandbox_widget_state_t {
 #define SANDBOX_WS_BIT_DRAGGING (1u << SANDBOX_WS_DRAGGING)
 #define SANDBOX_WS_BIT_TEXT_ENTRY (1u << SANDBOX_WS_TEXT_ENTRY)
 #define SANDBOX_WS_BIT_SELECTED (1u << SANDBOX_WS_SELECTED)
+#define SANDBOX_WS_BIT_OPEN (1u << SANDBOX_WS_OPEN)
 #define SANDBOX_WS_BITS_SLIDER (SANDBOX_WS_BIT_MIN | SANDBOX_WS_BIT_MID | SANDBOX_WS_BIT_MAX | SANDBOX_WS_BIT_DRAGGING | SANDBOX_WS_BIT_TEXT_ENTRY | SANDBOX_WS_BIT_DISABLED)
 #define SANDBOX_WS_BITS_SELECTABLE (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_SELECTED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_PRESSED)
+#define SANDBOX_WS_BITS_COLOR (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED | SANDBOX_WS_BIT_OPEN)
 
 typedef i32 (*sandbox_widget_build_fn)(const sandbox_widget_host_t* host, sk_ui_node_t* out_target);
 
@@ -90,6 +93,8 @@ static const_chr_t sandbox_ws_name(sandbox_widget_state_t st) {
 		return "text_entry";
 	case SANDBOX_WS_SELECTED:
 		return "selected";
+	case SANDBOX_WS_OPEN:
+		return "open";
 	case SANDBOX_WS_COUNT:
 	default:
 		return "unknown";
@@ -1902,6 +1907,125 @@ static i32 sandbox_drag_drop_apply(const sandbox_widget_host_t* host, sandbox_wi
 	return 0;
 }
 
+static f32 s_review_color4[4] = {0.80f, 0.22f, 0.12f, 0.62f};
+static f32 s_review_color3[3] = {0.18f, 0.52f, 0.88f};
+static f32 s_review_swatch[4] = {0.20f, 0.78f, 0.42f, 0.55f};
+
+static i32 sandbox_widget_build_color(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+	sk_ui_node_t edit;
+	sk_ui_node_t sw;
+	sk_ui_node_t pk;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	s_review_color4[0] = 0.80f;
+	s_review_color4[1] = 0.22f;
+	s_review_color4[2] = 0.12f;
+	s_review_color4[3] = 0.62f;
+	s_review_color3[0] = 0.18f;
+	s_review_color3[1] = 0.52f;
+	s_review_color3[2] = 0.88f;
+	s_review_swatch[0] = 0.20f;
+	s_review_swatch[1] = 0.78f;
+	s_review_swatch[2] = 0.42f;
+	s_review_swatch[3] = 0.55f;
+
+	(void)ui->widget_text(host->ctx, root, "Color  (property column)", "review-color-lbl");
+	btn = ui->widget_color_button(host->ctx, root, s_review_color4, SK_UI_COLOR_FLAG_PICKER_DEFAULT, 0.0f, 0.0f, "review-color");
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_color_button failed\n");
+		return -1;
+	}
+	(void)ui->color_bind(host->ctx, btn, s_review_color4, 4);
+
+	(void)ui->widget_text(host->ctx, root, "ColorEdit3  (material RGB)", "review-edit3-lbl");
+	edit = ui->widget_color_edit3(host->ctx, root, "##v", s_review_color3, 0u, "review-color-edit3");
+	if (!sk_ui_node_is_valid(edit)) {
+		fprintf(stderr, "sk-sandbox: widget_color_edit3 failed\n");
+		return -1;
+	}
+
+	(void)ui->widget_text(host->ctx, root, "Swatch  14x14 read-only", "review-swatch-lbl");
+	sw = ui->widget_color_swatch(host->ctx, root, s_review_swatch, 0.0f, 0.0f, "review-color-swatch");
+	if (!sk_ui_node_is_valid(sw)) {
+		fprintf(stderr, "sk-sandbox: widget_color_swatch failed\n");
+		return -1;
+	}
+
+	(void)ui->widget_text(host->ctx, root, "ColorPicker4  (alpha bar + half preview)", "review-pk-lbl");
+	pk = ui->widget_color_picker4(host->ctx, root, NULL, s_review_color4, SK_UI_COLOR_FLAG_PICKER_DEFAULT, "review-color-picker");
+	if (!sk_ui_node_is_valid(pk)) {
+		fprintf(stderr, "sk-sandbox: widget_color_picker4 failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH;
+	p.layout.width = sk_ui_pt(280.0f);
+	(void)ui->node_merge_inline_style(host->ctx, pk, &p);
+
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_color_picker(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t pk;
+
+	sandbox_widget_style_fill(host);
+	s_review_color4[0] = 0.80f;
+	s_review_color4[1] = 0.22f;
+	s_review_color4[2] = 0.12f;
+	s_review_color4[3] = 0.62f;
+	pk = ui->widget_color_picker4(host->ctx, root, NULL, s_review_color4, SK_UI_COLOR_FLAG_PICKER_DEFAULT, "review-picker");
+	if (!sk_ui_node_is_valid(pk)) {
+		fprintf(stderr, "sk-sandbox: widget_color_picker4 failed\n");
+		return -1;
+	}
+	*out_target = pk;
+	return 0;
+}
+
+static i32 sandbox_widget_build_color_edit3(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_fill(host);
+	s_review_color3[0] = 0.18f;
+	s_review_color3[1] = 0.52f;
+	s_review_color3[2] = 0.88f;
+	n = ui->widget_color_edit3(host->ctx, root, "##v", s_review_color3, 0u, "review-edit3");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_color_edit3 failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_color_swatch(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_fill(host);
+	s_review_swatch[0] = 0.20f;
+	s_review_swatch[1] = 0.78f;
+	s_review_swatch[2] = 0.42f;
+	s_review_swatch[3] = 0.55f;
+	n = ui->widget_color_swatch(host->ctx, root, s_review_swatch, 0.0f, 0.0f, "review-swatch");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_color_swatch failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1960,7 +2084,10 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"layout", NULL, "§13 horizontal + Spring", SANDBOX_WS_BIT_DEFAULT, 480u, 200u, sandbox_widget_build_layout},
 	{"disabled", NULL, "§13 BeginDisabled subtree", SANDBOX_WS_BIT_DISABLED, 320u, 128u, sandbox_widget_build_disabled},
 	{"separator", NULL, "§19 Separator / Spacing / SameLine", SANDBOX_WS_BIT_DEFAULT, 760u, 280u, sandbox_widget_build_separator},
-	{"color", NULL, "§15 ColorEdit / ColorPicker", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 320u, 192u, NULL},
+	{"color", NULL, "§15 ColorEdit / ColorPicker", SANDBOX_WS_BITS_COLOR, 720u, 520u, sandbox_widget_build_color},
+	{"color_picker", "picker", "§15 ColorPicker4 open (alpha bar + half preview)", SANDBOX_WS_BIT_DEFAULT, 640u, 420u, sandbox_widget_build_color_picker},
+	{"color_edit3", "edit3", "§15 ColorEdit3 compact float[3]", SANDBOX_WS_BIT_DEFAULT, 420u, 96u, sandbox_widget_build_color_edit3},
+	{"color_swatch", "swatch", "§15 14x14 read-only swatch", SANDBOX_WS_BIT_DEFAULT, 192u, 96u, sandbox_widget_build_color_swatch},
 	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
 	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_SELECTABLE, 360u, 128u, sandbox_widget_build_selectable},
 	{"selectable_list", "selectable_rows", "§18 Selectable list of rows", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_selectable_list},
@@ -2025,7 +2152,7 @@ void sandbox_widget_list(void) {
 	printf("         contextmenu=popup_menu savecontent=modal_save\n");
 	printf("         selectable_rows=selectable_list comboopen=combo_open\n");
 	printf("         tooltipcard=tooltip_card tooltipclamp=tooltip_edge\n");
-	printf("         dragdrop=drag_drop\n");
+	printf("         dragdrop=drag_drop picker=color_picker edit3=color_edit3 swatch=color_swatch\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -2074,6 +2201,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	(void)ui->set_disabled(host->ctx, node, 0);
 	(void)ui->selectable_set_selected(host->ctx, node, 0);
 	(void)ui->selectable_set_disabled(host->ctx, node, 0);
+	(void)ui->color_set_open(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -2096,6 +2224,8 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 			return 0;
 		}
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_FOCUSED);
+	case SANDBOX_WS_OPEN:
+		return ui->color_set_open(host->ctx, node, 1);
 	case SANDBOX_WS_CHECKED:
 		(void)ui->checkbox_set_mixed(host->ctx, node, 0);
 		(void)ui->checkbox_set_checked(host->ctx, node, 1);
@@ -2205,7 +2335,7 @@ i32 sandbox_widget_run(const sandbox_widget_host_t* host, const_chr_t name, cons
 	}
 	if (state_filter != NULL && state_filter[0] != '\0' && strcmp(state_filter, "all") != 0) {
 		if (sandbox_ws_parse(state_filter, &only) != 0) {
-			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|min|mid|max|dragging|text_entry|selected|all)\n",
+			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|min|mid|max|dragging|text_entry|selected|open|all)\n",
 					state_filter);
 			return -1;
 		}

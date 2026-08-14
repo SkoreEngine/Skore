@@ -534,6 +534,8 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_COMBO_DATA_TYPE_ID SK_TYPE_ID("sk.ui_combo_data", 0x5e8a3c1d9b7f2460ULL, 0xc4d6e8f0a2143658ULL)
 /** Type id for tooltip user_data (tooltip.c). */
 #define SK_UI_TOOLTIP_DATA_TYPE_ID SK_TYPE_ID("sk.ui_tooltip_data", 0x9f2a6c8e1b4d5073ULL, 0xa7c5e913d8462b0fULL)
+/** Type id for color-family user_data (color.c). */
+#define SK_UI_COLOR_DATA_TYPE_ID SK_TYPE_ID("sk.ui_color_data", 0x3b7e1a9c5d8024f6ULL, 0x8c2e4a60b1d7395fULL)
 
 /* Drag-drop payload (APX-356; manifest §17). */
 i32 ui_drag_drop_init(sk_ui_context_t* ctx);
@@ -571,6 +573,38 @@ void ui_table_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 void ui_combo_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 /** Free tooltip user_data if present (called from widget release). */
 void ui_tooltip_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Free color-family user_data if present (called from widget release). */
+void ui_color_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Pull bound float* / Color* before style/layout (style_resolve). */
+void ui_color_sync_all(sk_ui_context_t* ctx);
+/** Place open color-button popups below (or above) the swatch (after Clay). */
+void ui_color_place_popups(sk_ui_context_t* ctx);
+
+sk_ui_node_t ui_widget_color_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], u32 flags, f32 width, f32 height, const_chr_t id);
+sk_ui_node_t ui_widget_color_picker4_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+sk_ui_node_t ui_widget_color_edit3_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+sk_ui_node_t ui_widget_color_swatch_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], f32 width, f32 height, const_chr_t id);
+i32 ui_color_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32* col, i32 components);
+i32 ui_color_bind_color_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* col);
+i32 ui_color_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const f32* col, i32 count);
+i32 ui_color_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out, i32 count);
+i32 ui_color_set_rgba_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 r, f32 g, f32 b, f32 a);
+i32 ui_color_get_rgba_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32 out[4]);
+i32 ui_color_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+u32 ui_color_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_color_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+i32 ui_color_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_color_committed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_color_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_color_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+sk_ui_node_t ui_color_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_color_sv_square_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_color_hue_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_color_alpha_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_color_preview_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_color_component_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, i32 index, sk_ui_node_t* out_field);
+void ui_color_rgb_to_hsv_impl(f32 r, f32 g, f32 b, f32* h, f32* s, f32* v);
+void ui_color_hsv_to_rgb_impl(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b);
 /** Hover-delay / visibility for every tooltip (input + harness_step). */
 void ui_tooltip_tick_impl(sk_ui_context_t* ctx, f32 dt);
 /** Clamp open tooltips to the viewport next to the cursor (after Clay). */

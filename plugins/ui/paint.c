@@ -492,6 +492,124 @@ static f32 ui_paint_prop_f32_or(const ui_node_slot_t* slot, const_chr_t key, f32
 	return fallback;
 }
 
+static void ui_paint_hsv_to_rgb(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b) {
+	f32 i;
+	f32 f;
+	f32 p;
+	f32 q;
+	f32 t;
+	i32 sector;
+	if (h < 0.0f) {
+		h = 0.0f;
+	}
+	if (h >= 1.0f) {
+		h = 0.0f;
+	}
+	if (s < 0.0f) {
+		s = 0.0f;
+	}
+	if (s > 1.0f) {
+		s = 1.0f;
+	}
+	if (v < 0.0f) {
+		v = 0.0f;
+	}
+	if (v > 1.0f) {
+		v = 1.0f;
+	}
+	if (s <= 0.000001f) {
+		*r = v;
+		*g = v;
+		*b = v;
+		return;
+	}
+	i = h * 6.0f;
+	sector = (i32)i;
+	if (sector > 5) {
+		sector = 5;
+	}
+	f = i - (f32)sector;
+	p = v * (1.0f - s);
+	q = v * (1.0f - f * s);
+	t = v * (1.0f - (1.0f - f) * s);
+	switch (sector) {
+	case 0:
+		*r = v;
+		*g = t;
+		*b = p;
+		break;
+	case 1:
+		*r = q;
+		*g = v;
+		*b = p;
+		break;
+	case 2:
+		*r = p;
+		*g = v;
+		*b = t;
+		break;
+	case 3:
+		*r = p;
+		*g = q;
+		*b = v;
+		break;
+	case 4:
+		*r = t;
+		*g = p;
+		*b = v;
+		break;
+	default:
+		*r = v;
+		*g = p;
+		*b = q;
+		break;
+	}
+}
+
+static i32 ui_paint_checker(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, f32 cell, f32 opacity) {
+	i32 row;
+	i32 col;
+	i32 rows;
+	i32 cols;
+	f32 w = x1 - x0;
+	f32 h = y1 - y0;
+	u32 light = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.78f, 0.78f, 0.80f, 1.0f), opacity));
+	u32 dark = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.42f, 0.43f, 0.46f, 1.0f), opacity));
+	if (cell < 3.0f) {
+		cell = 3.0f;
+	}
+	if (w < 0.5f || h < 0.5f) {
+		return 0;
+	}
+	cols = (i32)(w / cell) + 1;
+	rows = (i32)(h / cell) + 1;
+	for (row = 0; row < rows; ++row) {
+		f32 y = y0 + cell * (f32)row;
+		f32 ye = y + cell;
+		if (y >= y1) {
+			break;
+		}
+		if (ye > y1) {
+			ye = y1;
+		}
+		for (col = 0; col < cols; ++col) {
+			f32 x = x0 + cell * (f32)col;
+			f32 xe = x + cell;
+			u32 c = ((row + col) & 1) != 0 ? dark : light;
+			if (x >= x1) {
+				break;
+			}
+			if (xe > x1) {
+				xe = x1;
+			}
+			if (ui_paint_add_solid_quad(em, x, y, xe, ye, c) != 0) {
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
 static i32 ui_paint_utf8_next(const u8** pp, u32* out_cp) {
 	const u8* p = *pp;
 	if (*p == 0u) {
@@ -1635,6 +1753,136 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			}
 			if (fill_w > 0.5f) {
 				if (ui_paint_add_solid_quad(em, cx + inset, cy + inset, cx + inset + fill_w, cy + ch - inset, fill_col) != 0) {
+					return -1;
+				}
+			}
+		}
+	}
+
+	/* Color family (APX-357): swatch, SV square, hue/alpha bars, half-alpha preview. */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 is_swatch = (wtype != NULL && (strcmp(wtype, "color_button") == 0 || strcmp(wtype, "color_swatch") == 0)) ? 1 : 0;
+		i32 is_sv = (wtype != NULL && strcmp(wtype, "color_sv") == 0) ? 1 : 0;
+		i32 is_hue = (wtype != NULL && strcmp(wtype, "color_hue") == 0) ? 1 : 0;
+		i32 is_alpha = (wtype != NULL && strcmp(wtype, "color_alpha") == 0) ? 1 : 0;
+		i32 is_preview = (wtype != NULL && strcmp(wtype, "color_preview") == 0) ? 1 : 0;
+		if (is_swatch != 0 || is_sv != 0 || is_hue != 0 || is_alpha != 0 || is_preview != 0) {
+			f32 cr = ui_paint_prop_f32_or(slot, "r", 1.0f);
+			f32 cg = ui_paint_prop_f32_or(slot, "g", 1.0f);
+			f32 cb = ui_paint_prop_f32_or(slot, "b", 1.0f);
+			f32 ca = ui_paint_prop_f32_or(slot, "a", 1.0f);
+			f32 hh = ui_paint_prop_f32_or(slot, "h", 0.0f);
+			f32 ss = ui_paint_prop_f32_or(slot, "s", 0.0f);
+			f32 vv = ui_paint_prop_f32_or(slot, "v", 1.0f);
+			i32 flags = 0;
+			(void)ui_paint_prop_i32(slot, "flags", &flags);
+			if (is_swatch != 0) {
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				u32 fill = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, ca), opacity));
+				if (ca < 0.999f) {
+					if (ui_paint_checker(em, cx, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+						return -1;
+					}
+				}
+				if (ui_paint_add_solid_quad(em, cx, cy, cx + cw, cy + ch, fill) != 0) {
+					return -1;
+				}
+			} else if (is_sv != 0) {
+				const i32 steps = 16;
+				i32 iy;
+				i32 ix;
+				f32 cw_step = cw / (f32)steps;
+				f32 ch_step = ch / (f32)steps;
+				for (iy = 0; iy < steps; ++iy) {
+					for (ix = 0; ix < steps; ++ix) {
+						f32 s = ((f32)ix + 0.5f) / (f32)steps;
+						f32 v = 1.0f - ((f32)iy + 0.5f) / (f32)steps;
+						f32 rr, gg, bb;
+						u32 col;
+						f32 x0 = cx + cw_step * (f32)ix;
+						f32 y0 = cy + ch_step * (f32)iy;
+						ui_paint_hsv_to_rgb(hh, s, v, &rr, &gg, &bb);
+						col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(rr, gg, bb, 1.0f), opacity));
+						if (ui_paint_add_solid_quad(em, x0, y0, x0 + cw_step + 0.5f, y0 + ch_step + 0.5f, col) != 0) {
+							return -1;
+						}
+					}
+				}
+				{
+					f32 mx = cx + ss * cw;
+					f32 my = cy + (1.0f - vv) * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					u32 ink = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.05f, 0.05f, 0.06f, 1.0f), opacity));
+					f32 crd = 5.0f * ((em->scale_x + em->scale_y) * 0.5f);
+					if (ui_paint_add_solid_quad(em, mx - crd, my - 1.0f, mx + crd, my + 1.0f, ring) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_solid_quad(em, mx - 1.0f, my - crd, mx + 1.0f, my + crd, ring) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_solid_quad(em, mx - crd + 1.0f, my, mx + crd - 1.0f, my + 1.0f, ink) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_hue != 0) {
+				const i32 steps = 24;
+				i32 iy;
+				f32 ch_step = ch / (f32)steps;
+				for (iy = 0; iy < steps; ++iy) {
+					f32 h0 = ((f32)iy + 0.5f) / (f32)steps;
+					f32 rr, gg, bb;
+					u32 col;
+					f32 y0 = cy + ch_step * (f32)iy;
+					ui_paint_hsv_to_rgb(h0, 1.0f, 1.0f, &rr, &gg, &bb);
+					col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(rr, gg, bb, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, y0, cx + cw, y0 + ch_step + 0.5f, col) != 0) {
+						return -1;
+					}
+				}
+				{
+					f32 my = cy + hh * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, my - 1.5f, cx + cw, my + 1.5f, ring) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_alpha != 0) {
+				const i32 steps = 16;
+				i32 iy;
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				f32 ch_step = ch / (f32)steps;
+				if (ui_paint_checker(em, cx, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+					return -1;
+				}
+				for (iy = 0; iy < steps; ++iy) {
+					f32 a = 1.0f - ((f32)iy + 0.5f) / (f32)steps;
+					u32 col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, a), opacity));
+					f32 y0 = cy + ch_step * (f32)iy;
+					if (ui_paint_add_solid_quad(em, cx, y0, cx + cw, y0 + ch_step + 0.5f, col) != 0) {
+						return -1;
+					}
+				}
+				{
+					f32 my = cy + (1.0f - ca) * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, my - 1.5f, cx + cw, my + 1.5f, ring) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_preview != 0) {
+				f32 mid = cx + cw * 0.5f;
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				u32 opaque = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, 1.0f), opacity));
+				u32 faded = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, ca), opacity));
+				if (ui_paint_add_solid_quad(em, cx, cy, mid, cy + ch, opaque) != 0) {
+					return -1;
+				}
+				(void)flags;
+				if (ui_paint_checker(em, mid, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_solid_quad(em, mid, cy, cx + cw, cy + ch, faded) != 0) {
 					return -1;
 				}
 			}

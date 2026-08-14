@@ -853,6 +853,39 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_SLIDER_N "ui-slider-n"
 #define SK_UI_CLASS_DRAG_N "ui-drag-n"
 #define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
+/** ColorEdit / ColorPicker family (APX-357; manifest §15). */
+#define SK_UI_CLASS_COLOR_BUTTON "ui-color-button"
+#define SK_UI_CLASS_COLOR_SWATCH "ui-color-swatch"
+#define SK_UI_CLASS_COLOR_EDIT "ui-color-edit"
+#define SK_UI_CLASS_COLOR_PICKER "ui-color-picker"
+#define SK_UI_CLASS_COLOR_SV "ui-color-sv"
+#define SK_UI_CLASS_COLOR_HUE "ui-color-hue"
+#define SK_UI_CLASS_COLOR_ALPHA "ui-color-alpha"
+#define SK_UI_CLASS_COLOR_PREVIEW "ui-color-preview"
+
+/**
+ * ImGuiColorEditFlags the editor actually sets (FieldRenderers ColorPicker4
+ * DisplayMask_ | NoLabel | AlphaPreviewHalf | AlphaBar; ResourceDebugger
+ * NoTooltip | NoPicker). ColorEdit4 / ColorPicker3 / SetColorEditOptions
+ * are not used.
+ */
+#define SK_UI_COLOR_FLAG_NONE 0u
+#define SK_UI_COLOR_FLAG_NO_ALPHA (1u << 0)
+#define SK_UI_COLOR_FLAG_NO_PICKER (1u << 1)
+#define SK_UI_COLOR_FLAG_NO_TOOLTIP (1u << 2)
+#define SK_UI_COLOR_FLAG_NO_LABEL (1u << 3)
+#define SK_UI_COLOR_FLAG_ALPHA_BAR (1u << 4)
+#define SK_UI_COLOR_FLAG_ALPHA_PREVIEW_HALF (1u << 5)
+#define SK_UI_COLOR_FLAG_DISPLAY_RGB (1u << 6)
+#define SK_UI_COLOR_FLAG_DISPLAY_HSV (1u << 7)
+#define SK_UI_COLOR_FLAG_DISPLAY_HEX (1u << 8)
+#define SK_UI_COLOR_FLAG_DISPLAY_MASK (SK_UI_COLOR_FLAG_DISPLAY_RGB | SK_UI_COLOR_FLAG_DISPLAY_HSV | SK_UI_COLOR_FLAG_DISPLAY_HEX)
+/** FieldRenderers.cpp:203-220 ColorPicker4 flags. */
+#define SK_UI_COLOR_FLAG_PICKER_DEFAULT (SK_UI_COLOR_FLAG_DISPLAY_MASK | SK_UI_COLOR_FLAG_NO_LABEL | SK_UI_COLOR_FLAG_ALPHA_PREVIEW_HALF | SK_UI_COLOR_FLAG_ALPHA_BAR)
+/** ResourceDebugger 14x14 swatch. */
+#define SK_UI_COLOR_FLAG_SWATCH (SK_UI_COLOR_FLAG_NO_PICKER | SK_UI_COLOR_FLAG_NO_TOOLTIP)
+#define SK_UI_COLOR_SWATCH_SIZE 14.0f
+#define SK_UI_COLOR_BUTTON_HEIGHT 22.0f
 
 /** Slider / Drag flags (ImGuiSliderFlags the editor actually sets). */
 #define SK_UI_SLIDER_FLAG_NONE 0u
@@ -4480,6 +4513,75 @@ typedef struct sk_ui_api_t {
 	i32 (*drag_drop_begin)(sk_ui_context_t* ctx, sk_ui_node_t item);
 	/** Cancel / expire the active payload. */
 	i32 (*drag_drop_cancel)(sk_ui_context_t* ctx);
+
+	/* ---- ColorEdit / ColorPicker family (APX-357; manifest §15) ---- */
+
+	/**
+	 * ColorButton: swatch sized to the property column (width <= 0 fills the
+	 * leftover / SetNextItemWidth(-1) column; height <= 0 is
+	 * SK_UI_COLOR_BUTTON_HEIGHT). Click opens a §12 popup_menu hosting
+	 * ColorPicker4 unless NoPicker. @p col may be NULL (defaults to white).
+	 */
+	sk_ui_node_t (*widget_color_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], u32 flags, f32 width, f32 height, const_chr_t id);
+
+	/**
+	 * ColorPicker4: HSV/RGB picker with optional alpha bar and half-alpha
+	 * preview. Binds @p col (4 floats; 3 when NoAlpha). Default flags are
+	 * SK_UI_COLOR_FLAG_PICKER_DEFAULT when @p flags is 0.
+	 */
+	sk_ui_node_t (*widget_color_picker4)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+
+	/**
+	 * ColorEdit3: compact RGB row bound to float[3] (material colour).
+	 * Small swatch + three 0..1 drag fields. NoAlpha is implied.
+	 */
+	sk_ui_node_t (*widget_color_edit3)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+
+	/**
+	 * Read-only swatch (ResourceDebugger ColorButton NoTooltip|NoPicker).
+	 * Width/height <= 0 → SK_UI_COLOR_SWATCH_SIZE (14×14). Never writes
+	 * through a bind and never opens a picker.
+	 */
+	sk_ui_node_t (*widget_color_swatch)(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], f32 width, f32 height, const_chr_t id);
+
+	/** Bind a caller float[3] or float[4]. NULL unbinds. Components is 3 or 4. */
+	i32 (*color_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, f32* col, i32 components);
+	/** Bind a caller sk_ui_color_t*. NULL unbinds. */
+	i32 (*color_bind_color)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* col);
+
+	i32 (*color_set_values)(sk_ui_context_t* ctx, sk_ui_node_t node, const f32* col, i32 count);
+	i32 (*color_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out, i32 count);
+	i32 (*color_set_rgba)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 r, f32 g, f32 b, f32 a);
+	i32 (*color_get_rgba)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32 out[4]);
+
+	i32 (*color_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*color_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*color_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Consume-on-read: 1 once after a user edit that changed the value
+	 * (SV/hue/alpha drag, component type, or ColorEdit3 drag).
+	 */
+	i32 (*color_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Consume-on-read deactivate-after-edit: 1 once on pointer-up after a
+	 * drag, component commit, or picker popup close after an edit.
+	 */
+	i32 (*color_committed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	i32 (*color_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*color_set_open)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+	/** §12 popup_menu hosting the picker, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*color_popup)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_sv_square)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_hue_bar)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_alpha_bar)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_preview)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** RGB (0..2) or A (3) component field. */
+	i32 (*color_component)(const sk_ui_context_t* ctx, sk_ui_node_t node, i32 index, sk_ui_node_t* out_field);
+
+	void (*color_rgb_to_hsv)(f32 r, f32 g, f32 b, f32* h, f32* s, f32* v);
+	void (*color_hsv_to_rgb)(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b);
 } sk_ui_api_t;
 
 #ifdef __cplusplus
