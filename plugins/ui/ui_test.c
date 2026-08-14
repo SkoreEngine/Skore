@@ -539,7 +539,7 @@ static i32 ut_read_value_string(sk_ui_test_t* t, const_chr_t test_id, char* out,
 		(void)snprintf(out, out_cap, "%d", ui->toggle_get_on(ctx, node) != 0 ? 1 : 0);
 		return 0;
 	}
-	if (widget != NULL && strcmp(widget, "slider") == 0) {
+	if (widget != NULL && (strcmp(widget, "slider") == 0 || strcmp(widget, "drag") == 0 || strcmp(widget, "slider_n") == 0 || strcmp(widget, "drag_n") == 0)) {
 		(void)snprintf(out, out_cap, "%.4g", (double)ui->slider_get_value(ctx, node));
 		return 0;
 	}

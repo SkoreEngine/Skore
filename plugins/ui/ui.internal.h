@@ -647,6 +647,36 @@ f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_slider_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
 i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
 
+sk_ui_node_t ui_widget_slider_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+sk_ui_node_t ui_widget_slider_float_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_min, f32 v_max, const f32* values, const_chr_t format, const_chr_t id);
+sk_ui_node_t ui_widget_slider_int_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, i32 v_min, i32 v_max, const i32* values, const_chr_t format, const_chr_t id);
+sk_ui_node_t ui_widget_drag_float_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, f32 v_min, f32 v_max, f32 value, const_chr_t format, const_chr_t id);
+sk_ui_node_t ui_widget_drag_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+sk_ui_node_t ui_widget_drag_float_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, f32 v_min, f32 v_max, const f32* values, const_chr_t format,
+										 const_chr_t id);
+sk_ui_node_t ui_widget_drag_int_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, i32 v_min, i32 v_max, const i32* values, const_chr_t format,
+									   const_chr_t id);
+i32 ui_slider_set_format_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t format);
+const_chr_t ui_slider_get_format_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_step_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 step);
+f32 ui_slider_get_step_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_speed_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 speed);
+f32 ui_slider_get_speed_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+u32 ui_slider_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+const_chr_t ui_slider_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_slider_is_text_input_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+i32 ui_slider_set_int_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value);
+i32 ui_slider_get_int_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_format_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, char* out, u32 out_cap);
+i32 ui_slider_component_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_comp);
+i32 ui_slider_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t row, const f32* values, i32 count);
+i32 ui_slider_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, f32* out, i32 count);
+
 i32 ui_range_slider_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value_low, f32 value_high);
 i32 ui_range_slider_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_low, f32* out_high);
 

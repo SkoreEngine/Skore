@@ -845,7 +845,14 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_RADIO "ui-radio"
 #define SK_UI_CLASS_TOGGLE "ui-toggle"
 #define SK_UI_CLASS_SLIDER "ui-slider"
+#define SK_UI_CLASS_DRAG "ui-drag"
+#define SK_UI_CLASS_SLIDER_N "ui-slider-n"
+#define SK_UI_CLASS_DRAG_N "ui-drag-n"
 #define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
+
+/** Slider / Drag flags (ImGuiSliderFlags the editor actually sets). */
+#define SK_UI_SLIDER_FLAG_NONE 0u
+#define SK_UI_SLIDER_FLAG_ALWAYS_CLAMP (1u << 0)
 #define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_TEXT_INPUT_ERROR "ui-text-input-error"
@@ -3615,6 +3622,86 @@ typedef struct sk_ui_api_t {
 	i32 (*input_scalar_apply)(sk_ui_context_t* ctx, sk_ui_node_t node);
 	/** Child field of an InputFloat3 row (index 0..2). */
 	i32 (*input_float3_component)(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_field);
+
+	/* ---- Slider / Drag family (APX-343; editor SliderFloat / SliderInt /
+	 * SliderScalar, DragFloat / DragFloat2/3/4 / DragInt) ---- */
+
+	/**
+	 * Integer slider (ImGui SliderInt). @p format NULL → "%d". Hidden `##`
+	 * labels are supported via slider_set_label. AlwaysClamp by default.
+	 */
+	sk_ui_node_t (*widget_slider_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+
+	/**
+	 * N-component SliderFloat row (1..4). Each child is an independent
+	 * slider; edit one without touching the others. @p values may be NULL.
+	 */
+	sk_ui_node_t (*widget_slider_float_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_min, f32 v_max, const f32* values, const_chr_t format, const_chr_t id);
+
+	/** N-component SliderInt row (1..4). */
+	sk_ui_node_t (*widget_slider_int_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, i32 v_min, i32 v_max, const i32* values, const_chr_t format, const_chr_t id);
+
+	/**
+	 * Drag scalar (ImGui DragFloat). @p v_speed is value-per-pixel.
+	 * min==max==0 is unbounded (material scalars). @p format NULL → "%.3f".
+	 */
+	sk_ui_node_t (*widget_drag_float)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, f32 v_min, f32 v_max, f32 value, const_chr_t format, const_chr_t id);
+
+	/** DragInt. @p format NULL → "%d". */
+	sk_ui_node_t (*widget_drag_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+
+	/** DragFloat2/3/4: N independent drag children (1..4). */
+	sk_ui_node_t (*widget_drag_float_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, f32 v_min, f32 v_max, const f32* values, const_chr_t format,
+										const_chr_t id);
+
+	/** DragInt N-component row (1..4). */
+	sk_ui_node_t (*widget_drag_int_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, i32 v_min, i32 v_max, const i32* values, const_chr_t format,
+									  const_chr_t id);
+
+	/** printf format shown on the grab ("%.3f", "%d", "LOD %d", "" = no label). */
+	i32 (*slider_set_format)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t format);
+	const_chr_t (*slider_get_format)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Snap increment (0 = continuous). Applied after position/speed mapping. */
+	i32 (*slider_set_step)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 step);
+	f32 (*slider_get_step)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Drag speed (value per pixel). Sliders ignore this. */
+	i32 (*slider_set_speed)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 speed);
+	f32 (*slider_get_speed)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** SK_UI_SLIDER_FLAG_* mask (AlwaysClamp). */
+	i32 (*slider_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*slider_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Visible label (`##id` hides it). Does not replace the value format. */
+	i32 (*slider_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*slider_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Edge-triggered: 1 once after a user edit that actually changed the
+	 * value (drag or committed text entry), then clears. Programmatic set
+	 * does not set this.
+	 */
+	i32 (*slider_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*slider_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/** Ctrl-click text-entry overlay (1 = editing). */
+	i32 (*slider_is_text_input)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*slider_set_text_input)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+
+	i32 (*slider_set_int_value)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value);
+	i32 (*slider_get_int_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Apply @p format (or the widget's format) into @p out. */
+	i32 (*slider_format_value)(const sk_ui_context_t* ctx, sk_ui_node_t node, char* out, u32 out_cap);
+
+	/** Child of a vector row (index 0..count-1). */
+	i32 (*slider_component)(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_comp);
+
+	/** Read/write all components of a vector row. @p count is the buffer length. */
+	i32 (*slider_set_values)(sk_ui_context_t* ctx, sk_ui_node_t row, const f32* values, i32 count);
+	i32 (*slider_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t row, f32* out, i32 count);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

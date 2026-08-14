@@ -4,7 +4,7 @@
  *
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
- * checkbox/slider/text_input (APX-342: multiline/hint/search/scalar)/scroll_view, menu surfaces (menu_bar, menu,
+ * checkbox/slider/drag (APX-343: SliderFloat/Int + DragFloat/Int + N)/text_input (APX-342: multiline/hint/search/scalar)/scroll_view, menu surfaces (menu_bar, menu,
  * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
  * tab, editor_window, window_title_bar, window_content — APX-235). Item-array
@@ -17,6 +17,7 @@
 #include "allocator.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,6 +86,9 @@ typedef struct ui_widget_data_t {
 	i32 scalar_has_range;
 	f64 scalar_min;
 	f64 scalar_max;
+	/* Slider / Drag (APX-343): consume-on-read change + text-entry snapshot. */
+	i32 edge_value_changed;
+	f32 slider_anchor_value;
 } ui_widget_data_t;
 
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -553,13 +557,15 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.border_color = sk_ui_rgba(0.28f, 0.29f, 0.32f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TOGGLE, SK_UI_STATE_DISABLED, &var);
 
-	/* Slider */
+	/* Slider: track + grab; COLOR so the format label is readable. */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH;
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
 	base.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
 	base.corner_radius = 4.0f;
 	base.layout.height = sk_ui_pt(20.0f);
 	base.layout.min_width = sk_ui_pt(80.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_SLIDER, &base) != 0) {
 		return -1;
 	}
@@ -567,8 +573,72 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.mask = SK_UI_SP_BACKGROUND_COLOR;
 	var.background_color = sk_ui_rgba(0.24f, 0.26f, 0.32f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SLIDER, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.28f, 0.36f, 0.50f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SLIDER, SK_UI_STATE_ACTIVE, &var);
 	var.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	var.color = sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SLIDER, SK_UI_STATE_DISABLED, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	var.background_color = sk_ui_rgba(0.12f, 0.13f, 0.16f, 1.0f);
+	var.border_color = sk_ui_rgba(0.35f, 0.55f, 0.90f, 1.0f);
+	var.layout.border.left = 1.0f;
+	var.layout.border.top = 1.0f;
+	var.layout.border.right = 1.0f;
+	var.layout.border.bottom = 1.0f;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SLIDER, SK_UI_STATE_FOCUSED, &var);
+
+	/* Drag: framed value box (no grab). Same type scale as slider. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_COLOR |
+				SK_UI_SP_FONT_SIZE;
+	base.background_color = sk_ui_rgba(0.18f, 0.20f, 0.24f, 1.0f);
+	base.border_color = sk_ui_rgba(0.38f, 0.40f, 0.46f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	base.layout.height = sk_ui_pt(20.0f);
+	base.layout.min_width = sk_ui_pt(56.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.background_color = sk_ui_rgba(0.22f, 0.24f, 0.30f, 1.0f);
+	var.border_color = sk_ui_rgba(0.50f, 0.54f, 0.62f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DRAG, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.26f, 0.34f, 0.48f, 1.0f);
+	var.border_color = sk_ui_rgba(0.55f, 0.70f, 0.95f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DRAG, SK_UI_STATE_ACTIVE, &var);
+	var.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	var.border_color = sk_ui_rgba(0.26f, 0.27f, 0.30f, 1.0f);
+	var.color = sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_COLOR;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DRAG, SK_UI_STATE_DISABLED, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.background_color = sk_ui_rgba(0.12f, 0.13f, 0.16f, 1.0f);
+	var.border_color = sk_ui_rgba(0.35f, 0.55f, 0.90f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DRAG, SK_UI_STATE_FOCUSED, &var);
+
+	/* Vector rows: transparent flex row hosting independent components. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_BACKGROUND_COLOR;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.column_gap = 4.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SLIDER_N, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG_N, &base) != 0) {
+		return -1;
+	}
 
 	/* Range slider: same chrome as single slider (two thumbs drawn in paint). */
 	ui_style_props_clear(&base);
@@ -1196,12 +1266,219 @@ static void ui_toggle_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_ev
 	}
 }
 
+static f32 ui_slider_round_nearest(f32 v) {
+	return (v >= 0.0f) ? floorf(v + 0.5f) : ceilf(v - 0.5f);
+}
+
+static f32 ui_slider_lo(f32 a, f32 b) {
+	return a < b ? a : b;
+}
+
+static f32 ui_slider_hi(f32 a, f32 b) {
+	return a > b ? a : b;
+}
+
+static i32 ui_slider_is_drag_kind(const ui_node_slot_t* slot) {
+	const_chr_t w = ui_prop_str_const(slot, "widget");
+	return (w != NULL && strcmp(w, "drag") == 0) ? 1 : 0;
+}
+
+static i32 ui_slider_is_vector_host(const ui_node_slot_t* slot) {
+	const_chr_t w = ui_prop_str_const(slot, "widget");
+	if (w == NULL) {
+		return 0;
+	}
+	return (strcmp(w, "slider_n") == 0 || strcmp(w, "drag_n") == 0) ? 1 : 0;
+}
+
+static i32 ui_slider_read_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fallback) {
+	i32 v = fallback;
+	if (slot != NULL) {
+		(void)ui_prop_i32_const(slot, key, &v);
+	}
+	return v;
+}
+
+static i32 ui_f32_bits_eq(f32 a, f32 b) {
+	u32 ua;
+	u32 ub;
+	memcpy(&ua, &a, sizeof(ua));
+	memcpy(&ub, &b, sizeof(ub));
+	return ua == ub ? 1 : 0;
+}
+
+static i32 ui_slider_bounded(f32 min_v, f32 max_v, u32 flags, i32 is_drag) {
+	f32 zero = 0.0f;
+	if (is_drag == 0) {
+		return 1;
+	}
+	if (ui_f32_bits_eq(min_v, max_v) == 0) {
+		return 1;
+	}
+	if ((flags & SK_UI_SLIDER_FLAG_ALWAYS_CLAMP) != 0u && (ui_f32_bits_eq(min_v, zero) == 0 || ui_f32_bits_eq(max_v, zero) == 0)) {
+		return 1;
+	}
+	return 0;
+}
+
+static f32 ui_slider_quantize(f32 val, f32 min_v, f32 step, i32 integer) {
+	if (step > 0.0f) {
+		f32 n = ui_slider_round_nearest((val - min_v) / step);
+		val = min_v + n * step;
+	}
+	if (integer != 0) {
+		val = ui_slider_round_nearest(val);
+	}
+	return val;
+}
+
+static f32 ui_slider_clamp_val(f32 val, f32 min_v, f32 max_v, u32 flags, i32 is_drag) {
+	if (ui_slider_bounded(min_v, max_v, flags, is_drag) == 0) {
+		return val;
+	}
+	return ui_clampf(val, ui_slider_lo(min_v, max_v), ui_slider_hi(min_v, max_v));
+}
+
+static i32 ui_slider_format_uses_int(const_chr_t fmt) {
+	const char* p;
+	if (fmt == NULL) {
+		return 0;
+	}
+	p = fmt;
+	while (*p != '\0') {
+		if (*p == '%' && p[1] != '\0') {
+			p += 1;
+			if (*p == '%') {
+				p += 1;
+				continue;
+			}
+			while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') {
+				p += 1;
+			}
+			while (*p >= '0' && *p <= '9') {
+				p += 1;
+			}
+			if (*p == '.') {
+				p += 1;
+				while (*p >= '0' && *p <= '9') {
+					p += 1;
+				}
+			}
+			if (*p == 'd' || *p == 'i' || *p == 'u' || *p == 'x' || *p == 'X' || *p == 'o') {
+				return 1;
+			}
+			return 0;
+		}
+		p += 1;
+	}
+	return 0;
+}
+
+static void ui_slider_format_into(char* buf, u32 cap, const_chr_t fmt, f32 val, i32 integer) {
+	int iv;
+	if (buf == NULL || cap == 0u) {
+		return;
+	}
+	buf[0] = '\0';
+	if (fmt == NULL || fmt[0] == '\0') {
+		return;
+	}
+	iv = (int)ui_slider_round_nearest(val);
+	/* Editor formats: "%.3f" / "%.0f" / "%d" / "LOD %d" / "auto" / "". */
+	if (strcmp(fmt, "LOD %d") == 0) {
+		(void)snprintf(buf, cap, "LOD %d", iv);
+	} else if (strchr(fmt, '%') == NULL) {
+		(void)snprintf(buf, cap, "%s", fmt);
+	} else if (integer != 0 || ui_slider_format_uses_int(fmt) != 0 || strcmp(fmt, "%d") == 0) {
+		(void)snprintf(buf, cap, "%d", iv);
+	} else if (strcmp(fmt, "%.0f") == 0) {
+		(void)snprintf(buf, cap, "%.0f", (double)val);
+	} else if (strcmp(fmt, "%.1f") == 0) {
+		(void)snprintf(buf, cap, "%.1f", (double)val);
+	} else if (strcmp(fmt, "%.2f") == 0) {
+		(void)snprintf(buf, cap, "%.2f", (double)val);
+	} else {
+		(void)snprintf(buf, cap, "%.3f", (double)val);
+	}
+	buf[cap - 1u] = '\0';
+}
+
+static void ui_slider_refresh_label(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t fmt;
+	char buf[64];
+	i32 text_mode;
+	i32 integer;
+	f32 val;
+	if (slot == NULL) {
+		return;
+	}
+	text_mode = ui_slider_read_i32(slot, "text_input", 0);
+	if (text_mode != 0) {
+		return;
+	}
+	fmt = ui_prop_str_const(slot, "format");
+	if (fmt == NULL) {
+		fmt = "";
+	}
+	integer = ui_slider_read_i32(slot, "integer", 0);
+	val = ui_prop_f32_const(slot, "value", 0.0f);
+	ui_slider_format_into(buf, (u32)sizeof(buf), fmt, val, integer);
+	(void)ui->node_set_prop_str(ctx, node, "text", buf);
+	(void)ui->node_set_prop_i32(ctx, node, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, node, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, node, "wrap", 0);
+}
+
+static i32 ui_slider_apply_value(sk_ui_context_t* ctx, sk_ui_node_t node, f32 val, i32 from_user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd;
+	f32 min_v;
+	f32 max_v;
+	f32 step;
+	f32 old;
+	u32 flags;
+	i32 integer;
+	i32 is_drag;
+	if (slot == NULL) {
+		return -1;
+	}
+	min_v = ui_prop_f32_const(slot, "min", 0.0f);
+	max_v = ui_prop_f32_const(slot, "max", 1.0f);
+	step = ui_prop_f32_const(slot, "step", 0.0f);
+	flags = (u32)ui_slider_read_i32(slot, "flags", 0);
+	integer = ui_slider_read_i32(slot, "integer", 0);
+	is_drag = ui_slider_is_drag_kind(slot);
+	old = ui_prop_f32_const(slot, "value", 0.0f);
+	val = ui_slider_quantize(val, min_v, step, integer);
+	val = ui_slider_clamp_val(val, min_v, max_v, flags, is_drag);
+	if (ui->node_set_prop_f32(ctx, node, "value", val) != 0) {
+		return -1;
+	}
+	ui_slider_refresh_label(ctx, node);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	if (from_user != 0 && fabsf(val - old) > 1.0e-6f) {
+		wd = ui_widget_data(ctx, node);
+		if (wd != NULL) {
+			wd->edge_value_changed = 1;
+			if (wd->on_float != NULL) {
+				wd->on_float(ctx, node, val, wd->cb_user);
+			}
+		}
+	}
+	return 0;
+}
+
 static void ui_slider_set_from_x(sk_ui_context_t* ctx, sk_ui_node_t node, f32 x) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
 	sk_ui_rect_t border;
-	f32 min_v, max_v, t, val;
-	ui_widget_data_t* wd;
+	f32 min_v;
+	f32 max_v;
+	f32 t;
+	f32 val;
 	if (slot == NULL) {
 		return;
 	}
@@ -1210,9 +1487,6 @@ static void ui_slider_set_from_x(sk_ui_context_t* ctx, sk_ui_node_t node, f32 x)
 	}
 	min_v = ui_prop_f32_const(slot, "min", 0.0f);
 	max_v = ui_prop_f32_const(slot, "max", 1.0f);
-	if (max_v <= min_v) {
-		max_v = min_v + 1.0f;
-	}
 	if (border.width <= 0.0f) {
 		t = 0.0f;
 	} else {
@@ -1220,24 +1494,239 @@ static void ui_slider_set_from_x(sk_ui_context_t* ctx, sk_ui_node_t node, f32 x)
 	}
 	t = ui_clampf(t, 0.0f, 1.0f);
 	val = min_v + t * (max_v - min_v);
-	(void)ui->node_set_prop_f32(ctx, node, "value", val);
-	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
-	wd = ui_widget_data(ctx, node);
-	if (wd != NULL && wd->on_float != NULL) {
-		wd->on_float(ctx, node, val, wd->cb_user);
+	(void)ui_slider_apply_value(ctx, node, val, 1);
+}
+
+static void ui_slider_exit_text_input(sk_ui_context_t* ctx, sk_ui_node_t node, i32 commit);
+
+static void ui_slider_enter_text_input(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	const sk_allocator_t* a;
+	char buf[64];
+	f32 val;
+	i32 integer;
+	u32 n;
+	if (slot == NULL) {
+		return;
 	}
+	val = ui_prop_f32_const(slot, "value", 0.0f);
+	integer = ui_slider_read_i32(slot, "integer", 0);
+	if (integer != 0) {
+		(void)snprintf(buf, sizeof(buf), "%d", (int)ui_slider_round_nearest(val));
+	} else {
+		(void)snprintf(buf, sizeof(buf), "%.3f", (double)val);
+	}
+	(void)ui->node_set_prop_i32(ctx, node, "text_input", 1);
+	(void)ui->node_set_prop_str(ctx, node, "text", buf);
+	(void)ui->node_set_prop_i32(ctx, node, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, node, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, node, "caret", (i32)ui_utf8_code_count(buf));
+	(void)ui->node_set_prop_i32(ctx, node, "sel_start", 0);
+	(void)ui->node_set_prop_i32(ctx, node, "sel_end", (i32)ui_utf8_code_count(buf));
+	if (wd != NULL) {
+		wd->slider_anchor_value = val;
+		a = ctx->allocator;
+		if (wd->revert_text != NULL) {
+			a->free(a->instance, wd->revert_text);
+			wd->revert_text = NULL;
+		}
+		n = (u32)strlen(buf);
+		wd->revert_text = (char*)a->alloc(a->instance, n + 1u);
+		if (wd->revert_text != NULL) {
+			memcpy(wd->revert_text, buf, n + 1u);
+		}
+	}
+	(void)ui->focus_set(ctx, node);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+}
+
+static void ui_slider_replace_edit(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t insert, i32 del_left) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t cur;
+	char next[96];
+	i32 sel_a = 0;
+	i32 sel_b = 0;
+	i32 caret = 0;
+	i32 n;
+	u32 a_off;
+	u32 b_off;
+	u32 ins_len;
+	if (slot == NULL) {
+		return;
+	}
+	cur = ui_prop_str_const(slot, "text");
+	if (cur == NULL) {
+		cur = "";
+	}
+	n = (i32)ui_utf8_code_count(cur);
+	(void)ui_prop_i32_const(slot, "sel_start", &sel_a);
+	(void)ui_prop_i32_const(slot, "sel_end", &sel_b);
+	(void)ui_prop_i32_const(slot, "caret", &caret);
+	if (sel_a < 0) {
+		sel_a = caret;
+	}
+	if (sel_b < 0) {
+		sel_b = caret;
+	}
+	if (sel_a > sel_b) {
+		i32 tmp = sel_a;
+		sel_a = sel_b;
+		sel_b = tmp;
+	}
+	if (sel_a < 0) {
+		sel_a = 0;
+	}
+	if (sel_b > n) {
+		sel_b = n;
+	}
+	if (sel_a == sel_b && del_left != 0 && sel_a > 0) {
+		sel_a -= 1;
+	}
+	a_off = ui_utf8_byte_offset(cur, (u32)sel_a);
+	b_off = ui_utf8_byte_offset(cur, (u32)sel_b);
+	if (insert == NULL) {
+		insert = "";
+	}
+	ins_len = (u32)strlen(insert);
+	if (a_off + ins_len + (strlen(cur) - b_off) >= sizeof(next)) {
+		return;
+	}
+	memcpy(next, cur, a_off);
+	memcpy(next + a_off, insert, ins_len);
+	memcpy(next + a_off + ins_len, cur + b_off, strlen(cur) - b_off + 1u);
+	caret = sel_a + (i32)ui_utf8_code_count(insert);
+	(void)ui->node_set_prop_str(ctx, node, "text", next);
+	(void)ui->node_set_prop_i32(ctx, node, "caret", caret);
+	(void)ui->node_set_prop_i32(ctx, node, "sel_start", caret);
+	(void)ui->node_set_prop_i32(ctx, node, "sel_end", caret);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+}
+
+static void ui_slider_exit_text_input(sk_ui_context_t* ctx, sk_ui_node_t node, i32 commit) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	f32 val;
+	i32 integer;
+	if (slot == NULL) {
+		return;
+	}
+	if (ui_slider_read_i32(slot, "text_input", 0) == 0) {
+		return;
+	}
+	integer = ui_slider_read_i32(slot, "integer", 0);
+	if (commit != 0) {
+		const_chr_t txt = ui_prop_str_const(slot, "text");
+		char* end = NULL;
+		if (txt == NULL || txt[0] == '\0') {
+			val = 0.0f;
+		} else if (integer != 0) {
+			val = (f32)strtol(txt, &end, 10);
+		} else {
+			val = (f32)strtod(txt, &end);
+		}
+		(void)ui->node_set_prop_i32(ctx, node, "text_input", 0);
+		(void)ui_slider_apply_value(ctx, node, val, 1);
+	} else {
+		val = (wd != NULL) ? wd->slider_anchor_value : ui_prop_f32_const(slot, "value", 0.0f);
+		(void)ui->node_set_prop_i32(ctx, node, "text_input", 0);
+		(void)ui_slider_apply_value(ctx, node, val, 0);
+	}
+	(void)ui->node_set_prop_i32(ctx, node, "caret", -1);
+	(void)ui->node_set_prop_i32(ctx, node, "sel_start", -1);
+	(void)ui->node_set_prop_i32(ctx, node, "sel_end", -1);
+	ui_slider_refresh_label(ctx, node);
 }
 
 static void ui_slider_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
-	(void)user;
-	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	i32 text_mode;
+	i32 is_drag;
+	if (event == NULL || slot == NULL) {
 		return;
 	}
-	if (event->type == SK_UI_EVENT_POINTER_DOWN || event->type == SK_UI_EVENT_POINTER_MOVE) {
-		if (event->type == SK_UI_EVENT_POINTER_MOVE && (ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_ACTIVE) == 0u) {
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	text_mode = ui_slider_read_i32(slot, "text_input", 0);
+	is_drag = ui_slider_is_drag_kind(slot);
+	if (text_mode != 0) {
+		if (event->type == SK_UI_EVENT_TEXT_INPUT && event->text != NULL && event->text[0] != '\0') {
+			ui_slider_replace_edit(ctx, node, event->text, 0);
+			event->consumed = 1;
 			return;
 		}
-		ui_slider_set_from_x(ctx, node, event->x);
+		if (event->type == SK_UI_EVENT_KEY_DOWN) {
+			if (event->key == SK_UI_KEY_ENTER) {
+				ui_slider_exit_text_input(ctx, node, 1);
+				event->consumed = 1;
+				return;
+			}
+			if (event->key == SK_UI_KEY_ESCAPE) {
+				ui_slider_exit_text_input(ctx, node, 0);
+				event->consumed = 1;
+				return;
+			}
+			if (event->key == SK_UI_KEY_BACKSPACE) {
+				ui_slider_replace_edit(ctx, node, "", 1);
+				event->consumed = 1;
+				return;
+			}
+		}
+		if (event->type == SK_UI_EVENT_FOCUS_OUT) {
+			ui_slider_exit_text_input(ctx, node, 1);
+			return;
+		}
+		if (event->type == SK_UI_EVENT_POINTER_DOWN) {
+			event->consumed = 1;
+			return;
+		}
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_DOWN) {
+		if ((event->mods & (u32)SK_UI_MOD_CTRL) != 0u) {
+			ui_slider_enter_text_input(ctx, node);
+			event->consumed = 1;
+			return;
+		}
+		if (wd != NULL) {
+			wd->dragging = 1;
+			wd->drag_last_x = event->x;
+			wd->slider_anchor_value = ui_prop_f32_const(slot, "value", 0.0f);
+		}
+		if (is_drag == 0) {
+			ui_slider_set_from_x(ctx, node, event->x);
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_MOVE) {
+		if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_ACTIVE) == 0u) {
+			return;
+		}
+		if (is_drag != 0) {
+			f32 speed = ui_prop_f32_const(slot, "speed", 1.0f);
+			f32 cur = ui_prop_f32_const(slot, "value", 0.0f);
+			f32 last = (wd != NULL) ? wd->drag_last_x : event->x;
+			(void)ui_slider_apply_value(ctx, node, cur + (event->x - last) * speed, 1);
+			if (wd != NULL) {
+				wd->drag_last_x = event->x;
+			}
+		} else {
+			ui_slider_set_from_x(ctx, node, event->x);
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (wd != NULL) {
+			wd->dragging = 0;
+		}
 		event->consumed = 1;
 	}
 }
@@ -2559,30 +3048,136 @@ sk_ui_node_t ui_widget_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i3
 	return n;
 }
 
-sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id) {
+static sk_ui_node_t ui_slider_make(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 is_drag, f32 min_v, f32 max_v, f32 value, f32 speed, const_chr_t format, i32 integer, u32 flags,
+								   const_chr_t id) {
 	const sk_ui_api_t* ui = ui_wapi();
 	sk_ui_node_callbacks_t cbs;
 	ui_widget_data_t* wd;
-	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_SLIDER, "slider", "ui-slider", id);
+	const_chr_t cls = is_drag != 0 ? SK_UI_CLASS_DRAG : SK_UI_CLASS_SLIDER;
+	const_chr_t wtype = is_drag != 0 ? "drag" : "slider";
+	const_chr_t prefix = is_drag != 0 ? "drag" : "slider";
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, cls, wtype, prefix, id);
 	if (!sk_ui_node_is_valid(n)) {
 		return n;
 	}
-	if (max_v < min_v) {
-		f32 t = min_v;
-		min_v = max_v;
-		max_v = t;
+	if (format == NULL) {
+		format = integer != 0 ? "%d" : (is_drag != 0 ? "%.3f" : "");
 	}
-	value = ui_clampf(value, min_v, max_v);
+	if (speed <= 0.0f) {
+		speed = 1.0f;
+	}
 	(void)ui->node_set_prop_f32(ctx, n, "min", min_v);
 	(void)ui->node_set_prop_f32(ctx, n, "max", max_v);
 	(void)ui->node_set_prop_f32(ctx, n, "value", value);
+	(void)ui->node_set_prop_f32(ctx, n, "speed", speed);
+	(void)ui->node_set_prop_f32(ctx, n, "step", 0.0f);
+	(void)ui->node_set_prop_i32(ctx, n, "integer", integer != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, n, "flags", (i32)flags);
+	(void)ui->node_set_prop_i32(ctx, n, "text_input", 0);
+	(void)ui->node_set_prop_str(ctx, n, "format", format);
+	(void)ui->node_set_prop_str(ctx, n, "label", "");
 	(void)ui->node_set_focusable(ctx, n, 1);
 	wd = ui_widget_data_ensure(ctx, n, UI_WD_SLIDER);
 	memset(&cbs, 0, sizeof(cbs));
 	cbs.on_event = ui_slider_on_event;
 	cbs.user = wd;
 	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	(void)ui_slider_apply_value(ctx, n, value, 0);
 	return n;
+}
+
+static i32 ui_slider_norm_count(i32 count) {
+	if (count < 1) {
+		return 1;
+	}
+	if (count > 4) {
+		return 4;
+	}
+	return count;
+}
+
+static sk_ui_node_t ui_slider_make_n(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 is_drag, i32 count, f32 min_v, f32 max_v, const f32* values, f32 speed, const_chr_t format,
+									 i32 integer, u32 flags, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t row;
+	sk_ui_layout_style_t ls;
+	char cid[80];
+	i32 i;
+	count = ui_slider_norm_count(count);
+	row = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, is_drag != 0 ? SK_UI_CLASS_DRAG_N : SK_UI_CLASS_SLIDER_N, is_drag != 0 ? "drag_n" : "slider_n",
+						 is_drag != 0 ? "drag_n" : "slider_n", id);
+	if (!sk_ui_node_is_valid(row)) {
+		return row;
+	}
+	ui_layout_style_init_default(&ls);
+	ls.flex_direction = SK_UI_FLEX_ROW;
+	ls.column_gap = 4.0f;
+	ls.align_items = SK_UI_ALIGN_STRETCH;
+	(void)ui->node_set_layout_style(ctx, row, &ls);
+	(void)ui->node_set_prop_i32(ctx, row, "components", count);
+	for (i = 0; i < count; ++i) {
+		sk_ui_node_t child;
+		sk_ui_style_props_t p;
+		f32 v = values != NULL ? values[i] : 0.0f;
+		if (id != NULL && id[0] != '\0') {
+			(void)snprintf(cid, sizeof(cid), "%s/%d", id, i);
+		} else {
+			(void)snprintf(cid, sizeof(cid), "%s-%d", is_drag != 0 ? "drag" : "sl", i);
+		}
+		child = ui_slider_make(ctx, row, is_drag, min_v, max_v, v, speed, format, integer, flags, cid);
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_WIDTH;
+		p.layout.flex_grow = 1.0f;
+		p.layout.min_width = sk_ui_pt(28.0f);
+		(void)ui->node_merge_inline_style(ctx, child, &p);
+	}
+	return row;
+}
+
+sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id) {
+	return ui_slider_make(ctx, parent, 0, min_v, max_v, value, 1.0f, "", 0, SK_UI_SLIDER_FLAG_ALWAYS_CLAMP, id);
+}
+
+sk_ui_node_t ui_widget_slider_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id) {
+	return ui_slider_make(ctx, parent, 0, (f32)v_min, (f32)v_max, (f32)value, 1.0f, format != NULL ? format : "%d", 1, SK_UI_SLIDER_FLAG_ALWAYS_CLAMP, id);
+}
+
+sk_ui_node_t ui_widget_slider_float_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_min, f32 v_max, const f32* values, const_chr_t format, const_chr_t id) {
+	return ui_slider_make_n(ctx, parent, 0, count, v_min, v_max, values, 1.0f, format != NULL ? format : "%.3f", 0, SK_UI_SLIDER_FLAG_ALWAYS_CLAMP, id);
+}
+
+sk_ui_node_t ui_widget_slider_int_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, i32 v_min, i32 v_max, const i32* values, const_chr_t format, const_chr_t id) {
+	f32 tmp[4];
+	i32 i;
+	i32 n = ui_slider_norm_count(count);
+	for (i = 0; i < n; ++i) {
+		tmp[i] = values != NULL ? (f32)values[i] : 0.0f;
+	}
+	return ui_slider_make_n(ctx, parent, 0, n, (f32)v_min, (f32)v_max, tmp, 1.0f, format != NULL ? format : "%d", 1, SK_UI_SLIDER_FLAG_ALWAYS_CLAMP, id);
+}
+
+sk_ui_node_t ui_widget_drag_float_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, f32 v_min, f32 v_max, f32 value, const_chr_t format, const_chr_t id) {
+	return ui_slider_make(ctx, parent, 1, v_min, v_max, value, v_speed, format != NULL ? format : "%.3f", 0, SK_UI_SLIDER_FLAG_NONE, id);
+}
+
+sk_ui_node_t ui_widget_drag_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id) {
+	return ui_slider_make(ctx, parent, 1, (f32)v_min, (f32)v_max, (f32)value, v_speed, format != NULL ? format : "%d", 1, SK_UI_SLIDER_FLAG_NONE, id);
+}
+
+sk_ui_node_t ui_widget_drag_float_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, f32 v_min, f32 v_max, const f32* values, const_chr_t format,
+										 const_chr_t id) {
+	return ui_slider_make_n(ctx, parent, 1, count, v_min, v_max, values, v_speed, format != NULL ? format : "%.3f", 0, SK_UI_SLIDER_FLAG_NONE, id);
+}
+
+sk_ui_node_t ui_widget_drag_int_n_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, i32 v_min, i32 v_max, const i32* values, const_chr_t format,
+									   const_chr_t id) {
+	f32 tmp[4];
+	i32 i;
+	i32 n = ui_slider_norm_count(count);
+	for (i = 0; i < n; ++i) {
+		tmp[i] = values != NULL ? (f32)values[i] : 0.0f;
+	}
+	return ui_slider_make_n(ctx, parent, 1, n, (f32)v_min, (f32)v_max, tmp, v_speed, format != NULL ? format : "%d", 1, SK_UI_SLIDER_FLAG_NONE, id);
 }
 
 sk_ui_node_t ui_widget_range_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value_low, f32 value_high, const_chr_t id) {
@@ -3864,25 +4459,55 @@ i32 ui_toggle_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	return 0;
 }
 
+static sk_ui_node_t ui_slider_first_comp(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot != NULL && ui_slider_is_vector_host(slot) != 0) {
+		return ui_wapi()->node_child_at(ctx, node, 0u);
+	}
+	return node;
+}
+
+static u32 ui_slider_leaf_count(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot != NULL && ui_slider_is_vector_host(slot) != 0) {
+		return ui_wapi()->node_child_count(ctx, node);
+	}
+	return 1u;
+}
+
+static sk_ui_node_t ui_slider_leaf_at(const sk_ui_context_t* ctx, sk_ui_node_t node, u32 index) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot != NULL && ui_slider_is_vector_host(slot) != 0) {
+		return ui_wapi()->node_child_at(ctx, node, index);
+	}
+	return index == 0u ? node : SK_UI_NODE_INVALID;
+}
+
 i32 ui_slider_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
-	f32 min_v, max_v;
+	u32 i;
+	u32 n;
 	if (slot == NULL) {
 		return -1;
 	}
-	min_v = ui_prop_f32_const(slot, "min", 0.0f);
-	max_v = ui_prop_f32_const(slot, "max", 1.0f);
-	value = ui_clampf(value, min_v, max_v);
-	if (ui->node_set_prop_f32(ctx, node, "value", value) != 0) {
-		return -1;
+	if (ui_slider_is_vector_host(slot) != 0) {
+		n = ui->node_child_count(ctx, node);
+		for (i = 0u; i < n; ++i) {
+			(void)ui_slider_apply_value(ctx, ui->node_child_at(ctx, node, i), value, 0);
+		}
+		return 0;
 	}
-	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
-	return 0;
+	return ui_slider_apply_value(ctx, node, value, 0);
 }
 
 f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	sk_ui_node_t leaf = ui_slider_first_comp(ctx, node);
+	if (slot == NULL) {
+		return 0.0f;
+	}
+	slot = ui_slot(ctx, leaf);
 	if (slot == NULL) {
 		return 0.0f;
 	}
@@ -3891,20 +4516,24 @@ f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 i32 ui_slider_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v) {
 	const sk_ui_api_t* ui = ui_wapi();
-	f32 val;
-	if (max_v < min_v) {
-		f32 t = min_v;
-		min_v = max_v;
-		max_v = t;
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		f32 val;
+		if (!sk_ui_node_is_valid(leaf)) {
+			continue;
+		}
+		if (ui->node_set_prop_f32(ctx, leaf, "min", min_v) != 0) {
+			return -1;
+		}
+		if (ui->node_set_prop_f32(ctx, leaf, "max", max_v) != 0) {
+			return -1;
+		}
+		val = ui_slider_get_value_impl(ctx, leaf);
+		(void)ui_slider_apply_value(ctx, leaf, val, 0);
 	}
-	if (ui->node_set_prop_f32(ctx, node, "min", min_v) != 0) {
-		return -1;
-	}
-	if (ui->node_set_prop_f32(ctx, node, "max", max_v) != 0) {
-		return -1;
-	}
-	val = ui_slider_get_value_impl(ctx, node);
-	return ui_slider_set_value_impl(ctx, node, val);
+	return 0;
 }
 
 i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user) {
@@ -3914,6 +4543,267 @@ i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	}
 	wd->on_float = fn;
 	wd->cb_user = user;
+	return 0;
+}
+
+i32 ui_slider_set_format_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t format) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		if (!sk_ui_node_is_valid(leaf)) {
+			continue;
+		}
+		if (ui->node_set_prop_str(ctx, leaf, "format", format != NULL ? format : "") != 0) {
+			return -1;
+		}
+		ui_slider_refresh_label(ctx, leaf);
+		ui_mark_dirty_up(ctx, leaf, (u32)SK_UI_DIRTY_PAINT);
+	}
+	return 0;
+}
+
+const_chr_t ui_slider_get_format_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	const_chr_t fmt;
+	if (slot == NULL) {
+		return "";
+	}
+	fmt = ui_prop_str_const(slot, "format");
+	return fmt != NULL ? fmt : "";
+}
+
+i32 ui_slider_set_step_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 step) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	if (step < 0.0f) {
+		step = 0.0f;
+	}
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		f32 val;
+		if (!sk_ui_node_is_valid(leaf)) {
+			continue;
+		}
+		if (ui->node_set_prop_f32(ctx, leaf, "step", step) != 0) {
+			return -1;
+		}
+		val = ui_slider_get_value_impl(ctx, leaf);
+		(void)ui_slider_apply_value(ctx, leaf, val, 0);
+	}
+	return 0;
+}
+
+f32 ui_slider_get_step_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	if (slot == NULL) {
+		return 0.0f;
+	}
+	return ui_prop_f32_const(slot, "step", 0.0f);
+}
+
+i32 ui_slider_set_speed_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 speed) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	if (speed <= 0.0f) {
+		speed = 1.0f;
+	}
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		if (!sk_ui_node_is_valid(leaf)) {
+			continue;
+		}
+		if (ui->node_set_prop_f32(ctx, leaf, "speed", speed) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+f32 ui_slider_get_speed_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	if (slot == NULL) {
+		return 1.0f;
+	}
+	return ui_prop_f32_const(slot, "speed", 1.0f);
+}
+
+i32 ui_slider_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		f32 val;
+		if (!sk_ui_node_is_valid(leaf)) {
+			continue;
+		}
+		if (ui->node_set_prop_i32(ctx, leaf, "flags", (i32)flags) != 0) {
+			return -1;
+		}
+		val = ui_slider_get_value_impl(ctx, leaf);
+		(void)ui_slider_apply_value(ctx, leaf, val, 0);
+	}
+	return 0;
+}
+
+u32 ui_slider_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	if (slot == NULL) {
+		return 0u;
+	}
+	return (u32)ui_slider_read_i32(slot, "flags", 0);
+}
+
+i32 ui_slider_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label) {
+	const sk_ui_api_t* ui = ui_wapi();
+	char visible[96];
+	ui_split_imgui_label(label, visible, (u32)sizeof(visible), NULL);
+	return ui->node_set_prop_str(ctx, node, "label", visible);
+}
+
+const_chr_t ui_slider_get_label_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t lab;
+	if (slot == NULL) {
+		return "";
+	}
+	lab = ui_prop_str_const(slot, "label");
+	return lab != NULL ? lab : "";
+}
+
+i32 ui_slider_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd;
+	i32 any = 0;
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		i32 v;
+		wd = ui_widget_data(ctx, leaf);
+		if (wd == NULL) {
+			continue;
+		}
+		v = wd->edge_value_changed != 0 ? 1 : 0;
+		wd->edge_value_changed = 0;
+		if (v != 0) {
+			any = 1;
+		}
+	}
+	return any;
+}
+
+i32 ui_slider_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	u32 i;
+	u32 n = ui_slider_leaf_count(ctx, node);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t leaf = ui_slider_leaf_at(ctx, node, i);
+		if (sk_ui_node_is_valid(leaf)) {
+			(void)ui_widget_set_disabled(ctx, leaf, disabled);
+		}
+	}
+	return ui_widget_set_disabled(ctx, node, disabled);
+}
+
+i32 ui_slider_is_text_input_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	if (slot == NULL) {
+		return 0;
+	}
+	return ui_slider_read_i32(slot, "text_input", 0) != 0 ? 1 : 0;
+}
+
+i32 ui_slider_set_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on) {
+	sk_ui_node_t leaf = ui_slider_first_comp(ctx, node);
+	if (on != 0) {
+		ui_slider_enter_text_input(ctx, leaf);
+	} else {
+		ui_slider_exit_text_input(ctx, leaf, 1);
+	}
+	return 0;
+}
+
+i32 ui_slider_set_int_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value) {
+	return ui_slider_set_value_impl(ctx, node, (f32)value);
+}
+
+i32 ui_slider_get_int_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return (i32)ui_slider_round_nearest(ui_slider_get_value_impl(ctx, node));
+}
+
+i32 ui_slider_format_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, char* out, u32 out_cap) {
+	const ui_node_slot_t* slot = ui_slot(ctx, ui_slider_first_comp(ctx, node));
+	const_chr_t fmt;
+	f32 val;
+	i32 integer;
+	if (out == NULL || out_cap == 0u || slot == NULL) {
+		return -1;
+	}
+	fmt = ui_prop_str_const(slot, "format");
+	val = ui_prop_f32_const(slot, "value", 0.0f);
+	integer = ui_slider_read_i32(slot, "integer", 0);
+	ui_slider_format_into(out, out_cap, fmt != NULL ? fmt : "", val, integer);
+	return 0;
+}
+
+i32 ui_slider_component_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_comp) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 n;
+	if (out_comp == NULL) {
+		return -1;
+	}
+	*out_comp = SK_UI_NODE_INVALID;
+	n = ui->node_child_count(ctx, row);
+	if (index < 0 || (u32)index >= n) {
+		return -1;
+	}
+	*out_comp = ui->node_child_at(ctx, row, (u32)index);
+	return sk_ui_node_is_valid(*out_comp) ? 0 : -1;
+}
+
+i32 ui_slider_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t row, const f32* values, i32 count) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, row);
+	u32 n;
+	u32 i;
+	if (values == NULL || count <= 0) {
+		return -1;
+	}
+	if (slot != NULL && ui_slider_is_vector_host(slot) == 0) {
+		return ui_slider_set_value_impl(ctx, row, values[0]);
+	}
+	n = ui->node_child_count(ctx, row);
+	if ((u32)count < n) {
+		n = (u32)count;
+	}
+	for (i = 0u; i < n; ++i) {
+		(void)ui_slider_apply_value(ctx, ui->node_child_at(ctx, row, i), values[i], 0);
+	}
+	return 0;
+}
+
+i32 ui_slider_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, f32* out, i32 count) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, row);
+	u32 n;
+	u32 i;
+	if (out == NULL || count <= 0) {
+		return -1;
+	}
+	if (slot != NULL && ui_slider_is_vector_host(slot) == 0) {
+		out[0] = ui_slider_get_value_impl(ctx, row);
+		return 0;
+	}
+	n = ui->node_child_count(ctx, row);
+	if ((u32)count < n) {
+		n = (u32)count;
+	}
+	for (i = 0u; i < n; ++i) {
+		out[i] = ui_slider_get_value_impl(ctx, ui->node_child_at(ctx, row, i));
+	}
 	return 0;
 }
 
@@ -5265,6 +6155,9 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SLIDER));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SLIDER_N));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG_N));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RANGE_SLIDER));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_PROGRESS));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TEXT_INPUT));
@@ -5986,6 +6879,179 @@ SK_TEST(ui_widget_slider_clamp_and_drag) {
 	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_range(ctx, sl, 10.0f, 20.0f));
 	TEST_ASSERT_TRUE(ui->slider_get_value(ctx, sl) >= 10.0f);
 	TEST_ASSERT_TRUE(ui->slider_get_value(ctx, sl) <= 20.0f);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_slider_family_mapping_clamp_step_format) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t sl;
+	sk_ui_node_t si;
+	sk_ui_node_t inv;
+	sk_ui_node_t zw;
+	sk_ui_node_t dg;
+	sk_ui_node_t dis;
+	sk_ui_node_t row;
+	sk_ui_node_t c0;
+	sk_ui_node_t c1;
+	sk_ui_node_t c2;
+	sk_ui_rect_t r;
+	sk_ui_input_event_t ev;
+	char fmt[32];
+	f32 vec[3] = {1.0f, 2.0f, 3.0f};
+	f32 out[3];
+
+	sl = ui->widget_slider(ctx, root, 0.0f, 100.0f, 0.0f, "map");
+	wtest_set_size(ui, ctx, sl, 100.0f, 20.0f);
+	wtest_layout(ui, ctx, 120.0f, 40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sl, &r, NULL));
+
+	/* Pixel position → value: left / mid / right (inset so hit-test stays inside). */
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.x = r.x + 0.5f;
+	ev.y = r.y + r.height * 0.5f;
+	ev.button = SK_UI_POINTER_BUTTON_LEFT;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, ui->slider_get_value(ctx, sl));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	ev.down = 1;
+	ev.x = r.x + r.width * 0.5f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 50.0f, ui->slider_get_value(ctx, sl));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	ev.down = 1;
+	ev.x = r.x + r.width - 0.5f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 99.5f, ui->slider_get_value(ctx, sl));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	/* Clamp past both ends: press inside, then move outside while captured. */
+	ev.down = 1;
+	ev.x = r.x + r.width * 0.5f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	ev.x = r.x + r.width + 80.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, ui->slider_get_value(ctx, sl));
+	ev.x = r.x - 80.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, ui->slider_get_value(ctx, sl));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	/* Step snap. */
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_step(ctx, sl, 10.0f));
+	ev.down = 1;
+	ev.x = r.x + r.width * 0.33f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	{
+		f32 stepped = ui->slider_get_value(ctx, sl);
+		f32 nearest = 10.0f * (f32)((int)(stepped / 10.0f + (stepped >= 0.0f ? 0.5f : -0.5f)));
+		TEST_ASSERT_FLOAT_WITHIN(0.01f, nearest, stepped);
+	}
+
+	/* Integer slider + custom format. */
+	si = ui->widget_slider_int(ctx, root, 0, 8, 3, "LOD %d", "lod");
+	TEST_ASSERT_EQUAL_INT(3, ui->slider_get_int_value(ctx, si));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_format_value(ctx, si, fmt, (u32)sizeof(fmt)));
+	TEST_ASSERT_EQUAL_STRING("LOD 3", fmt);
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_int_value(ctx, si, 99));
+	TEST_ASSERT_EQUAL_INT(8, ui->slider_get_int_value(ctx, si));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_format(ctx, si, "auto"));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_format_value(ctx, si, fmt, (u32)sizeof(fmt)));
+	TEST_ASSERT_EQUAL_STRING("auto", fmt);
+
+	/* Inverted range: left is min (high), right is max (low). */
+	inv = ui->widget_slider(ctx, root, 100.0f, 0.0f, 25.0f, "inv");
+	wtest_set_size(ui, ctx, inv, 100.0f, 20.0f);
+	wtest_layout(ui, ctx, 120.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, inv, &r, NULL));
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.button = SK_UI_POINTER_BUTTON_LEFT;
+	ev.down = 1;
+	ev.x = r.x + 0.5f;
+	ev.y = r.y + 10.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 100.0f, ui->slider_get_value(ctx, inv));
+	ev.x = r.x + r.width - 0.5f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, ui->slider_get_value(ctx, inv));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	/* Zero-width slider range stays at the single value. */
+	zw = ui->widget_slider(ctx, root, 5.0f, 5.0f, 5.0f, "zw");
+	wtest_set_size(ui, ctx, zw, 80.0f, 20.0f);
+	wtest_layout(ui, ctx, 120.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_value(ctx, zw, 12.0f));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 5.0f, ui->slider_get_value(ctx, zw));
+
+	/* Drag speed: 20px * 0.5 = +10. Unbounded min==max==0. */
+	dg = ui->widget_drag_float(ctx, root, 0.5f, 0.0f, 0.0f, 1.0f, "%.3f", "dg");
+	wtest_set_size(ui, ctx, dg, 80.0f, 20.0f);
+	wtest_layout(ui, ctx, 140.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dg, &r, NULL));
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.button = SK_UI_POINTER_BUTTON_LEFT;
+	ev.x = r.x + 10.0f;
+	ev.y = r.y + 10.0f;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, ui->slider_get_value(ctx, dg));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	ev.x = r.x + 30.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(0.05f, 11.0f, ui->slider_get_value(ctx, dg));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+
+	/* Vector components edit independently. */
+	row = ui->widget_slider_float_n(ctx, root, 3, 0.0f, 10.0f, vec, "%.1f", "vec");
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_component(ctx, row, 0, &c0));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_component(ctx, row, 1, &c1));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_component(ctx, row, 2, &c2));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, ui->slider_get_value(ctx, c0));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 2.0f, ui->slider_get_value(ctx, c1));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 3.0f, ui->slider_get_value(ctx, c2));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_value(ctx, c1, 9.0f));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, ui->slider_get_value(ctx, c0));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 9.0f, ui->slider_get_value(ctx, c1));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 3.0f, ui->slider_get_value(ctx, c2));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_get_values(ctx, row, out, 3));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 9.0f, out[1]);
+
+	/* Disabled ignores pointer. */
+	dis = ui->widget_slider(ctx, root, 0.0f, 10.0f, 4.0f, "dis");
+	wtest_set_size(ui, ctx, dis, 80.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_disabled(ctx, dis, 1));
+	wtest_layout(ui, ctx, 140.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dis, &r, NULL));
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.button = SK_UI_POINTER_BUTTON_LEFT;
+	ev.x = r.x + r.width;
+	ev.y = r.y + 10.0f;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ev.down = 0;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 4.0f, ui->slider_get_value(ctx, dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_changed(ctx, dis));
+
 	ui->context_destroy(ctx);
 }
 

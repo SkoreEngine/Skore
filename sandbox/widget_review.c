@@ -22,6 +22,11 @@ typedef enum sandbox_widget_state_t {
 	SANDBOX_WS_FOCUSED,
 	SANDBOX_WS_CHECKED,
 	SANDBOX_WS_MIXED,
+	SANDBOX_WS_MIN,
+	SANDBOX_WS_MID,
+	SANDBOX_WS_MAX,
+	SANDBOX_WS_DRAGGING,
+	SANDBOX_WS_TEXT_ENTRY,
 	SANDBOX_WS_COUNT
 } sandbox_widget_state_t;
 
@@ -35,6 +40,12 @@ typedef enum sandbox_widget_state_t {
 #define SANDBOX_WS_BITS_INTERACTIVE (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_PRESSED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED)
 #define SANDBOX_WS_BITS_CHECKBOX (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_CHECKED | SANDBOX_WS_BIT_MIXED)
 #define SANDBOX_WS_BITS_RADIO (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_CHECKED)
+#define SANDBOX_WS_BIT_MIN (1u << SANDBOX_WS_MIN)
+#define SANDBOX_WS_BIT_MID (1u << SANDBOX_WS_MID)
+#define SANDBOX_WS_BIT_MAX (1u << SANDBOX_WS_MAX)
+#define SANDBOX_WS_BIT_DRAGGING (1u << SANDBOX_WS_DRAGGING)
+#define SANDBOX_WS_BIT_TEXT_ENTRY (1u << SANDBOX_WS_TEXT_ENTRY)
+#define SANDBOX_WS_BITS_SLIDER (SANDBOX_WS_BIT_MIN | SANDBOX_WS_BIT_MID | SANDBOX_WS_BIT_MAX | SANDBOX_WS_BIT_DRAGGING | SANDBOX_WS_BIT_TEXT_ENTRY | SANDBOX_WS_BIT_DISABLED)
 
 typedef i32 (*sandbox_widget_build_fn)(const sandbox_widget_host_t* host, sk_ui_node_t* out_target);
 
@@ -64,6 +75,16 @@ static const_chr_t sandbox_ws_name(sandbox_widget_state_t st) {
 		return "checked";
 	case SANDBOX_WS_MIXED:
 		return "mixed";
+	case SANDBOX_WS_MIN:
+		return "min";
+	case SANDBOX_WS_MID:
+		return "mid";
+	case SANDBOX_WS_MAX:
+		return "max";
+	case SANDBOX_WS_DRAGGING:
+		return "dragging";
+	case SANDBOX_WS_TEXT_ENTRY:
+		return "text_entry";
 	case SANDBOX_WS_COUNT:
 	default:
 		return "unknown";
@@ -499,6 +520,121 @@ static i32 sandbox_widget_build_separator_text(const sandbox_widget_host_t* host
 	return 0;
 }
 
+static void sandbox_slider_size(const sandbox_widget_host_t* host, sk_ui_node_t n, f32 w, f32 h) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_style_props_t p;
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	p.layout.width = sk_ui_pt(w);
+	p.layout.height = sk_ui_pt(h);
+	p.layout.min_width = sk_ui_pt(w);
+	p.layout.min_height = sk_ui_pt(h);
+	(void)ui->node_merge_inline_style(host->ctx, n, &p);
+}
+
+static i32 sandbox_widget_build_slider(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* SceneView FOV: SliderFloat("##fov", &cameraFov, 4, 120, "%.0f"). */
+	n = ui->widget_slider(host->ctx, root, 4.0f, 120.0f, 62.0f, "review-slider");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_slider failed\n");
+		return -1;
+	}
+	(void)ui->slider_set_format(host->ctx, n, "%.0f");
+	sandbox_slider_size(host, n, 280.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_slider_int(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* SceneView forced LOD: SliderInt format "LOD %d". */
+	n = ui->widget_slider_int(host->ctx, root, 0, 8, 3, "LOD %d", "review-slider-int");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_slider_int failed\n");
+		return -1;
+	}
+	sandbox_slider_size(host, n, 280.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_slider_float3(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+	f32 v[3] = {0.25f, 0.50f, 0.75f};
+
+	sandbox_widget_style_stage(host);
+	n = ui->widget_slider_float_n(host->ctx, root, 3, 0.0f, 1.0f, v, "%.2f", "review-slider-f3");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_slider_float_n failed\n");
+		return -1;
+	}
+	sandbox_slider_size(host, n, 360.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_drag_float(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* PropertiesWindow material scalar: DragFloat("##v", &scalar, 0.01f). */
+	n = ui->widget_drag_float(host->ctx, root, 0.01f, 0.0f, 1.0f, 0.35f, "%.3f", "review-drag");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_drag_float failed\n");
+		return -1;
+	}
+	sandbox_slider_size(host, n, 280.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_drag_int(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	n = ui->widget_drag_int(host->ctx, root, 1.0f, 0, 100, 40, "%d", "review-drag-int");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_drag_int failed\n");
+		return -1;
+	}
+	sandbox_slider_size(host, n, 280.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_drag_float3(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+	f32 v[3] = {0.10f, 0.50f, 0.90f};
+
+	sandbox_widget_style_stage(host);
+	/* PropertiesWindow: DragFloat2/3/4. */
+	n = ui->widget_drag_float_n(host->ctx, root, 3, 0.01f, 0.0f, 1.0f, v, "%.3f", "review-drag-f3");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_drag_float_n failed\n");
+		return -1;
+	}
+	sandbox_slider_size(host, n, 360.0f, 22.0f);
+	*out_target = n;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -521,7 +657,12 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"text_input_multiline", "inputml", "§5 InputTextMultiline", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_FOCUSED, 400u, 180u, sandbox_widget_build_text_input_multiline},
 	{"text_input_readonly", "inputro", "§5 InputText ReadOnly", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_FOCUSED | SANDBOX_WS_BIT_DISABLED, 400u, 96u,
 	 sandbox_widget_build_text_input_readonly},
-	{"slider", NULL, "§6 Slider / Drag", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
+	{"slider", NULL, "§6 SliderFloat", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_slider},
+	{"slider_int", "sliderint", "§6 SliderInt", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_slider_int},
+	{"slider_float3", "sliderf3", "§6 SliderFloat3", SANDBOX_WS_BITS_SLIDER, 480u, 96u, sandbox_widget_build_slider_float3},
+	{"drag_float", "drag", "§6 DragFloat", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_drag_float},
+	{"drag_int", "dragint", "§6 DragInt", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_drag_int},
+	{"drag_float3", "dragf3", "§6 DragFloat3", SANDBOX_WS_BITS_SLIDER, 480u, 96u, sandbox_widget_build_drag_float3},
 	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
 	{"tree", NULL, "§8 TreeNode / CollapsingHeader", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u, NULL},
 	{"table", NULL, "§9 Table", SANDBOX_WS_BIT_DEFAULT, 480u, 256u, NULL},
@@ -585,6 +726,8 @@ void sandbox_widget_list(void) {
 	printf("         separatortext=separator_text radiogroup=radio_group\n");
 	printf("         inputhint=text_input_hint inputsel=text_input_selection\n");
 	printf("         inputml=text_input_multiline inputro=text_input_readonly\n");
+	printf("         sliderint=slider_int sliderf3=slider_float3 drag=drag_float\n");
+	printf("         dragint=drag_int dragf3=drag_float3\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -625,6 +768,8 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	(void)ui->checkbox_set_disabled(host->ctx, node, 0);
 	(void)ui->radio_set_disabled(host->ctx, node, 0);
 	(void)ui->text_input_set_disabled(host->ctx, node, 0);
+	(void)ui->slider_set_disabled(host->ctx, node, 0);
+	(void)ui->slider_set_text_input(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -636,6 +781,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 		(void)ui->checkbox_set_disabled(host->ctx, node, 1);
 		(void)ui->radio_set_disabled(host->ctx, node, 1);
 		(void)ui->text_input_set_disabled(host->ctx, node, 1);
+		(void)ui->slider_set_disabled(host->ctx, node, 1);
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_DISABLED);
 	case SANDBOX_WS_FOCUSED:
 		if (ui->focus_set(host->ctx, node) == 0) {
@@ -650,6 +796,43 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	case SANDBOX_WS_MIXED:
 		(void)ui->checkbox_set_mixed(host->ctx, node, 1);
 		return 0;
+	case SANDBOX_WS_MIN:
+	case SANDBOX_WS_MID:
+	case SANDBOX_WS_MAX:
+	case SANDBOX_WS_DRAGGING:
+	case SANDBOX_WS_TEXT_ENTRY: {
+		f32 vmin = 0.0f;
+		f32 vmax = 1.0f;
+		f32 mid;
+		sk_ui_node_t leaf = node;
+		sk_ui_node_t child = SK_UI_NODE_INVALID;
+		sk_ui_prop_value_t pv;
+		if (ui->slider_component(host->ctx, node, 0, &child) == 0 && sk_ui_node_is_valid(child)) {
+			leaf = child;
+		}
+		if (ui->node_get_prop(host->ctx, leaf, "min", &pv) == 0 && pv.type == SK_UI_PROP_F32) {
+			vmin = pv.data.f32_value;
+		}
+		if (ui->node_get_prop(host->ctx, leaf, "max", &pv) == 0 && pv.type == SK_UI_PROP_F32) {
+			vmax = pv.data.f32_value;
+		}
+		mid = vmin + (vmax - vmin) * 0.5f;
+		/* Write the leaf only so vector siblings keep independent values. */
+		if (st == SANDBOX_WS_MIN) {
+			(void)ui->slider_set_value(host->ctx, leaf, vmin);
+		} else if (st == SANDBOX_WS_MAX) {
+			(void)ui->slider_set_value(host->ctx, leaf, vmax);
+		} else {
+			(void)ui->slider_set_value(host->ctx, leaf, mid);
+		}
+		if (st == SANDBOX_WS_DRAGGING) {
+			return ui->node_set_state(host->ctx, leaf, (u32)SK_UI_STATE_ACTIVE);
+		}
+		if (st == SANDBOX_WS_TEXT_ENTRY) {
+			return ui->slider_set_text_input(host->ctx, leaf, 1);
+		}
+		return 0;
+	}
 	case SANDBOX_WS_COUNT:
 	default:
 		return -1;
@@ -714,7 +897,7 @@ i32 sandbox_widget_run(const sandbox_widget_host_t* host, const_chr_t name, cons
 	}
 	if (state_filter != NULL && state_filter[0] != '\0' && strcmp(state_filter, "all") != 0) {
 		if (sandbox_ws_parse(state_filter, &only) != 0) {
-			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|all)\n", state_filter);
+			fprintf(stderr, "sk-sandbox: unknown --state '%s' (default|hovered|pressed|disabled|focused|checked|mixed|min|mid|max|dragging|text_entry|all)\n", state_filter);
 			return -1;
 		}
 		if ((d->states & (1u << (u32)only)) == 0u) {

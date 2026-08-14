@@ -74,7 +74,7 @@ scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
 editor_window. Missing factories that this audit makes load-bearing: **tree**,
 **table**, **drag-drop payload**, **color picker**, **combo that binds an
-int + zero-separated items**, **DragFloatN**, **tooltip**.
+int + zero-separated items**, **tooltip**.
 
 ---
 
@@ -449,12 +449,19 @@ GraphEditor pin widgets; still the same family).
 **Not used:** `SliderFloat2/3/4`, `VSlider*`, `SliderAngle`, `DragScalarN`
 outside GraphEditor pins.
 
-**sk-ui today:** `widget_slider` (one float + min/max). No Drag*, no int
-slider, no N-component.
+**sk-ui today:** `widget_slider` (SliderFloat) plus SliderInt, DragFloat /
+DragInt, and N-component rows (DragFloat2/3/4). Format, step, speed,
+AlwaysClamp, inverted and zero-width ranges, ctrl-click text-entry, and a
+consume-on-read changed flag. Vector children edit independently.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_slider_clamp_and_drag`,
+  `ui_widget_slider_family_mapping_clamp_step_format`)
+- [x] Headless UI automation — `plugins/ui/slider_drag_family_tests.c`
+  (`ui_author_slider_drag_family_drag_clamp_changed_text_entry`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget slider`,
+  `slider_int`, `slider_float3`, `drag_float`, `drag_int`, `drag_float3`;
+  states min/mid/max/dragging/text_entry/disabled)
 
 ---
 

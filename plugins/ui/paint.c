@@ -1386,13 +1386,16 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
-	/* Slider fill + thumb from value/min/max props. */
+	/* Slider / Drag fill + grab + optional text-entry inset. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "slider") == 0) {
+		i32 is_slider = (wtype != NULL && strcmp(wtype, "slider") == 0) ? 1 : 0;
+		i32 is_drag = (wtype != NULL && strcmp(wtype, "drag") == 0) ? 1 : 0;
+		if (is_slider != 0 || is_drag != 0) {
 			f32 vmin = ui_paint_prop_f32_or(slot, "min", 0.0f);
 			f32 vmax = ui_paint_prop_f32_or(slot, "max", 1.0f);
 			f32 val = ui_paint_prop_f32_or(slot, "value", 0.0f);
+			f32 span = vmax - vmin;
 			f32 t;
 			f32 track_h;
 			f32 track_y;
@@ -1404,54 +1407,79 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			u32 fill_col;
 			u32 thumb_col;
 			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+			i32 text_mode = 0;
+			i32 active = ((slot->state_flags & (u32)SK_UI_STATE_ACTIVE) != 0u) ? 1 : 0;
 			sk_ui_color_t fill_c;
 			sk_ui_color_t thumb_c;
-			if (vmax <= vmin) {
-				vmax = vmin + 1.0f;
+			(void)ui_paint_prop_i32(slot, "text_input", &text_mode);
+			if (span > -0.0000001f && span < 0.0000001f) {
+				t = 0.0f;
+			} else {
+				t = (val - vmin) / span;
 			}
-			if (val < vmin) {
-				val = vmin;
+			if (t < 0.0f) {
+				t = 0.0f;
 			}
-			if (val > vmax) {
-				val = vmax;
+			if (t > 1.0f) {
+				t = 1.0f;
 			}
-			t = (val - vmin) / (vmax - vmin);
-			/* Thin track so the grab knob is clearly thicker (vision: not a bare bar). */
-			track_h = ch * 0.22f;
-			if (track_h < 2.0f) {
-				track_h = 2.0f;
-			}
-			track_y = cy + (ch - track_h) * 0.5f;
-			fill_w = cw * t;
-			/* Disabled: muted fill + thumb (vision grades dimming) — APX-253. */
-			fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
-			thumb_c = disabled != 0 ? sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f) : sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
-			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
-			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
-			if (fill_w > 0.0f) {
-				if (ui_paint_add_solid_quad(em, cx, track_y, cx + fill_w, track_y + track_h, fill_col) != 0) {
+			if (text_mode != 0) {
+				/* Ctrl-click text-entry: inset field, hide the grab. */
+				u32 inset_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.08f, 0.09f, 0.11f, 1.0f), opacity));
+				f32 inset = 2.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				if (ui_paint_add_solid_quad(em, cx + inset, cy + inset, cx + cw - inset, cy + ch - inset, inset_col) != 0) {
 					return -1;
 				}
-			}
-			/* Distinct rounded grab handle — taller than the track, not an end-cap. */
-			thumb_w = ch * 0.55f;
-			thumb_h = ch * 0.90f;
-			if (thumb_w < 8.0f) {
-				thumb_w = 8.0f;
-			}
-			if (thumb_h < 10.0f) {
-				thumb_h = 10.0f;
-			}
-			thumb_x = cx + fill_w - thumb_w * 0.5f;
-			if (thumb_x < cx) {
-				thumb_x = cx;
-			}
-			if (thumb_x + thumb_w > cx + cw) {
-				thumb_x = cx + cw - thumb_w;
-			}
-			thumb_y = cy + (ch - thumb_h) * 0.5f;
-			if (ui_paint_add_rounded_rect_filled(em, thumb_x, thumb_y, thumb_w, thumb_h, thumb_w * 0.35f, thumb_col) != 0) {
-				return -1;
+			} else if (is_slider != 0) {
+				track_h = ch * 0.22f;
+				if (track_h < 2.0f) {
+					track_h = 2.0f;
+				}
+				track_y = cy + (ch - track_h) * 0.5f;
+				fill_w = cw * t;
+				fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+				/* Blue grab (not white) so the centered format label stays readable. */
+				thumb_c = disabled != 0 ? sk_ui_rgba(0.40f, 0.44f, 0.50f, 1.0f) : (active != 0 ? sk_ui_rgba(0.72f, 0.86f, 1.0f, 1.0f) : sk_ui_rgba(0.42f, 0.64f, 0.98f, 1.0f));
+				fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
+				thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
+				if (fill_w > 0.0f) {
+					if (ui_paint_add_solid_quad(em, cx, track_y, cx + fill_w, track_y + track_h, fill_col) != 0) {
+						return -1;
+					}
+				}
+				thumb_w = ch * 0.38f;
+				thumb_h = ch * 0.78f;
+				if (thumb_w < 6.0f) {
+					thumb_w = 6.0f;
+				}
+				if (thumb_h < 8.0f) {
+					thumb_h = 8.0f;
+				}
+				if (active != 0) {
+					thumb_w += 2.0f;
+					thumb_h += 2.0f;
+				}
+				thumb_x = cx + fill_w - thumb_w * 0.5f;
+				if (thumb_x < cx) {
+					thumb_x = cx;
+				}
+				if (thumb_x + thumb_w > cx + cw) {
+					thumb_x = cx + cw - thumb_w;
+				}
+				thumb_y = cy + (ch - thumb_h) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, thumb_x, thumb_y, thumb_w, thumb_h, thumb_w * 0.35f, thumb_col) != 0) {
+					return -1;
+				}
+			} else if (span <= -0.0000001f || span >= 0.0000001f) {
+				/* Bounded drag: thin left-to-right fill so min/mid/max read. */
+				fill_w = cw * t;
+				fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 0.55f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 0.45f);
+				fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
+				if (fill_w > 0.0f) {
+					if (ui_paint_add_solid_quad(em, cx, cy, cx + fill_w, cy + ch, fill_col) != 0) {
+						return -1;
+					}
+				}
 			}
 		}
 		/*
@@ -1705,7 +1733,7 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 		if (wtype != NULL && (strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 ||
 							  strcmp(wtype, "menu") == 0 || strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 ||
-							  strcmp(wtype, "window_title_bar") == 0 || strcmp(wtype, "separator_text") == 0)) {
+							  strcmp(wtype, "window_title_bar") == 0 || strcmp(wtype, "separator_text") == 0 || strcmp(wtype, "slider") == 0 || strcmp(wtype, "drag") == 0)) {
 			emit = 1;
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
