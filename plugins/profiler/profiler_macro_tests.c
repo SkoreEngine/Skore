@@ -38,7 +38,7 @@ SK_TEST(profiler_macro_cpu_zone_scopes_and_merges) {
 	api->set_active(false);
 	api->set_active(true);
 	api->begin_frame(); /* frame 0 */
-	/* GCC/Clang cleanup scopes the zone to the enclosing block. MSVC's
+						/* GCC/Clang cleanup scopes the zone to the enclosing block. MSVC's
 	 * for-loop form covers only the next statement — use the brace body. */
 #if defined(__GNUC__) || defined(__clang__)
 	{
@@ -51,12 +51,9 @@ SK_TEST(profiler_macro_cpu_zone_scopes_and_merges) {
 	}
 #else
 	SK_PROFILE_CPU_ZONE(api, "outer") {
-		SK_PROFILE_CPU_ZONE(api, "inner") {
-		} /* inner must end here: "after" opens at depth 1, not 2 */
-		SK_PROFILE_CPU_ZONE(api, "after") {
-		}
-		SK_PROFILE_CPU_ZONE(api, "outer") { /* merges into the outer task */
-		}
+		SK_PROFILE_CPU_ZONE(api, "inner") {} /* inner must end here: "after" opens at depth 1, not 2 */
+		SK_PROFILE_CPU_ZONE(api, "after") {}
+		SK_PROFILE_CPU_ZONE(api, "outer") { /* merges into the outer task */ }
 	}
 #endif
 	api->begin_frame(); /* frame 1 */

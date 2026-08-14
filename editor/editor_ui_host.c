@@ -363,6 +363,7 @@ i32 sk_editor_ui_host_want_capture_keyboard(const sk_editor_ui_host_t* host) {
 
 #ifdef SK_TESTS
 #include "app.h"
+#include "editor_api.h"
 #include "filesystem.h"
 #include "path.h"
 #include "test.h"
@@ -403,6 +404,7 @@ static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx, const sk_
 SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	sk_app_boot_t boot = sk_app_init(0, NULL);
 	sk_app_context_t* app_ctx = boot.context;
+	const sk_editor_api_t* editor;
 	const sk_ui_api_t* ui;
 	sk_editor_ui_host_t* host;
 	const sk_ui_draw_list_t* sk_dl;
@@ -412,6 +414,13 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	f32 hx, hy, hw, hh;
 
 	TEST_ASSERT_NOT_NULL(app_ctx);
+
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (same path hosts use). */
+	sk_editor_bind_tables(app_ctx, boot.api);
+	editor = (const sk_editor_api_t*)boot.api->get_api(app_ctx, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
 	ui = host_test_load_ui(app_ctx, boot.api);
 	if (ui == NULL) {
 		sk_app_shutdown(app_ctx);
@@ -419,59 +428,73 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 		return;
 	}
 
-	host = sk_editor_ui_host_create(ui, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
+	host = editor->ui_host_create(ui, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(host);
 
 	/* One frame: both stacks produce draw output. */
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_ui_host_frame(host, 960.0f, 540.0f, 1.0f, 1.0f));
-	sk_dl = sk_editor_ui_host_sk_ui_draw_list(host);
+	TEST_ASSERT_EQUAL_INT(0, editor->ui_host_frame(host, 960.0f, 540.0f, 1.0f, 1.0f));
+	sk_dl = editor->ui_host_sk_ui_draw_list(host);
 	TEST_ASSERT_NOT_NULL(sk_dl);
 	TEST_ASSERT_TRUE(sk_dl->command_count > 0u || sk_dl->vertex_count > 0u);
 
-	imgui_items = sk_editor_ui_host_imgui_draw_items(host, &imgui_count);
+	imgui_items = editor->ui_host_imgui_draw_items(host, &imgui_count);
 	TEST_ASSERT_NOT_NULL(imgui_items);
 	TEST_ASSERT_TRUE(imgui_count > 0u);
 
 	/* Console has abs rect; hierarchy has its own rect — both live. */
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_console_panel_abs_rect(sk_editor_ui_host_console(host), &console_rect));
+	TEST_ASSERT_EQUAL_INT(0, editor->console_abs_rect(editor->ui_host_console(host), &console_rect));
 	TEST_ASSERT_TRUE(console_rect.width > 0.0f && console_rect.height > 0.0f);
-	sk_editor_imgui_shell_hierarchy_rect(sk_editor_ui_host_imgui(host), &hx, &hy, &hw, &hh);
+	editor->imgui_hierarchy_rect(editor->ui_host_imgui(host), &hx, &hy, &hw, &hh);
 	TEST_ASSERT_TRUE(hw > 0.0f && hh > 0.0f);
 
 	/* Pointer over hierarchy → ImGui path. */
-	sk_editor_ui_host_pointer(host, hx + hw * 0.5f, hy + 40.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
-	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_UI_INPUT_IMGUI, (int)sk_editor_ui_host_last_pointer_target(host));
-	sk_editor_ui_host_pointer(host, hx + hw * 0.5f, hy + 40.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	editor->ui_host_pointer(host, hx + hw * 0.5f, hy + 40.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_UI_INPUT_IMGUI, (int)editor->ui_host_last_pointer_target(host));
+	editor->ui_host_pointer(host, hx + hw * 0.5f, hy + 40.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
 
 	/* Pointer over console dock → sk-ui. */
-	sk_editor_ui_host_pointer(host, console_rect.x + console_rect.width * 0.5f, console_rect.y + console_rect.height * 0.5f, -1, 0);
-	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_UI_INPUT_SK_UI, (int)sk_editor_ui_host_last_pointer_target(host));
+	editor->ui_host_pointer(host, console_rect.x + console_rect.width * 0.5f, console_rect.y + console_rect.height * 0.5f, -1, 0);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_UI_INPUT_SK_UI, (int)editor->ui_host_last_pointer_target(host));
 
 	/* Console still retains log lines across frames (not rebuilt-from-scratch). */
 	{
-		u32 before = sk_editor_console_panel_line_count(sk_editor_ui_host_console(host));
-		sk_editor_console_panel_push(sk_editor_ui_host_console(host), SK_LOGGER_TYPE_WARN, "host", "frame-2");
-		TEST_ASSERT_EQUAL_INT(0, sk_editor_ui_host_frame(host, 960.0f, 540.0f, 1.0f, 1.0f));
-		TEST_ASSERT_EQUAL_UINT(before + 1u, sk_editor_console_panel_line_count(sk_editor_ui_host_console(host)));
+		u32 before = editor->console_line_count(editor->ui_host_console(host));
+		editor->console_push(editor->ui_host_console(host), SK_LOGGER_TYPE_WARN, "host", "frame-2");
+		TEST_ASSERT_EQUAL_INT(0, editor->ui_host_frame(host, 960.0f, 540.0f, 1.0f, 1.0f));
+		TEST_ASSERT_EQUAL_UINT(before + 1u, editor->console_line_count(editor->ui_host_console(host)));
 	}
 
-	sk_editor_ui_host_destroy(host);
+	editor->ui_host_destroy(host);
 	sk_app_shutdown(app_ctx);
 }
 
 SK_TEST(editor_imgui_shell_immediate_selection) {
-	sk_editor_imgui_shell_t* shell = sk_editor_imgui_shell_create();
+	sk_app_boot_t boot = sk_app_create();
+	sk_app_context_t* app_ctx = boot.context;
+	const sk_editor_api_t* editor;
+	sk_editor_imgui_shell_t* shell;
 	f32 x, y, w, h;
+
+	TEST_ASSERT_NOT_NULL(app_ctx);
+
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (same path hosts use). */
+	sk_editor_bind_tables(app_ctx, boot.api);
+	editor = (const sk_editor_api_t*)boot.api->get_api(app_ctx, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
+	shell = editor->imgui_create();
 	TEST_ASSERT_NOT_NULL(shell);
-	sk_editor_imgui_shell_begin_frame(shell, 800.0f, 600.0f);
-	sk_editor_imgui_shell_hierarchy_rect(shell, &x, &y, &w, &h);
+	editor->imgui_begin_frame(shell, 800.0f, 600.0f);
+	editor->imgui_hierarchy_rect(shell, &x, &y, &w, &h);
 	/* Click first entity row. */
-	sk_editor_imgui_shell_set_pointer(shell, x + 20.0f, y + 36.0f, 1, 1);
-	sk_editor_imgui_shell_draw(shell);
-	sk_editor_imgui_shell_end_frame(shell);
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_imgui_shell_selected_index(shell));
-	TEST_ASSERT_TRUE(sk_editor_imgui_shell_want_capture_mouse(shell));
-	sk_editor_imgui_shell_destroy(shell);
+	editor->imgui_set_pointer(shell, x + 20.0f, y + 36.0f, 1, 1);
+	editor->imgui_draw(shell);
+	editor->imgui_end_frame(shell);
+	TEST_ASSERT_EQUAL_INT(0, editor->imgui_selected_index(shell));
+	TEST_ASSERT_TRUE(editor->imgui_want_capture_mouse(shell));
+	editor->imgui_destroy(shell);
+	sk_app_shutdown(app_ctx);
 }
 
 #endif /* SK_TESTS */
