@@ -1854,6 +1854,11 @@ static const sk_ui_api_t ui_api = {
 	ui_tab_bar_get_selected_impl,
 	ui_tab_bar_set_selected_impl,
 	ui_tab_clicked_impl,
+	ui_widget_separator_impl,
+	ui_separator_get_vertical_impl,
+	ui_widget_spacing_impl,
+	ui_widget_dummy_impl,
+	ui_widget_same_line_impl,
 };
 
 /**

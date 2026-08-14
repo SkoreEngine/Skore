@@ -1189,6 +1189,122 @@ static i32 sandbox_widget_build_tab_plus(const sandbox_widget_host_t* host, sk_u
 	return 0;
 }
 
+/* ---- separator / spacing / same-line family (APX-349) ---- */
+
+static i32 sandbox_widget_build_separator(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t toolbar;
+	sk_ui_node_t group;
+	sk_ui_node_t matrix;
+	sk_ui_node_t bar;
+	sk_ui_node_t target = SK_UI_NODE_INVALID;
+
+	sandbox_widget_style_fill(host);
+
+	/* Menu bar: Separator inside a horizontal layout renders VERTICAL. */
+	bar = ui->widget_menu_bar(host->ctx, root, "review-sep-menubar");
+	if (!sk_ui_node_is_valid(bar)) {
+		fprintf(stderr, "sk-sandbox: separator menu bar failed\n");
+		return -1;
+	}
+	(void)ui->widget_menu(host->ctx, bar, "File", "review-sep-file");
+	(void)ui->widget_menu(host->ctx, bar, "Edit", "review-sep-edit");
+	(void)ui->widget_separator(host->ctx, bar, "review-sep-bar");
+	(void)ui->widget_menu(host->ctx, bar, "Help", "review-sep-help");
+
+	/* ConsoleWindow.cpp:44-70 toolbar: Clear | vertical rule | checkbox
+	 * group | vertical rule | Collapse | Auto-scroll. Tight icon-button run
+	 * (SameLine(0, 0)) at the front shows the icon-chrome packing. */
+	toolbar = ui->widget_panel(host->ctx, root, "review-toolbar");
+	if (!sk_ui_node_is_valid(toolbar)) {
+		fprintf(stderr, "sk-sandbox: separator toolbar failed\n");
+		return -1;
+	}
+	target = toolbar;
+	/* Fixed 40px toolbar lane so the stage below it is not pushed by the
+	 * flex-measured (pre-SameLine) column height. */
+	{
+		sk_ui_style_props_t tp;
+		memset(&tp, 0, sizeof(tp));
+		tp.mask = SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT;
+		tp.layout.height = sk_ui_pt(36.0f);
+		tp.layout.min_height = sk_ui_pt(36.0f);
+		tp.layout.max_height = sk_ui_pt(36.0f);
+		(void)ui->node_merge_inline_style(host->ctx, toolbar, &tp);
+	}
+	(void)ui->widget_small_button(host->ctx, toolbar, "Play", "review-tb-play");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, 0.0f);
+	(void)ui->widget_small_button(host->ctx, toolbar, "Stop", "review-tb-stop");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, 0.0f);
+	(void)ui->widget_small_button(host->ctx, toolbar, "Pause", "review-tb-pause");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, 12.0f);
+	(void)ui->widget_small_button(host->ctx, toolbar, "Clear", "review-tb-clear");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, -1.0f);
+	(void)ui->widget_separator(host->ctx, toolbar, "review-tb-sep1");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, -1.0f);
+	group = ui->widget_group(host->ctx, toolbar, "review-tb-group");
+	if (!sk_ui_node_is_valid(group)) {
+		fprintf(stderr, "sk-sandbox: separator group failed\n");
+		return -1;
+	}
+	(void)ui->widget_checkbox(host->ctx, group, 1, "review-tb-trace");
+	(void)ui->widget_same_line(host->ctx, group, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, group, 0, "review-tb-debug");
+	(void)ui->widget_same_line(host->ctx, group, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, group, 0, "review-tb-info");
+	(void)ui->widget_same_line(host->ctx, group, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, group, 0, "review-tb-warn");
+	(void)ui->widget_same_line(host->ctx, group, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, group, 0, "review-tb-error");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, -1.0f);
+	(void)ui->widget_separator(host->ctx, toolbar, "review-tb-sep2");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, toolbar, 0, "review-tb-collapse");
+	(void)ui->widget_same_line(host->ctx, toolbar, 0.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, toolbar, 0, "review-tb-autoscroll");
+	/* Full-width horizontal rule directly below the toolbar row. */
+	(void)ui->widget_separator(host->ctx, toolbar, "review-tb-hsep");
+
+	/* Spacing + Dummy(0, 2) vertical spacers between sections. */
+	(void)ui->widget_spacing(host->ctx, root, "review-spacing");
+	(void)ui->widget_dummy(host->ctx, root, 0.0f, 2.0f, "review-dummy");
+
+	/* SettingsWindow.cpp:326 collision matrix: SameLine(labelWidth + k*cell)
+	 * absolute cells on one row. */
+	matrix = ui->widget_vertical(host->ctx, root, "review-matrix");
+	if (!sk_ui_node_is_valid(matrix)) {
+		fprintf(stderr, "sk-sandbox: separator matrix failed\n");
+		return -1;
+	}
+	(void)ui->widget_text(host->ctx, matrix, "Default", "review-mlab");
+	(void)ui->widget_same_line(host->ctx, matrix, 80.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 1, "review-m1");
+	(void)ui->widget_same_line(host->ctx, matrix, 104.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 0, "review-m2");
+	(void)ui->widget_same_line(host->ctx, matrix, 128.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 0, "review-m3");
+	(void)ui->widget_text(host->ctx, matrix, "Static", "review-mlab2");
+	(void)ui->widget_same_line(host->ctx, matrix, 80.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 0, "review-m4");
+	(void)ui->widget_same_line(host->ctx, matrix, 104.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 1, "review-m5");
+	(void)ui->widget_same_line(host->ctx, matrix, 128.0f, -1.0f);
+	(void)ui->widget_checkbox(host->ctx, matrix, 0, "review-m6");
+
+	{
+		sk_ui_rect_t r;
+		if (ui->node_get_abs_rect(host->ctx, matrix, &r, NULL) == 0) {
+			printf("DBG matrix x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+		if (ui->node_get_abs_rect(host->ctx, ui->context_root(host->ctx), &r, NULL) == 0) {
+			printf("DBG root x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+	}
+	*out_target = target;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1237,7 +1353,7 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"child_resize", "resizex", "§13 Child ResizeX", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_child_resize},
 	{"layout", NULL, "§13 horizontal + Spring", SANDBOX_WS_BIT_DEFAULT, 480u, 200u, sandbox_widget_build_layout},
 	{"disabled", NULL, "§13 BeginDisabled subtree", SANDBOX_WS_BIT_DISABLED, 320u, 128u, sandbox_widget_build_disabled},
-	{"separator", NULL, "§19 Separator / Spacing / SameLine", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, NULL},
+	{"separator", NULL, "§19 Separator / Spacing / SameLine", SANDBOX_WS_BIT_DEFAULT, 760u, 280u, sandbox_widget_build_separator},
 	{"color", NULL, "§15 ColorEdit / ColorPicker", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 320u, 192u, NULL},
 	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
 	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, NULL},
@@ -1485,6 +1601,37 @@ i32 sandbox_widget_run(const sandbox_widget_host_t* host, const_chr_t name, cons
 	if (sandbox_widget_layout(host) != 0) {
 		fprintf(stderr, "sk-sandbox: widget layout failed\n");
 		return -1;
+	}
+	if (d->build == sandbox_widget_build_separator) {
+		const sk_ui_api_t* ui = host->ui;
+		sk_ui_rect_t r;
+		sk_ui_node_t q = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-matrix");
+		if (ui->node_get_abs_rect(host->ctx, q, &r, NULL) == 0) {
+			printf("DBG2 matrix x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+		q = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-tb-autoscroll");
+		if (ui->node_get_abs_rect(host->ctx, q, &r, NULL) == 0) {
+			printf("DBG2 autoscroll x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+		q = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-toolbar");
+		if (ui->node_get_abs_rect(host->ctx, q, &r, NULL) == 0) {
+			printf("DBG2 toolbar x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+		q = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-sep-menubar");
+		if (ui->node_get_abs_rect(host->ctx, q, &r, NULL) == 0) {
+			printf("DBG2 menubar x=%d y=%d w=%d h=%d\n", (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+		}
+		{
+			const_chr_t ids[] = {"review-tb-play", "review-tb-stop",  "review-tb-pause", "review-tb-clear",
+								 "review-tb-sep1", "review-tb-group", "review-tb-sep2",	 "review-tb-collapse"};
+			u32 k;
+			for (k = 0; k < sizeof(ids) / sizeof(ids[0]); ++k) {
+				sk_ui_node_t nq = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, ids[k]);
+				if (ui->node_get_abs_rect(host->ctx, nq, &r, NULL) == 0) {
+					printf("DBG2 %s x=%d y=%d w=%d h=%d\n", ids[k], (int)r.x, (int)r.y, (int)r.width, (int)r.height);
+				}
+			}
+		}
 	}
 
 	for (i = 0; i < SANDBOX_WS_COUNT; ++i) {

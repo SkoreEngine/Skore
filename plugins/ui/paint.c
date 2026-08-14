@@ -1677,6 +1677,33 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 			}
 		}
+		if (wtype != NULL && strcmp(wtype, "separator") == 0) {
+			/* Bare rule (§19): horizontal by default, vertical (toolbar / menu
+			 * bar) spans the full row height. Matches the separator_text rule
+			 * colour so grouped dividers read consistently. */
+			i32 vertical = 0;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.40f, 0.43f, 0.48f, 1.0f), opacity));
+			(void)ui_paint_prop_i32(slot, "vertical", &vertical);
+			if (vertical == 0 && sk_ui_node_is_valid(slot->parent)) {
+				/* Resolved parent direction wins (inline-flipped row parents). */
+				const ui_node_slot_t* pslot = ui_slot(em->ctx, slot->parent);
+				if (pslot != NULL && (pslot->layout_style.flex_direction == SK_UI_FLEX_ROW || pslot->layout_style.flex_direction == SK_UI_FLEX_ROW_REVERSE)) {
+					vertical = 1;
+				}
+			}
+			if (vertical != 0) {
+				f32 mid = bx + bw * 0.5f;
+				if (ui_paint_add_thick_line(em, mid, by, mid, by + bh, t, rule_col) != 0) {
+					return -1;
+				}
+			} else {
+				f32 mid = by + bh * 0.5f;
+				if (ui_paint_add_thick_line(em, bx, mid, bx + bw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			}
+		}
 		if (wtype != NULL && strcmp(wtype, "menu_separator") == 0) {
 			f32 mid = cy + ch * 0.5f;
 			f32 t = 1.0f * avg;

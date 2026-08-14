@@ -834,6 +834,9 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_TEXT "ui-text"
 #define SK_UI_CLASS_TEXT_WRAPPED "ui-text-wrapped"
 #define SK_UI_CLASS_SEPARATOR_TEXT "ui-separator-text"
+#define SK_UI_CLASS_SEPARATOR "ui-separator"
+#define SK_UI_CLASS_SPACING "ui-spacing"
+#define SK_UI_CLASS_DUMMY "ui-dummy"
 #define SK_UI_CLASS_BULLET_TEXT "ui-bullet-text"
 #define SK_UI_CLASS_BUTTON "ui-button"
 #define SK_UI_CLASS_BUTTON_SMALL "ui-button-small"
@@ -932,6 +935,11 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 
 /** Default Indent() step in logical px (ImGui-ish). */
 #define SK_UI_INDENT_DEFAULT 16.0f
+
+/** ImGui SameLine() default gap (ItemSpacing.x, editor theme scale 1). */
+#define SK_UI_SAMELINE_DEFAULT_GAP 8.0f
+/** ImGui Spacing() height (ItemSpacing.y, editor theme scale 1). */
+#define SK_UI_SPACING_DEFAULT 8.0f
 
 /** SetNextItemWidth(-1): fill leftover main-axis space. */
 #define SK_UI_ITEM_WIDTH_FILL (-1.0f)
@@ -4000,6 +4008,41 @@ typedef struct sk_ui_api_t {
 
 	/** Edge-triggered click on a TabItemButton ('+'), then clears. */
 	i32 (*tab_clicked)(sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/* ---- separator / spacing / same-line family (APX-349; manifest §19) ---- */
+
+	/**
+	 * ImGui Separator. Horizontal rule; renders VERTICAL when the parent is a
+	 * horizontal layout / menu bar, or when SameLine was called immediately
+	 * before it (toolbar divider pattern SameLine(); Separator(); SameLine(),
+	 * ConsoleWindow.cpp:44-70). @p id optional stable test id.
+	 */
+	sk_ui_node_t (*widget_separator)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/** Non-zero when @p node renders the vertical (toolbar / menu bar) form. */
+	i32 (*separator_get_vertical)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * ImGui Spacing: fixed-height vertical spacer (SK_UI_SPACING_DEFAULT).
+	 * Transparent; only occupies layout height.
+	 */
+	sk_ui_node_t (*widget_spacing)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * ImGui Dummy: explicit-size box with no chrome. Zero on an axis is legal
+	 * (SceneViewWindow.cpp:870 Dummy(0, 2) toolbar spacer).
+	 */
+	sk_ui_node_t (*widget_dummy)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 width, f32 height, const_chr_t id);
+
+	/**
+	 * ImGui SameLine. Positional command: the NEXT widget created under
+	 * @p parent joins the previous item's row (offset_from_start_x == 0 →
+	 * after the previous item plus @p spacing, default SK_UI_SAMELINE_DEFAULT_GAP;
+	 * non-zero → aligned to row start + offset, plus @p spacing when >= 0).
+	 * SameLine before the first item is a no-op; an unconsumed SameLine is
+	 * cleared at the next layout. @return 0 on success.
+	 */
+	i32 (*widget_same_line)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 offset_from_start_x, f32 spacing);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

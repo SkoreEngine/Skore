@@ -236,11 +236,16 @@ struct sk_ui_context_t {
 	u8 disabled_active; /**< Count of true frames on disabled_stack. */
 	u8 id_stack_depth;
 	u8 has_next_item_width;
+	u8 has_pending_same_line; /**< widget_same_line called, next widget consumes (APX-349). */
+	u8 same_line_pad[2];
 	u8 disabled_stack[16];
 	u16 id_mark[16]; /**< id_prefix length at each push_id. */
 	char id_prefix[192];
 	u16 id_prefix_len;
 	f32 next_item_width;
+	f32 pending_same_line_offset;  /**< SameLine offset_from_start_x (APX-349). */
+	f32 pending_same_line_spacing; /**< SameLine spacing override; < 0 = default. */
+	sk_ui_node_t pending_same_line_parent;
 	f32 indent_px;
 	sk_ui_clipboard_get_fn clipboard_get;
 	sk_ui_clipboard_set_fn clipboard_set;
@@ -621,6 +626,14 @@ i32 ui_tab_bar_bind_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i3
 i32 ui_tab_bar_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar);
 i32 ui_tab_bar_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index);
 i32 ui_tab_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+/* Separator / spacing / same-line family (APX-349; manifest §19). */
+sk_ui_node_t ui_widget_separator_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+i32 ui_separator_get_vertical_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_widget_spacing_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_dummy_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 width, f32 height, const_chr_t id);
+i32 ui_widget_same_line_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 offset_from_start_x, f32 spacing);
+void ui_same_line_reset_pending(sk_ui_context_t* ctx);
 
 sk_ui_node_t ui_popup_hit_redirect_impl(const sk_ui_context_t* ctx, sk_ui_node_t hit);
 void ui_popup_on_right_click_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y);

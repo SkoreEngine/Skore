@@ -374,6 +374,32 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
+	/* Separator (§19): bare horizontal rule, full width, 8px lane with the
+	 * 1px rule centered (same convention as the menu separator). The factory
+	 * overrides to the vertical form (1px wide, stretch to row height). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_ALIGN_SELF;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.height = sk_ui_pt(8.0f);
+	base.layout.min_height = sk_ui_pt(8.0f);
+	base.layout.max_height = sk_ui_pt(8.0f);
+	base.layout.align_self = SK_UI_ALIGN_STRETCH;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SEPARATOR, &base) != 0) {
+		return -1;
+	}
+
+	/* Spacing (§19): transparent fixed-height vertical spacer (ImGui
+	 * Spacing(); zero width so it never shows chrome). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT;
+	base.layout.width = sk_ui_pt(0.0f);
+	base.layout.height = sk_ui_pt(SK_UI_SPACING_DEFAULT);
+	base.layout.min_height = sk_ui_pt(SK_UI_SPACING_DEFAULT);
+	base.layout.max_height = sk_ui_pt(SK_UI_SPACING_DEFAULT);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SPACING, &base) != 0) {
+		return -1;
+	}
+
 	/* Button: style POINT width/height are the outer border box — padding and
 	 * border sit inside the authored size (APX-248 / vision D2). Pre-fix
 	 * content-box mapping made pad 6 + border 1 expand 96x28 → ~108x40. */
@@ -1482,6 +1508,16 @@ static sk_ui_node_t ui_widget_base(sk_ui_context_t* ctx, sk_ui_node_kind_t kind,
 	}
 	ui_layout_apply_next_item_width(ctx, n);
 	ui_layout_apply_indent(ctx, n);
+	/* SameLine (APX-349): widget_same_line is a positional command that the
+	 * NEXT widget created under the same parent consumes (ImGui semantics).
+	 * Internal widget children are created under their own host node, so the
+	 * parent match keeps them from stealing the pending state. */
+	if (ctx->has_pending_same_line != 0u && sk_ui_node_eq(ctx->pending_same_line_parent, parent) != 0) {
+		(void)ui->node_set_prop_i32(ctx, n, "same_line", 1);
+		(void)ui->node_set_prop_f32(ctx, n, "same_line_offset", ctx->pending_same_line_offset);
+		(void)ui->node_set_prop_f32(ctx, n, "same_line_spacing", ctx->pending_same_line_spacing);
+		ui_same_line_reset_pending(ctx);
+	}
 	return n;
 }
 
@@ -3061,6 +3097,135 @@ sk_ui_node_t ui_widget_separator_text_impl(sk_ui_context_t* ctx, sk_ui_node_t pa
 	(void)ui->node_set_prop_i32(ctx, n, "wrap", 0);
 	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
 	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	return n;
+}
+
+/* ---- separator / spacing / same-line family (APX-349; manifest §19) ---- */
+
+void ui_same_line_reset_pending(sk_ui_context_t* ctx) {
+	if (ctx == NULL) {
+		return;
+	}
+	ctx->has_pending_same_line = 0u;
+	ctx->pending_same_line_offset = 0.0f;
+	ctx->pending_same_line_spacing = -1.0f;
+	ctx->pending_same_line_parent = SK_UI_NODE_INVALID;
+}
+
+i32 ui_widget_same_line_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 offset_from_start_x, f32 spacing) {
+	if (ctx == NULL) {
+		return -1;
+	}
+	ctx->has_pending_same_line = 1u;
+	ctx->pending_same_line_offset = offset_from_start_x;
+	ctx->pending_same_line_spacing = spacing;
+	ctx->pending_same_line_parent = parent;
+	return 0;
+}
+
+/** Vertical rule when the parent flows horizontally (menu bar / horizontal
+ * layout) or when SameLine was called immediately before (toolbar divider).
+ * Class styles resolve later than the factory, so also check the parent's
+ * registered classes (the menu bar is a row class). */
+static i32 ui_separator_is_vertical(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t pls;
+	sk_ui_prop_value_t pv;
+	const ui_node_slot_t* pslot;
+	u32 i;
+	if (ui->node_get_layout_style(ctx, parent, &pls) == 0 && (pls.flex_direction == SK_UI_FLEX_ROW || pls.flex_direction == SK_UI_FLEX_ROW_REVERSE)) {
+		return 1;
+	}
+	pslot = ui_slot(ctx, parent);
+	if (pslot != NULL) {
+		for (i = 0u; i < pslot->classes.count; ++i) {
+			const ui_style_class_t* cls = ui_style_class_lookup(ctx, pslot->classes.items[i]);
+			if (cls != NULL && (cls->base.layout.flex_direction == SK_UI_FLEX_ROW || cls->base.layout.flex_direction == SK_UI_FLEX_ROW_REVERSE)) {
+				return 1;
+			}
+		}
+	}
+	if (ui->node_get_prop(ctx, node, "same_line", &pv) == 0 && pv.type == SK_UI_PROP_I32 && pv.data.i32_value != 0) {
+		return 1;
+	}
+	return 0;
+}
+
+sk_ui_node_t ui_widget_separator_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_SEPARATOR, "separator", "ui-separator", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_focusable(ctx, n, 0);
+	if (ui_separator_is_vertical(ctx, parent, n) != 0) {
+		/* Vertical toolbar / menu-bar rule: 1px wide, stretches to the row
+		 * height (post-pass overrides the height for same-line rows). Inline
+		 * so the resolved cascade keeps it (class default is the horizontal
+		 * full-width 8px lane). */
+		sk_ui_style_props_t p;
+		(void)ui->node_set_prop_i32(ctx, n, "vertical", 1);
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_ALIGN_SELF;
+		p.layout.width = sk_ui_pt(1.0f);
+		p.layout.min_width = sk_ui_pt(1.0f);
+		p.layout.max_width = sk_ui_pt(1.0f);
+		p.layout.height = sk_ui_auto();
+		p.layout.min_height = sk_ui_pt(0.0f);
+		p.layout.max_height = sk_ui_auto();
+		p.layout.align_self = SK_UI_ALIGN_STRETCH;
+		(void)ui->node_merge_inline_style(ctx, n, &p);
+	} else {
+		(void)ui->node_set_prop_i32(ctx, n, "vertical", 0);
+	}
+	return n;
+}
+
+i32 ui_separator_get_vertical_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 vertical = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "vertical", &vertical);
+	if (vertical == 0 && sk_ui_node_is_valid(slot->parent)) {
+		/* Resolved parent direction (inline-flipped row parents) matches what
+		 * paint draws. */
+		const ui_node_slot_t* pslot = ui_slot(ctx, slot->parent);
+		if (pslot != NULL && (pslot->layout_style.flex_direction == SK_UI_FLEX_ROW || pslot->layout_style.flex_direction == SK_UI_FLEX_ROW_REVERSE)) {
+			vertical = 1;
+		}
+	}
+	return vertical != 0 ? 1 : 0;
+}
+
+sk_ui_node_t ui_widget_spacing_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_SPACING, "spacing", "ui-spacing", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_focusable(ctx, n, 0);
+	return n;
+}
+
+sk_ui_node_t ui_widget_dummy_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 width, f32 height, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_DUMMY, "dummy", "ui-dummy", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_focusable(ctx, n, 0);
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_MAX_HEIGHT;
+	p.layout.width = sk_ui_pt(width);
+	p.layout.height = sk_ui_pt(height);
+	p.layout.min_width = sk_ui_pt(width);
+	p.layout.min_height = sk_ui_pt(height);
+	p.layout.max_width = sk_ui_pt(width);
+	p.layout.max_height = sk_ui_pt(height);
+	(void)ui->node_merge_inline_style(ctx, n, &p);
 	return n;
 }
 
@@ -9220,6 +9385,180 @@ SK_TEST(ui_widget_text_family_special_nodes) {
 	TEST_ASSERT_EQUAL_INT(0, ui->text_centered_text(ctx, cen, &cen_txt));
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(cen_txt));
 	TEST_ASSERT_EQUAL_STRING("Open a scene...", ui->label_get_text(ctx, cen_txt));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_separator_family_orientation_and_extents) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t row;
+	sk_ui_node_t sep_h;
+	sk_ui_node_t sep_v_row;
+	sk_ui_node_t sep_v_sl;
+	sk_ui_node_t dummy;
+	sk_ui_node_t spacing;
+	sk_ui_rect_t r;
+
+	/* Horizontal rule in a column (default). */
+	sep_h = ui->widget_separator(ctx, root, "sl-sep-h");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sep_h));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, sep_h, SK_UI_CLASS_SEPARATOR));
+	TEST_ASSERT_EQUAL_INT(0, ui->separator_get_vertical(ctx, sep_h));
+
+	/* Vertical rule inside a horizontal layout (menu bar / BeginHorizontal). */
+	row = ui->widget_horizontal(ctx, root, "sl-row");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
+	(void)ui->widget_button(ctx, row, "R", "sl-row-btn");
+	sep_v_row = ui->widget_separator(ctx, row, "sl-sep-v");
+	TEST_ASSERT_EQUAL_INT(1, ui->separator_get_vertical(ctx, sep_v_row));
+
+	/* SameLine(); Separator(); pattern → vertical toolbar divider. */
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, root, 0.0f, -1.0f));
+	sep_v_sl = ui->widget_separator(ctx, root, "sl-sep-tb");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sep_v_sl));
+	TEST_ASSERT_EQUAL_INT(1, ui->separator_get_vertical(ctx, sep_v_sl));
+
+	/* Dummy(0, 2): zero width, explicit 2px height (SceneView toolbar). */
+	dummy = ui->widget_dummy(ctx, root, 0.0f, 2.0f, "sl-dummy");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(dummy));
+
+	/* Spacing: fixed-height transparent spacer. */
+	spacing = ui->widget_spacing(ctx, root, "sl-spacing");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(spacing));
+
+	wtest_layout(ui, ctx, 320.0f, 240.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sep_h, &r, NULL));
+	TEST_ASSERT_TRUE(r.width >= 300.0f);
+	TEST_ASSERT_TRUE(r.height >= 8.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sep_v_row, &r, NULL));
+	TEST_ASSERT_TRUE(r.width <= 2.0f);
+	TEST_ASSERT_TRUE(r.height >= 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sep_v_sl, &r, NULL));
+	TEST_ASSERT_TRUE(r.width <= 2.0f);
+	TEST_ASSERT_TRUE(r.height >= 8.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dummy, &r, NULL));
+	TEST_ASSERT_TRUE(r.width <= 0.5f);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 2.0f, r.height);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, spacing, &r, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, SK_UI_SPACING_DEFAULT, r.height);
+
+	/* SameLine at the start of a row (no previous item): the widget keeps its
+	 * normal in-flow position — pending state is consumed harmlessly. */
+	{
+		sk_ui_node_t solo;
+		TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, root, 0.0f, -1.0f));
+		solo = ui->widget_text(ctx, root, "solo", "sl-solo");
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(solo));
+	}
+	wtest_layout(ui, ctx, 320.0f, 240.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, dummy, &r, NULL));
+	TEST_ASSERT_TRUE(r.width <= 0.5f);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 2.0f, r.height);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_sameline_offset_and_gap_arithmetic) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	sk_ui_node_t d;
+	sk_ui_node_t e;
+	sk_ui_node_t e2;
+	sk_ui_style_props_t p;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rc;
+	sk_ui_rect_t rd;
+	sk_ui_rect_t re;
+	sk_ui_rect_t re2;
+	f32 y0;
+
+	col = ui->widget_vertical(ctx, root, "sl-col");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(col));
+	/* Start-aligned so intrinsic widths drive x (no stretch). */
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH;
+	p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+	p.layout.width = sk_ui_percent(100.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, col, &p));
+
+	/* Row: a | SameLine(default 8) b | SameLine(0, 0) c | SameLine(40) d |
+	 * SameLine(0, 4) e2 — all on one row; an in-flow item starts the next. */
+	a = ui->widget_button(ctx, col, "A", "sl-a");
+	wtest_set_size(ui, ctx, a, 20.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 0.0f, -1.0f));
+	b = ui->widget_button(ctx, col, "B", "sl-b");
+	wtest_set_size(ui, ctx, b, 20.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 0.0f, 0.0f));
+	c = ui->widget_button(ctx, col, "C", "sl-c");
+	wtest_set_size(ui, ctx, c, 20.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 40.0f, -1.0f));
+	d = ui->widget_button(ctx, col, "D", "sl-d");
+	wtest_set_size(ui, ctx, d, 20.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 0.0f, 4.0f));
+	e2 = ui->widget_button(ctx, col, "E2", "sl-e2");
+	wtest_set_size(ui, ctx, e2, 20.0f, 20.0f);
+	/* End of row: the next in-flow item starts a fresh row. */
+	e = ui->widget_button(ctx, col, "E", "sl-e");
+	wtest_set_size(ui, ctx, e, 20.0f, 20.0f);
+
+	wtest_layout(ui, ctx, 200.0f, 120.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, c, &rc, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, d, &rd, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, e, &re, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, e2, &re2, NULL));
+
+	/* All five row items share the row y. */
+	y0 = ra.y;
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, y0, rb.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, y0, rc.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, y0, rd.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, y0, re2.y);
+
+	/* b = a.right + default gap (8); c = b.right + 0 (tight); d = row start + 40
+	 * (offset form is absolute within the row — may overlap, ImGui matrix);
+	 * e2 = d.right + 4 (spacing override). */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, ra.x + ra.width + SK_UI_SAMELINE_DEFAULT_GAP, rb.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, rb.x + rb.width + 0.0f, rc.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, ra.x + 40.0f, rd.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, rd.x + rd.width + 4.0f, re2.x);
+
+	/* e starts a new row below the packed row. */
+	TEST_ASSERT_TRUE(re.y > y0 + 0.5f);
+	TEST_ASSERT_TRUE(re2.y < re.y);
+
+	/* SameLine at the very end of the build is cleared by layout, so the next
+	 * frame's first widget is not dragged onto a stale row. */
+	TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 0.0f, -1.0f));
+	{
+		sk_ui_node_t z = ui->widget_button(ctx, col, "Z", "sl-z");
+		sk_ui_rect_t rz;
+		wtest_set_size(ui, ctx, z, 20.0f, 20.0f);
+		/* Consumed by Z: joins e's row (its x = e.right + gap). */
+		TEST_ASSERT_EQUAL_INT(0, ui->widget_same_line(ctx, col, 0.0f, -1.0f));
+		/* Unconsumed: cleared at the next layout. */
+		wtest_layout(ui, ctx, 200.0f, 120.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, z, &rz, NULL));
+		TEST_ASSERT_FLOAT_WITHIN(0.5f, re.x + re.width + SK_UI_SAMELINE_DEFAULT_GAP, rz.x);
+	}
+	/* After the stale SameLine was dropped, a fresh widget starts a new row. */
+	{
+		sk_ui_node_t w = ui->widget_button(ctx, col, "W", "sl-w");
+		sk_ui_rect_t rw;
+		wtest_set_size(ui, ctx, w, 20.0f, 20.0f);
+		wtest_layout(ui, ctx, 200.0f, 120.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, w, &rw, NULL));
+		TEST_ASSERT_TRUE(rw.y > re.y + 0.5f);
+	}
 
 	ui->context_destroy(ctx);
 }
