@@ -617,6 +617,235 @@ static i32 sandbox_widget_build_drag_int(const sandbox_widget_host_t* host, sk_u
 	return 0;
 }
 
+static void sandbox_widget_style_fill(const sandbox_widget_host_t* host) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_style_props_t p;
+
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR;
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.justify_content = SK_UI_JUSTIFY_FLEX_START;
+	p.layout.align_items = SK_UI_ALIGN_STRETCH;
+	p.layout.width = sk_ui_pt((f32)host->width);
+	p.layout.height = sk_ui_pt((f32)host->height);
+	p.layout.padding.left = 16.0f;
+	p.layout.padding.top = 16.0f;
+	p.layout.padding.right = 16.0f;
+	p.layout.padding.bottom = 16.0f;
+	p.background_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	(void)ui->node_set_inline_style(host->ctx, root, &p);
+}
+
+static i32 sandbox_widget_build_window(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t win;
+	sk_ui_node_t body;
+	sk_ui_node_t child;
+	sk_ui_node_t content;
+	sk_ui_style_props_t p;
+	u32 i;
+	static i32 s_open = 1;
+
+	sandbox_widget_style_fill(host);
+	s_open = 1;
+	win = ui->widget_window(host->ctx, root, "Console", "review-window", &s_open);
+	if (!sk_ui_node_is_valid(win)) {
+		fprintf(stderr, "sk-sandbox: widget_window failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.flex_grow = 1.0f;
+	(void)ui->node_merge_inline_style(host->ctx, win, &p);
+
+	body = ui->editor_window_content(host->ctx, win);
+	child = ui->widget_child(host->ctx, body, "review-window-child", 0.0f, 0.0f, SK_UI_CHILD_FLAG_BORDER | SK_UI_CHILD_FLAG_HORIZONTAL_SCROLLBAR);
+	content = ui->child_content(host->ctx, child);
+	if (sk_ui_node_is_valid(content)) {
+		for (i = 0u; i < 6u; ++i) {
+			char line[48];
+			(void)snprintf(line, sizeof(line), "[info] console line %u", i + 1u);
+			(void)ui->widget_text(host->ctx, content, line, NULL);
+		}
+		(void)ui->scroll_view_set_content_size(host->ctx, child, 420.0f, 160.0f);
+	}
+	*out_target = win;
+	return 0;
+}
+
+static i32 sandbox_widget_build_fullscreen(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t fs;
+	sk_ui_node_t title;
+
+	sandbox_widget_style_fill(host);
+	fs = ui->widget_fullscreen(host->ctx, root, "review-fullscreen");
+	if (!sk_ui_node_is_valid(fs)) {
+		fprintf(stderr, "sk-sandbox: widget_fullscreen failed\n");
+		return -1;
+	}
+	(void)ui->widget_spring(host->ctx, fs, 1.0f, "review-fs-top");
+	{
+		sk_ui_node_t card = ui->widget_vertical(host->ctx, fs, "review-fs-card");
+		sk_ui_style_props_t cp;
+		sk_ui_node_t row;
+		sk_ui_node_t btn;
+		memset(&cp, 0, sizeof(cp));
+		cp.mask = SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP | SK_UI_SP_WIDTH;
+		cp.layout.align_items = SK_UI_ALIGN_CENTER;
+		cp.layout.row_gap = 16.0f;
+		cp.layout.width = sk_ui_percent(100.0f);
+		(void)ui->node_merge_inline_style(host->ctx, card, &cp);
+		title = ui->widget_text(host->ctx, card, "Open a project", "review-fs-title");
+		(void)title;
+		row = ui->widget_horizontal(host->ctx, card, "review-fs-row");
+		(void)ui->widget_spring(host->ctx, row, 1.0f, "review-fs-ls");
+		btn = ui->widget_button(host->ctx, row, "New Project", "review-fs-new");
+		(void)ui->button_set_size(host->ctx, btn, 160.0f, 0.0f);
+		(void)ui->widget_spring(host->ctx, row, 1.0f, "review-fs-rs");
+	}
+	(void)ui->widget_spring(host->ctx, fs, 1.0f, "review-fs-bot");
+	*out_target = fs;
+	return 0;
+}
+
+static i32 sandbox_widget_build_child(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t bar;
+	sk_ui_node_t body;
+	sk_ui_node_t content;
+	sk_ui_style_props_t p;
+	u32 i;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-child-col");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.height = sk_ui_percent(100.0f);
+	p.layout.flex_grow = 1.0f;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	/* Fixed-height toolbar + remaining-size bordered scroll (Console). */
+	bar = ui->widget_child(host->ctx, col, "review-child-bar", 0.0f, 28.0f, SK_UI_CHILD_FLAG_NONE);
+	{
+		sk_ui_node_t row = ui->widget_horizontal(host->ctx, ui->child_content(host->ctx, bar), "review-child-bar-row");
+		sk_ui_node_t clear = ui->widget_button(host->ctx, row, "Clear", "review-child-clear");
+		(void)ui->button_set_size(host->ctx, clear, 64.0f, 0.0f);
+	}
+	body = ui->widget_child(host->ctx, col, "review-child-body", 0.0f, 0.0f, SK_UI_CHILD_FLAG_BORDER | SK_UI_CHILD_FLAG_HORIZONTAL_SCROLLBAR);
+	content = ui->child_content(host->ctx, body);
+	if (sk_ui_node_is_valid(content)) {
+		for (i = 0u; i < 8u; ++i) {
+			char line[56];
+			(void)snprintf(line, sizeof(line), "log line %u  long enough to hint h-scroll", i + 1u);
+			(void)ui->widget_text(host->ctx, content, line, NULL);
+		}
+		(void)ui->scroll_view_set_content_size(host->ctx, body, 520.0f, 180.0f);
+	}
+	*out_target = body;
+	return 0;
+}
+
+static i32 sandbox_widget_build_child_resize(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t row;
+	sk_ui_node_t left;
+	sk_ui_node_t right;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	row = ui->widget_horizontal(host->ctx, root, "review-rx-row");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_ALIGN_ITEMS;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.align_items = SK_UI_ALIGN_STRETCH;
+	(void)ui->node_merge_inline_style(host->ctx, row, &p);
+
+	/* ResourceDebugger left pane: Borders | ResizeX. */
+	left = ui->widget_child(host->ctx, row, "review-rx", 160.0f, 0.0f, SK_UI_CHILD_FLAG_BORDER | SK_UI_CHILD_FLAG_RESIZE_X);
+	(void)ui->widget_text(host->ctx, ui->child_content(host->ctx, left), "Types", "review-rx-label");
+	right = ui->widget_child(host->ctx, row, "review-rx-right", 0.0f, 0.0f, SK_UI_CHILD_FLAG_BORDER);
+	(void)ui->widget_text(host->ctx, ui->child_content(host->ctx, right), "Instance", "review-rx-inst");
+	*out_target = left;
+	return 0;
+}
+
+static i32 sandbox_widget_build_layout(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t row;
+	sk_ui_node_t g;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-layout");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_ROW_GAP;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.row_gap = 8.0f;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	/* Property row: label | Spring | value (FieldRenderers). */
+	row = ui->widget_horizontal(host->ctx, col, "review-prop");
+	(void)ui->widget_text(host->ctx, row, "Mass", "review-prop-lab");
+	(void)ui->widget_spring(host->ctx, row, 1.0f, "review-prop-spring");
+	{
+		sk_ui_node_t sl = ui->widget_slider(host->ctx, row, 0.0f, 10.0f, 2.5f, "review-prop-val");
+		sk_ui_style_props_t slp;
+		memset(&slp, 0, sizeof(slp));
+		slp.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH | SK_UI_SP_HEIGHT;
+		slp.layout.width = sk_ui_pt(160.0f);
+		slp.layout.min_width = sk_ui_pt(160.0f);
+		slp.layout.max_width = sk_ui_pt(160.0f);
+		slp.layout.height = sk_ui_pt(18.0f);
+		(void)ui->node_merge_inline_style(host->ctx, sl, &slp);
+	}
+
+	g = ui->widget_group(host->ctx, col, "review-group");
+	{
+		sk_ui_style_props_t gp;
+		memset(&gp, 0, sizeof(gp));
+		gp.mask = SK_UI_SP_PADDING;
+		gp.layout.padding.left = SK_UI_INDENT_DEFAULT;
+		(void)ui->node_merge_inline_style(host->ctx, g, &gp);
+	}
+	(void)ui->widget_text(host->ctx, g, "indented child", "review-indented");
+	*out_target = col;
+	return 0;
+}
+
+static i32 sandbox_widget_build_disabled(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t hostn;
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	hostn = ui->widget_group(host->ctx, root, "review-dis-host");
+	(void)ui->begin_disabled(host->ctx, 1);
+	btn = ui->widget_button(host->ctx, hostn, "Visibility", "review-dis-btn");
+	(void)ui->widget_text(host->ctx, hostn, "read-only field", "review-dis-txt");
+	(void)ui->end_disabled(host->ctx);
+	(void)ui->set_disabled(host->ctx, hostn, 1);
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: disabled subtree failed\n");
+		return -1;
+	}
+	*out_target = hostn;
+	return 0;
+}
+
 static i32 sandbox_widget_build_drag_float3(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
 	const sk_ui_api_t* ui = host->ui;
 	sk_ui_node_t root = ui->context_root(host->ctx);
@@ -669,7 +898,12 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"tab_bar", "tab", "§10 TabBar", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 384u, 96u, NULL},
 	{"menu", "menubar", "§11 MenuBar / Menu / MenuItem", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 160u, NULL},
 	{"popup", "modal", "§12 Popup / Modal", SANDBOX_WS_BIT_DEFAULT, 384u, 192u, NULL},
-	{"window", "layout", "§13 Child / Window / Layout", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, NULL},
+	{"window", NULL, "§13 named window + close", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 480u, 280u, sandbox_widget_build_window},
+	{"fullscreen", NULL, "§13 ImGuiBeginFullscreen", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_fullscreen},
+	{"child", NULL, "§13 BeginChild remaining + border", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_child},
+	{"child_resize", "resizex", "§13 Child ResizeX", SANDBOX_WS_BIT_DEFAULT, 480u, 280u, sandbox_widget_build_child_resize},
+	{"layout", NULL, "§13 horizontal + Spring", SANDBOX_WS_BIT_DEFAULT, 480u, 200u, sandbox_widget_build_layout},
+	{"disabled", NULL, "§13 BeginDisabled subtree", SANDBOX_WS_BIT_DISABLED, 320u, 128u, sandbox_widget_build_disabled},
 	{"separator", NULL, "§19 Separator / Spacing / SameLine", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, NULL},
 	{"color", NULL, "§15 ColorEdit / ColorPicker", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 320u, 192u, NULL},
 	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
@@ -719,7 +953,7 @@ void sandbox_widget_list(void) {
 		}
 		printf("%-12s %-52s %-6s %s\n", catalog[i].name, states, catalog[i].build != NULL ? "ready" : "none", catalog[i].manifest);
 	}
-	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar menubar=menu modal=popup layout=window\n");
+	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar menubar=menu modal=popup resizex=child_resize\n");
 	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");
@@ -770,6 +1004,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	(void)ui->text_input_set_disabled(host->ctx, node, 0);
 	(void)ui->slider_set_disabled(host->ctx, node, 0);
 	(void)ui->slider_set_text_input(host->ctx, node, 0);
+	(void)ui->set_disabled(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -782,6 +1017,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 		(void)ui->radio_set_disabled(host->ctx, node, 1);
 		(void)ui->text_input_set_disabled(host->ctx, node, 1);
 		(void)ui->slider_set_disabled(host->ctx, node, 1);
+		(void)ui->set_disabled(host->ctx, node, 1);
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_DISABLED);
 	case SANDBOX_WS_FOCUSED:
 		if (ui->focus_set(host->ctx, node) == 0) {

@@ -39,6 +39,21 @@ static i32 ui_node_is_disabled(const ui_node_slot_t* slot) {
 	return (slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u ? 1 : 0;
 }
 
+static i32 ui_node_or_ancestor_disabled(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_node_t cur = node;
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		if (slot == NULL) {
+			return 0;
+		}
+		if (ui_node_is_disabled(slot)) {
+			return 1;
+		}
+		cur = slot->parent;
+	}
+	return 0;
+}
+
 /** Scroll offset props (ScrollView / overflow). Default 0. */
 static f32 ui_slot_scroll_x(const ui_node_slot_t* slot) {
 	u32 i;
@@ -264,7 +279,7 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 			if (slot->pointer_events == (u8)SK_UI_POINTER_EVENTS_NONE) {
 				can_target = 0;
 			}
-			if (ui_node_is_disabled(slot)) {
+			if (ui_node_or_ancestor_disabled(ctx, fr->node)) {
 				can_target = 0;
 			}
 
@@ -603,7 +618,7 @@ static i32 ui_node_can_focus(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	if (slot->focusable == 0u) {
 		return 0;
 	}
-	if (ui_node_is_disabled(slot)) {
+	if (ui_node_or_ancestor_disabled(ctx, node)) {
 		return 0;
 	}
 	return 1;

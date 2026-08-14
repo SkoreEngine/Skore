@@ -229,6 +229,17 @@ struct sk_ui_context_t {
 
 	/* Widget set */
 	u32 widget_id_seq; /**< Auto test-id counter for widgets without explicit id. */
+	/* Layout / id / disabled stacks (APX-345). Always present (not SK_TESTS-only). */
+	u8 disabled_depth;
+	u8 disabled_active; /**< Count of true frames on disabled_stack. */
+	u8 id_stack_depth;
+	u8 has_next_item_width;
+	u8 disabled_stack[16];
+	u16 id_mark[16]; /**< id_prefix length at each push_id. */
+	char id_prefix[192];
+	u16 id_prefix_len;
+	f32 next_item_width;
+	f32 indent_px;
 	sk_ui_clipboard_get_fn clipboard_get;
 	sk_ui_clipboard_set_fn clipboard_set;
 	void_ptr_t clipboard_user;
@@ -733,6 +744,35 @@ i32 ui_scroll_view_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t node
 i32 ui_scroll_view_set_content_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 i32 ui_image_set_texture_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+sk_ui_node_t ui_widget_window_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open);
+sk_ui_node_t ui_widget_fullscreen_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_child_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+sk_ui_node_t ui_child_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t child);
+i32 ui_child_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t child, u32 flags);
+u32 ui_child_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t child);
+i32 ui_child_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t child, f32 width, f32 height);
+i32 ui_scroll_view_scroll_to_bottom_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_editor_window_bind_open_impl(sk_ui_context_t* ctx, sk_ui_node_t window, i32* p_open);
+i32 ui_editor_window_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t window);
+i32 ui_editor_window_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t window, i32 open);
+sk_ui_node_t ui_editor_window_close_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t window);
+i32 ui_begin_disabled_impl(sk_ui_context_t* ctx, i32 disabled);
+i32 ui_end_disabled_impl(sk_ui_context_t* ctx);
+i32 ui_is_disabled_impl(const sk_ui_context_t* ctx);
+i32 ui_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_push_id_impl(sk_ui_context_t* ctx, const_chr_t id);
+i32 ui_push_id_int_impl(sk_ui_context_t* ctx, i32 id);
+i32 ui_push_id_ptr_impl(sk_ui_context_t* ctx, const void* ptr);
+i32 ui_pop_id_impl(sk_ui_context_t* ctx);
+i32 ui_set_next_item_width_impl(sk_ui_context_t* ctx, f32 width);
+i32 ui_indent_impl(sk_ui_context_t* ctx, f32 width);
+i32 ui_unindent_impl(sk_ui_context_t* ctx, f32 width);
+sk_ui_node_t ui_widget_group_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+i32 ui_group_get_extents_impl(const sk_ui_context_t* ctx, sk_ui_node_t group, sk_ui_rect_t* out);
+sk_ui_node_t ui_widget_horizontal_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_vertical_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_spring_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 weight, const_chr_t id);
 
 /* -------------------------------------------------------------------------- */
 /* Clay immediate-mode layout bridge (clay.c)                                 */

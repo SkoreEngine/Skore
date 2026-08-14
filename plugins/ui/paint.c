@@ -1664,7 +1664,7 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 	/* Scrollbars for scroll_view when content overflows. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && (strcmp(wtype, "scroll_view") == 0 || strcmp(wtype, "text_input") == 0)) {
+		if (wtype != NULL && (strcmp(wtype, "scroll_view") == 0 || strcmp(wtype, "text_input") == 0 || strcmp(wtype, "child") == 0)) {
 			f32 content_h = ui_paint_prop_f32_or(slot, "content_height", 0.0f);
 			f32 content_w = ui_paint_prop_f32_or(slot, "content_width", 0.0f);
 			f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f);

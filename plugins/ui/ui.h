@@ -876,6 +876,31 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_EDITOR_WINDOW "ui-editor-window"
 #define SK_UI_CLASS_WINDOW_TITLE_BAR "ui-window-title-bar"
 #define SK_UI_CLASS_WINDOW_CONTENT "ui-window-content"
+#define SK_UI_CLASS_WINDOW_CLOSE "ui-window-close"
+#define SK_UI_CLASS_FULLSCREEN "ui-fullscreen"
+#define SK_UI_CLASS_CHILD "ui-child"
+#define SK_UI_CLASS_CHILD_RESIZE "ui-child-resize"
+#define SK_UI_CLASS_GROUP "ui-group"
+#define SK_UI_CLASS_HORIZONTAL "ui-horizontal"
+#define SK_UI_CLASS_VERTICAL "ui-vertical"
+#define SK_UI_CLASS_SPRING "ui-spring"
+
+/**
+ * BeginChild flags (ImGuiChildFlags + HorizontalScrollbar window flag).
+ * BORDER is the legacy `true` / ChildFlags_Borders pane chrome.
+ * RESIZE_X is ResourceDebugger's user-resize left pane.
+ * HORIZONTAL_SCROLLBAR is Console's ScrollingRegion.
+ */
+#define SK_UI_CHILD_FLAG_NONE 0u
+#define SK_UI_CHILD_FLAG_BORDER (1u << 0)
+#define SK_UI_CHILD_FLAG_RESIZE_X (1u << 1)
+#define SK_UI_CHILD_FLAG_HORIZONTAL_SCROLLBAR (1u << 2)
+
+/** Default Indent() step in logical px (ImGui-ish). */
+#define SK_UI_INDENT_DEFAULT 16.0f
+
+/** SetNextItemWidth(-1): fill leftover main-axis space. */
+#define SK_UI_ITEM_WIDTH_FILL (-1.0f)
 /** Item-array hosts (APX-338): tree / list / combo / table share one binding. */
 #define SK_UI_CLASS_TREE "ui-tree"
 #define SK_UI_CLASS_LIST "ui-list"
@@ -3702,6 +3727,106 @@ typedef struct sk_ui_api_t {
 	/** Read/write all components of a vector row. @p count is the buffer length. */
 	i32 (*slider_set_values)(sk_ui_context_t* ctx, sk_ui_node_t row, const f32* values, i32 count);
 	i32 (*slider_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t row, f32* out, i32 count);
+
+	/* ---- child / window / layout family (APX-345; manifest §13) ---- */
+
+	/**
+	 * Named dockable window (ImGui Begin + p_open). Same chrome as
+	 * widget_editor_window. When @p p_open is non-NULL a close button is
+	 * shown; clicking it writes 0 and hides the window.
+	 */
+	sk_ui_node_t (*widget_window)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open);
+
+	/**
+	 * Fullscreen host (ImGuiBeginFullscreen): fills the parent, no title bar.
+	 * Project-launcher overlay.
+	 */
+	sk_ui_node_t (*widget_fullscreen)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Child region (ImGui BeginChild). @p width/@p height of 0,0 is remaining
+	 * size (flex-grow). A positive height with width 0 is a fixed-height
+	 * toolbar (full remaining width). @p flags is SK_UI_CHILD_FLAG_*.
+	 */
+	sk_ui_node_t (*widget_child)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+
+	/** Scroll content under a child (same as scroll_view_content). */
+	sk_ui_node_t (*child_content)(const sk_ui_context_t* ctx, sk_ui_node_t child);
+	i32 (*child_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t child, u32 flags);
+	u32 (*child_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t child);
+	/** Explicit size. Zero on an axis means remaining / auto (ImVec2). */
+	i32 (*child_set_size)(sk_ui_context_t* ctx, sk_ui_node_t child, f32 width, f32 height);
+
+	/**
+	 * Scroll-to-bottom (ImGui SetScrollHereY(1) / console auto-scroll).
+	 * Works on widget_child and widget_scroll_view.
+	 */
+	i32 (*scroll_view_scroll_to_bottom)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close). */
+	i32 (*editor_window_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t window, i32* p_open);
+	i32 (*editor_window_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+	i32 (*editor_window_set_open)(sk_ui_context_t* ctx, sk_ui_node_t window, i32 open);
+	/** Close button child, or SK_UI_NODE_INVALID when not closable. */
+	sk_ui_node_t (*editor_window_close_button)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+
+	/**
+	 * BeginDisabled / EndDisabled stack. Subsequent factory calls inherit
+	 * SK_UI_STATE_DISABLED (grey + no input). Nested; End pops one frame.
+	 */
+	i32 (*begin_disabled)(sk_ui_context_t* ctx, i32 disabled);
+	i32 (*end_disabled)(sk_ui_context_t* ctx);
+	/** Non-zero if the current disabled stack is active. */
+	i32 (*is_disabled)(const sk_ui_context_t* ctx);
+	/**
+	 * Apply disabled (grey + no input) to @p node and every descendant.
+	 * Use on an existing subtree; factories created under begin_disabled
+	 * are already marked.
+	 */
+	i32 (*set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/**
+	 * PushID / PopID: prefix subsequently assigned node ids with the stack
+	 * (string / int / pointer). Same local id under different scopes is unique.
+	 */
+	i32 (*push_id)(sk_ui_context_t* ctx, const_chr_t id);
+	i32 (*push_id_int)(sk_ui_context_t* ctx, i32 id);
+	i32 (*push_id_ptr)(sk_ui_context_t* ctx, const void* ptr);
+	i32 (*pop_id)(sk_ui_context_t* ctx);
+
+	/**
+	 * SetNextItemWidth. Applied to the next factory-created widget, then
+	 * consumed. @p width of SK_UI_ITEM_WIDTH_FILL (-1) is flex-grow fill.
+	 * width > 0 is an explicit point width.
+	 */
+	i32 (*set_next_item_width)(sk_ui_context_t* ctx, f32 width);
+
+	/**
+	 * Indent / Unindent. Subsequent factories get extra left margin.
+	 * @p width of 0 uses SK_UI_INDENT_DEFAULT.
+	 */
+	i32 (*indent)(sk_ui_context_t* ctx, f32 width);
+	i32 (*unindent)(sk_ui_context_t* ctx, f32 width);
+
+	/**
+	 * BeginGroup / EndGroup: shrink-wrap box. Extents after layout are the
+	 * group's border box (union of children plus padding).
+	 */
+	sk_ui_node_t (*widget_group)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	i32 (*group_get_extents)(const sk_ui_context_t* ctx, sk_ui_node_t group, sk_ui_rect_t* out);
+
+	/**
+	 * Horizontal / vertical stack (imgui_stacklayout BeginHorizontal /
+	 * BeginVertical). Flex row / column.
+	 */
+	sk_ui_node_t (*widget_horizontal)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	sk_ui_node_t (*widget_vertical)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	/**
+	 * Spring: empty spacer with flex_grow = @p weight (default 1). Maps
+	 * imgui_stacklayout Spring(weight) onto Clay GROW. Clay GROW is
+	 * unweighted, so every live spring shares leftover space equally.
+	 */
+	sk_ui_node_t (*widget_spring)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 weight, const_chr_t id);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

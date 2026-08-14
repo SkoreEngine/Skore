@@ -941,13 +941,32 @@ Dock *interaction* (split, tab, float) is already a sk-ui concern
 (`widget_dock_*`). This family is the **panel host + layout primitives**
 the editor still needs inside a pane.
 
-**sk-ui today:** `widget_editor_window`, `widget_scroll_view`, dock/splitter,
-flex layout. No `BeginDisabled` equivalent as a scoped stack; no Spring API
-(flex-grow covers it).
+**sk-ui today:** `widget_window` (named dockable host + `p_open` close flag),
+`widget_fullscreen` (ImGuiBeginFullscreen), `widget_child` (remaining-size
+`(0,0)`, fixed-height toolbars, `SK_UI_CHILD_FLAG_BORDER` /
+`RESIZE_X` / `HORIZONTAL_SCROLLBAR`), `scroll_view_scroll_to_bottom`
+(`SetScrollHereY(1)`), `begin_disabled`/`end_disabled`/`set_disabled`
+(scoped stack; greys + blocks input on the whole subtree), `push_id` /
+`push_id_int` / `push_id_ptr` / `pop_id`, `set_next_item_width(-1)` fill,
+`indent`/`unindent`, `widget_group` + `group_get_extents`,
+`widget_horizontal` / `widget_vertical` / `widget_spring`.
+**Spring mapping:** `widget_spring(weight)` is an empty flex item with
+`flex_grow = weight` (default 1). Clay GROW is unweighted, so every live
+spring shares leftover space equally. Dock interaction stays on
+`widget_dock_*`.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_child_sizing_modes`,
+  `ui_widget_disabled_stack_propagation`,
+  `ui_widget_id_scope_uniqueness`,
+  `ui_widget_item_width_fill`,
+  `ui_widget_group_extents`,
+  `ui_widget_spring_flex_distribution`)
+- [x] Headless UI automation — `plugins/ui/child_window_layout_family_tests.c`
+  (`ui_author_child_window_layout_family_scroll_disabled_resizex`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget window`,
+  `fullscreen`, `child`, `child_resize`, `layout`, `disabled`;
+  states default/disabled)
 
 ---
 

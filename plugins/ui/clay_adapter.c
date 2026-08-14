@@ -202,7 +202,9 @@ static i32 ui_clay_is_dock_surface(const_chr_t widget) {
 		return 0;
 	}
 	if (strcmp(widget, "dock_space") == 0 || strcmp(widget, "dock_node") == 0 || strcmp(widget, "splitter") == 0 || strcmp(widget, "tab_bar") == 0 || strcmp(widget, "tab") == 0 ||
-		strcmp(widget, "editor_window") == 0 || strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "window_content") == 0) {
+		strcmp(widget, "editor_window") == 0 || strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "window_content") == 0 || strcmp(widget, "fullscreen") == 0 ||
+		strcmp(widget, "child") == 0 || strcmp(widget, "child_resize") == 0 || strcmp(widget, "window_close") == 0 || strcmp(widget, "group") == 0 ||
+		strcmp(widget, "horizontal") == 0 || strcmp(widget, "vertical") == 0 || strcmp(widget, "spring") == 0) {
 		return 1;
 	}
 	return 0;
@@ -682,7 +684,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	 * - clip_children alone (dock_space / dock_node / window_content / menu
 	 *   popups) → Clay clip without scroll-container offset semantics.
 	 */
-	has_scroll_props = (ui_clay_has_prop_f32(slot, "scroll_x") != 0 || ui_clay_has_prop_f32(slot, "scroll_y") != 0 || (widget != NULL && strcmp(widget, "scroll_view") == 0));
+	has_scroll_props = (ui_clay_has_prop_f32(slot, "scroll_x") != 0 || ui_clay_has_prop_f32(slot, "scroll_y") != 0 ||
+						(widget != NULL && (strcmp(widget, "scroll_view") == 0 || strcmp(widget, "child") == 0)));
 	is_scroll_container = has_scroll_props != 0 ? 1 : 0;
 	is_clip = (slot->clip_children != 0u) || is_scroll_container != 0;
 	if (is_scroll_container != 0) {
