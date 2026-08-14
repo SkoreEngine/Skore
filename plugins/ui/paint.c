@@ -743,6 +743,8 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	u32 li;
 	const u8* text_bytes;
 	const u8* line_begin;
+	char password_stars[128];
+	i32 using_hint = 0;
 
 	if (em->params == NULL) {
 		return 0;
@@ -779,7 +781,50 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			sel_b = v;
 		}
 	}
-	/* Disabled fields: no caret/selection chrome (dimmed text only) — APX-253. */
+	/* Hint when the field is empty (InputTextWithHint / Search). */
+	if (text[0] == '\0') {
+		const_chr_t hint = ui_paint_prop_str(slot, "hint");
+		if (hint != NULL && hint[0] != '\0') {
+			text = hint;
+			using_hint = 1;
+			sel_a = -1;
+			sel_b = -1;
+		}
+	}
+	/* Password: paint bullets, keep caret/selection on the real length. */
+	{
+		i32 pw = 0;
+		(void)ui_paint_prop_i32(slot, "password", &pw);
+		if (pw != 0 && using_hint == 0 && text[0] != '\0') {
+			u32 n = 0u;
+			const u8* src = (const u8*)ui_paint_prop_str(slot, "text");
+			if (src == NULL) {
+				src = (const u8*)"";
+			}
+			while (*src != 0u && n + 1u < sizeof(password_stars)) {
+				u32 adv = 1u;
+				if ((*src & 0xE0u) == 0xC0u && src[1] != 0u) {
+					adv = 2u;
+				} else if ((*src & 0xF0u) == 0xE0u && src[1] != 0u && src[2] != 0u) {
+					adv = 3u;
+				} else if ((*src & 0xF8u) == 0xF0u && src[1] != 0u && src[2] != 0u && src[3] != 0u) {
+					adv = 4u;
+				}
+				src += adv;
+				password_stars[n++] = '*';
+			}
+			password_stars[n] = '\0';
+			text = password_stars;
+		}
+	}
+	/* Caret/selection only while focused. Disabled: dimmed text only. */
+	if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u || (slot->state_flags & (u32)SK_UI_STATE_FOCUSED) == 0u) {
+		draw_caret = 0;
+		if ((slot->state_flags & (u32)SK_UI_STATE_FOCUSED) == 0u) {
+			sel_a = -1;
+			sel_b = -1;
+		}
+	}
 	if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		draw_caret = 0;
 		sel_a = -1;
@@ -807,7 +852,11 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		return 0;
 	}
 
-	color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+	if (using_hint != 0) {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.50f, 0.52f, 0.55f, 1.0f), opacity));
+	} else {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+	}
 	text_bytes = (const u8*)text;
 
 	/* Break into lines (hard \n + optional soft wrap at spaces). */
@@ -1587,7 +1636,7 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 	/* Scrollbars for scroll_view when content overflows. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "scroll_view") == 0) {
+		if (wtype != NULL && (strcmp(wtype, "scroll_view") == 0 || strcmp(wtype, "text_input") == 0)) {
 			f32 content_h = ui_paint_prop_f32_or(slot, "content_height", 0.0f);
 			f32 content_w = ui_paint_prop_f32_or(slot, "content_width", 0.0f);
 			f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f);
@@ -1661,14 +1710,69 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
 			f32 text_x = cx;
+			f32 text_y = cy;
 			f32 text_w = cw;
+			f32 text_h = ch;
+			i32 is_input = (wtype != NULL && strcmp(wtype, "text_input") == 0) ? 1 : 0;
 			if (wtype != NULL && strcmp(wtype, "separator_text") == 0) {
 				/* Label starts after the rule gap (vertical_align=1 centers it). */
 				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
 				text_x = cx + 12.0f * avg;
 				text_w = cw - 12.0f * avg;
 			}
-			if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity) != 0) {
+			if (is_input != 0) {
+				f32 scx = ui_paint_prop_f32_or(slot, "scroll_x", 0.0f) * em->scale_x;
+				f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f) * em->scale_y;
+				sk_ui_rect_t clip;
+				clip.x = cx;
+				clip.y = cy;
+				clip.width = cw;
+				clip.height = ch;
+				if (ui_paint_push_clip(em, clip) != 0) {
+					return -1;
+				}
+				text_x = cx - scx;
+				text_y = cy - scy;
+				if (ui_paint_emit_text(em, slot, text_x, text_y, text_w, text_h, opacity) != 0) {
+					return -1;
+				}
+				if (ui_paint_pop_clip(em) != 0) {
+					return -1;
+				}
+			} else if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity) != 0) {
+				return -1;
+			}
+		}
+	}
+
+	/* Search magnifier in the extra left pad (ImGuiSearchInputText). */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 search = 0;
+		(void)ui_paint_prop_i32(slot, "search", &search);
+		if (wtype != NULL && strcmp(wtype, "text_input") == 0 && search != 0) {
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+			f32 d = 8.0f * avg;
+			f32 rx;
+			f32 ry;
+			u32 ic = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.62f, 0.64f, 0.68f, 1.0f), opacity));
+			if (d > ch * 0.55f) {
+				d = ch * 0.55f;
+			}
+			rx = bx + (pad_l - d) * 0.45f;
+			ry = by + (bh - d) * 0.5f;
+			{
+				u32 hole = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
+				f32 inset = 1.6f * avg;
+				if (ui_paint_add_rounded_rect_filled(em, rx, ry, d, d, d * 0.5f, ic) != 0) {
+					return -1;
+				}
+				if (d > inset * 2.0f && ui_paint_add_rounded_rect_filled(em, rx + inset, ry + inset, d - inset * 2.0f, d - inset * 2.0f, (d - inset * 2.0f) * 0.5f, hole) != 0) {
+					return -1;
+				}
+			}
+			if (ui_paint_add_thick_line(em, rx + d * 0.72f, ry + d * 0.72f, rx + d + 3.0f * avg, ry + d + 3.0f * avg, 1.6f * avg, ic) != 0) {
 				return -1;
 			}
 		}

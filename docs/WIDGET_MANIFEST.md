@@ -68,13 +68,13 @@ this list (see §21).
 | — | Radio / ImageButton / Columns | **Not called.** Do not schedule from this audit. |
 
 **Already on sk-ui (still must pass the three checks against *editor* behaviour):**
-button, label, checkbox, slider (float only), text_input (single-line),
+button, label, checkbox, slider (float only), text_input (single-line,
+multiline, hint/search, read-only, InputScalar / InputFloat / InputFloat3),
 scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
 editor_window. Missing factories that this audit makes load-bearing: **tree**,
 **table**, **drag-drop payload**, **color picker**, **combo that binds an
-int + zero-separated items**, **multi-line text**, **numeric InputScalar /
-DragFloatN**, **tooltip**.
+int + zero-separated items**, **DragFloatN**, **tooltip**.
 
 ---
 
@@ -370,12 +370,22 @@ scalar. Search filter is a single string, not a list.
 **Not used:** `InputTextWithHint`, `InputInt*`, `InputFloat2/4`, `InputDouble`
 as distinct APIs (covered by `InputScalar`). `ImGuiPathInputText` is a stub.
 
-**sk-ui today:** `widget_text_input` (single-line). No multiline, no
-InputScalar, no search chrome, no error flag.
+**sk-ui today:** `widget_text_input` plus multiline / hint / search / read-only
+factories, InputScalar / InputFloat / InputFloat3 / InputInt, flags
+(ReadOnly, Password, EnterReturnsTrue, AutoSelectAll, CharsDecimal,
+ShowError), capacity grow/truncate, commit vs live-edit, escape-to-revert,
+and `text_filter_pass` (ImGuiTextFilter).
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_text_input_edit_ops`,
+  `ui_widget_text_input_family_buffer_edit_selection`,
+  `ui_widget_text_input_family_flags_commit_revert`,
+  `ui_widget_text_input_family_numeric_parse_clamp`)
+- [x] Headless UI automation — `plugins/ui/input_text_family_tests.c`
+  (`ui_author_input_text_family_keystrokes_focus_commit_revert`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget text_input`,
+  `text_input_hint`, `text_input_selection`, `text_input_multiline`,
+  `text_input_readonly`; states default/hovered/pressed/disabled/focused)
 
 ---
 

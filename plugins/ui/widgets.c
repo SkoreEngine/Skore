@@ -4,7 +4,7 @@
  *
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
- * checkbox/slider/text_input/scroll_view, menu surfaces (menu_bar, menu,
+ * checkbox/slider/text_input (APX-342: multiline/hint/search/scalar)/scroll_view, menu surfaces (menu_bar, menu,
  * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
  * tab, editor_window, window_title_bar, window_content — APX-235). Item-array
@@ -16,6 +16,7 @@
 
 #include "allocator.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +72,19 @@ typedef struct ui_widget_data_t {
 	i32* bound_i32;
 	i32 bound_kind;
 	i32 bound_arg;
+	/* InputText family (APX-342) */
+	sk_ui_widget_text_fn on_text;
+	u32 input_flags;
+	i32 input_capacity;
+	i32 edge_text_changed;
+	i32 edge_text_committed;
+	i32 text_dirty;
+	char* revert_text;
+	void_ptr_t scalar_data;
+	i32 scalar_type;
+	i32 scalar_has_range;
+	f64 scalar_min;
+	f64 scalar_max;
 } ui_widget_data_t;
 
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -78,6 +92,11 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 		return;
 	}
 	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_WIDGET_DATA_TYPE_ID)) {
+		ui_widget_data_t* wd = (ui_widget_data_t*)slot->user_data;
+		if (wd->revert_text != NULL) {
+			ctx->allocator->free(ctx->allocator->instance, wd->revert_text);
+			wd->revert_text = NULL;
+		}
 		ctx->allocator->free(ctx->allocator->instance, slot->user_data);
 		slot->user_data = NULL;
 		slot->user_data_type = SK_TYPE_ID_ZERO;
@@ -614,6 +633,29 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.color = sk_ui_rgba(0.38f, 0.40f, 0.42f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_INPUT, SK_UI_STATE_DISABLED, &var);
 
+	/* Invalid project name: red focus/chrome (ImGuiInputTextExtraFlags_ShowError). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BORDER_COLOR;
+	base.border_color = sk_ui_rgba(0.86f, 0.24f, 0.22f, 1.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TEXT_INPUT_ERROR, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BORDER_COLOR;
+	var.border_color = sk_ui_rgba(0.95f, 0.32f, 0.28f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_INPUT_ERROR, SK_UI_STATE_FOCUSED, &var);
+
+	/* Search bar: extra left pad for the magnifier. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_PADDING;
+	base.layout.padding.left = 22.0f;
+	base.layout.padding.top = 6.0f;
+	base.layout.padding.right = 6.0f;
+	base.layout.padding.bottom = 6.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TEXT_INPUT_SEARCH, &base) != 0) {
+		return -1;
+	}
+
 	/* Scroll view */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS;
@@ -938,6 +980,8 @@ static sk_ui_node_t ui_widget_base(sk_ui_context_t* ctx, sk_ui_node_kind_t kind,
 /* Behavior handlers                                                          */
 /* -------------------------------------------------------------------------- */
 
+static void ui_scroll_clamp(sk_ui_context_t* ctx, sk_ui_node_t node);
+
 static i32 ui_checkbox_read_checked(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
 	i32 checked = 0;
@@ -1198,23 +1242,150 @@ static void ui_slider_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_ev
 	}
 }
 
+static char* ui_wd_strdup(const sk_allocator_t* a, const_chr_t s) {
+	size_t n;
+	char* d;
+	if (s == NULL) {
+		s = "";
+	}
+	n = strlen(s);
+	d = (char*)a->alloc(a->instance, n + 1u);
+	if (d == NULL) {
+		return NULL;
+	}
+	memcpy(d, s, n + 1u);
+	return d;
+}
+
+static u32 ui_utf8_fit_bytes(const_chr_t s, u32 max_bytes) {
+	u32 n = 0u;
+	const u8* p;
+	if (s == NULL || max_bytes == 0u) {
+		return 0u;
+	}
+	p = (const u8*)s;
+	while (*p != 0u) {
+		u32 adv = 1u;
+		if ((*p & 0xE0u) == 0xC0u && p[1] != 0u) {
+			adv = 2u;
+		} else if ((*p & 0xF0u) == 0xE0u && p[1] != 0u && p[2] != 0u) {
+			adv = 3u;
+		} else if ((*p & 0xF8u) == 0xF0u && p[1] != 0u && p[2] != 0u && p[3] != 0u) {
+			adv = 4u;
+		}
+		if (n + adv > max_bytes) {
+			break;
+		}
+		n += adv;
+		p += adv;
+	}
+	return n;
+}
+
+static u32 ui_text_line_count(const_chr_t s) {
+	u32 n = 1u;
+	if (s == NULL) {
+		return 1u;
+	}
+	while (*s != '\0') {
+		if (*s == '\n') {
+			n += 1u;
+		}
+		s += 1;
+	}
+	return n;
+}
+
+static i32 ui_text_line_start(const_chr_t text, i32 caret) {
+	i32 i = caret;
+	if (text == NULL) {
+		return 0;
+	}
+	if (i < 0) {
+		i = 0;
+	}
+	while (i > 0) {
+		u32 b = ui_utf8_byte_offset(text, (u32)(i - 1));
+		if (text[b] == '\n') {
+			break;
+		}
+		i -= 1;
+	}
+	return i;
+}
+
+static i32 ui_text_line_end(const_chr_t text, i32 caret) {
+	i32 n;
+	i32 i;
+	if (text == NULL) {
+		return 0;
+	}
+	n = (i32)ui_utf8_code_count(text);
+	i = caret;
+	if (i < 0) {
+		i = 0;
+	}
+	while (i < n) {
+		u32 b = ui_utf8_byte_offset(text, (u32)i);
+		if (text[b] == '\n') {
+			break;
+		}
+		i += 1;
+	}
+	return i;
+}
+
+static i32 ui_text_cp_at(const_chr_t text, i32 index) {
+	u32 b;
+	if (text == NULL || index < 0) {
+		return 0;
+	}
+	b = ui_utf8_byte_offset(text, (u32)index);
+	return (i32)(unsigned char)text[b];
+}
+
+static void ui_text_refresh_content_size(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	f32 fs = 14.0f;
+	f32 lh;
+	u32 lines;
+	if (wd == NULL || (wd->input_flags & SK_UI_INPUT_TEXT_FLAG_MULTILINE) == 0u) {
+		return;
+	}
+	if (slot != NULL && slot->computed.font_size > 1.0f) {
+		fs = slot->computed.font_size;
+	}
+	lh = fs * 1.25f;
+	lines = ui_text_line_count(text);
+	(void)ui->node_set_prop_f32(ctx, node, "content_height", lh * (f32)lines + 4.0f);
+	(void)ui->node_set_prop_f32(ctx, node, "content_width", slot != NULL ? slot->layout_content.width : 0.0f);
+	ui_scroll_clamp(ctx, node);
+}
+
 static void ui_text_sync_props(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text, i32 caret, i32 sel_a, i32 sel_b) {
 	const sk_ui_api_t* ui = ui_wapi();
 	u32 n;
-	char local[1024];
+	char local[256];
+	char* heap = NULL;
 	const_chr_t stable;
+	size_t len;
 	/* Copy before set_prop_str: text may point at the prop storage being replaced. */
 	if (text == NULL) {
 		text = "";
 	}
-	{
-		size_t len = strlen(text);
-		if (len >= sizeof(local)) {
-			len = sizeof(local) - 1u;
-		}
-		memcpy(local, text, len);
-		local[len] = '\0';
+	len = strlen(text);
+	if (len < sizeof(local)) {
+		memcpy(local, text, len + 1u);
 		stable = local;
+	} else {
+		heap = (char*)ctx->allocator->alloc(ctx->allocator->instance, len + 1u);
+		if (heap == NULL) {
+			return;
+		}
+		memcpy(heap, text, len + 1u);
+		stable = heap;
 	}
 	(void)ui->node_set_prop_str(ctx, node, "text", stable);
 	n = ui_utf8_code_count(stable);
@@ -1239,17 +1410,317 @@ static void ui_text_sync_props(sk_ui_context_t* ctx, sk_ui_node_t node, const_ch
 	(void)ui->node_set_prop_i32(ctx, node, "caret", caret);
 	(void)ui->node_set_prop_i32(ctx, node, "sel_start", sel_a);
 	(void)ui->node_set_prop_i32(ctx, node, "sel_end", sel_b);
+	ui_text_refresh_content_size(ctx, node, stable);
+	if (heap != NULL) {
+		ctx->allocator->free(ctx->allocator->instance, heap);
+	}
 	ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_PAINT | SK_UI_DIRTY_LAYOUT));
+}
+
+static i32 ui_text_is_readonly(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd != NULL && (wd->input_flags & SK_UI_INPUT_TEXT_FLAG_READ_ONLY) != 0u) {
+		return 1;
+	}
+	return 0;
+}
+
+static void ui_text_mark_edit(sk_ui_context_t* ctx, sk_ui_node_t node, i32 is_commit) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	const_chr_t text;
+	if (wd == NULL) {
+		return;
+	}
+	wd->text_dirty = 1;
+	if (is_commit != 0 || (wd->input_flags & SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE) == 0u) {
+		wd->edge_text_changed = 1;
+	}
+	if (is_commit != 0) {
+		wd->edge_text_committed = 1;
+	}
+	text = ui_text_input_get_text_impl(ctx, node);
+	if (wd->on_text != NULL) {
+		wd->on_text(ctx, node, text != NULL ? text : "", wd->cb_user);
+	}
+}
+
+static i32 ui_text_char_ok(u32 flags, u32 cp, i32 multiline) {
+	if (multiline == 0 && (cp == (u32)'\n' || cp == (u32)'\r')) {
+		return 0;
+	}
+	if ((flags & SK_UI_INPUT_TEXT_FLAG_CHARS_DECIMAL) != 0u) {
+		if ((cp >= (u32)'0' && cp <= (u32)'9') || cp == (u32)'.' || cp == (u32)'+' || cp == (u32)'-' || cp == (u32)'e' || cp == (u32)'E') {
+			return 1;
+		}
+		return 0;
+	}
+	return 1;
+}
+
+static u32 ui_text_filter_insert(const_chr_t src, u32 flags, i32 multiline, char* dst, u32 dst_cap) {
+	const u8* p;
+	u32 n = 0u;
+	if (src == NULL || dst == NULL || dst_cap == 0u) {
+		return 0u;
+	}
+	p = (const u8*)src;
+	while (*p != 0u && n + 1u < dst_cap) {
+		const u8* start = p;
+		u32 cp = 0u;
+		u32 adv = 1u;
+		if ((*p & 0xE0u) == 0xC0u && p[1] != 0u) {
+			cp = ((u32)(p[0] & 0x1Fu) << 6) | (u32)(p[1] & 0x3Fu);
+			adv = 2u;
+		} else if ((*p & 0xF0u) == 0xE0u && p[1] != 0u && p[2] != 0u) {
+			cp = ((u32)(p[0] & 0x0Fu) << 12) | ((u32)(p[1] & 0x3Fu) << 6) | (u32)(p[2] & 0x3Fu);
+			adv = 3u;
+		} else if ((*p & 0xF8u) == 0xF0u && p[1] != 0u && p[2] != 0u && p[3] != 0u) {
+			cp = ((u32)(p[0] & 0x07u) << 18) | ((u32)(p[1] & 0x3Fu) << 12) | ((u32)(p[2] & 0x3Fu) << 6) | (u32)(p[3] & 0x3Fu);
+			adv = 4u;
+		} else {
+			cp = *p;
+			adv = 1u;
+		}
+		p += adv;
+		if (ui_text_char_ok(flags, cp, multiline) == 0) {
+			continue;
+		}
+		if (n + adv >= dst_cap) {
+			break;
+		}
+		memcpy(dst + n, start, adv);
+		n += adv;
+	}
+	dst[n] = '\0';
+	return n;
+}
+
+static void ui_text_format_scalar(i32 type, const void* data, char* buf, u32 cap) {
+	if (buf == NULL || cap == 0u) {
+		return;
+	}
+	buf[0] = '\0';
+	if (data == NULL) {
+		return;
+	}
+	switch (type) {
+	case SK_UI_INPUT_DATA_S32:
+		(void)snprintf(buf, (size_t)cap, "%d", *(const i32*)data);
+		break;
+	case SK_UI_INPUT_DATA_U32:
+		(void)snprintf(buf, (size_t)cap, "%u", *(const u32*)data);
+		break;
+	case SK_UI_INPUT_DATA_U64: {
+		uint64_t uv = *(const u64*)data;
+		(void)snprintf(buf, (size_t)cap, "%" PRIu64, uv);
+		break;
+	}
+	case SK_UI_INPUT_DATA_F32:
+		(void)snprintf(buf, (size_t)cap, "%.3f", (double)(*(const f32*)data));
+		break;
+	case SK_UI_INPUT_DATA_F64:
+		(void)snprintf(buf, (size_t)cap, "%.6g", *(const f64*)data);
+		break;
+	default:
+		break;
+	}
+}
+
+static f64 ui_text_read_scalar_f64(i32 type, const void* data) {
+	if (data == NULL) {
+		return 0.0;
+	}
+	switch (type) {
+	case SK_UI_INPUT_DATA_S32:
+		return (f64)(*(const i32*)data);
+	case SK_UI_INPUT_DATA_U32:
+		return (f64)(*(const u32*)data);
+	case SK_UI_INPUT_DATA_U64:
+		return (f64)(*(const u64*)data);
+	case SK_UI_INPUT_DATA_F32:
+		return (f64)(*(const f32*)data);
+	case SK_UI_INPUT_DATA_F64:
+		return *(const f64*)data;
+	default:
+		return 0.0;
+	}
+}
+
+static void ui_text_write_scalar_f64(i32 type, void* data, f64 v) {
+	if (data == NULL) {
+		return;
+	}
+	switch (type) {
+	case SK_UI_INPUT_DATA_S32:
+		*(i32*)data = (i32)v;
+		break;
+	case SK_UI_INPUT_DATA_U32:
+		*(u32*)data = (u32)v;
+		break;
+	case SK_UI_INPUT_DATA_U64:
+		*(u64*)data = (u64)v;
+		break;
+	case SK_UI_INPUT_DATA_F32:
+		*(f32*)data = (f32)v;
+		break;
+	case SK_UI_INPUT_DATA_F64:
+		*(f64*)data = v;
+		break;
+	default:
+		break;
+	}
+}
+
+static i32 ui_text_parse_scalar(i32 type, const_chr_t text, f64* out) {
+	char* end = NULL;
+	f64 v;
+	if (text == NULL || text[0] == '\0') {
+		*out = 0.0;
+		return 0;
+	}
+	if (type == SK_UI_INPUT_DATA_U64) {
+		unsigned long long uv = strtoull(text, &end, 10);
+		if (end == text) {
+			return -1;
+		}
+		*out = (f64)uv;
+		return 0;
+	}
+	if (type == SK_UI_INPUT_DATA_S32) {
+		long lv = strtol(text, &end, 10);
+		if (end == text) {
+			return -1;
+		}
+		*out = (f64)lv;
+		return 0;
+	}
+	if (type == SK_UI_INPUT_DATA_U32) {
+		unsigned long uv = strtoul(text, &end, 10);
+		if (end == text) {
+			return -1;
+		}
+		*out = (f64)uv;
+		return 0;
+	}
+	v = strtod(text, &end);
+	if (end == text) {
+		return -1;
+	}
+	*out = v;
+	return 0;
+}
+
+static void ui_text_commit_scalar(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	const_chr_t text;
+	f64 v;
+	char buf[64];
+	if (wd == NULL || wd->scalar_data == NULL) {
+		return;
+	}
+	text = ui_text_input_get_text_impl(ctx, node);
+	if (ui_text_parse_scalar(wd->scalar_type, text, &v) != 0) {
+		v = ui_text_read_scalar_f64(wd->scalar_type, wd->scalar_data);
+	}
+	if (wd->scalar_has_range != 0) {
+		if (v < wd->scalar_min) {
+			v = wd->scalar_min;
+		}
+		if (v > wd->scalar_max) {
+			v = wd->scalar_max;
+		}
+	}
+	if (wd->scalar_type == SK_UI_INPUT_DATA_S32) {
+		if (v > 2147483647.0) {
+			v = 2147483647.0;
+		}
+		if (v < -2147483648.0) {
+			v = -2147483648.0;
+		}
+	} else if (wd->scalar_type == SK_UI_INPUT_DATA_U32) {
+		if (v < 0.0) {
+			v = 0.0;
+		}
+		if (v > 4294967295.0) {
+			v = 4294967295.0;
+		}
+	} else if (wd->scalar_type == SK_UI_INPUT_DATA_U64) {
+		if (v < 0.0) {
+			v = 0.0;
+		}
+	}
+	ui_text_write_scalar_f64(wd->scalar_type, wd->scalar_data, v);
+	ui_text_format_scalar(wd->scalar_type, wd->scalar_data, buf, (u32)sizeof(buf));
+	{
+		i32 n = (i32)ui_utf8_code_count(buf);
+		ui_text_sync_props(ctx, node, buf, n, n, n);
+	}
+}
+
+static void ui_text_snapshot_revert(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	const_chr_t text;
+	if (wd == NULL) {
+		return;
+	}
+	if (wd->revert_text != NULL) {
+		ctx->allocator->free(ctx->allocator->instance, wd->revert_text);
+		wd->revert_text = NULL;
+	}
+	text = ui_text_input_get_text_impl(ctx, node);
+	wd->revert_text = ui_wd_strdup(ctx->allocator, text);
+	wd->text_dirty = 0;
+}
+
+static void ui_text_restore_revert(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	const_chr_t src;
+	i32 n;
+	if (wd == NULL || wd->revert_text == NULL) {
+		return;
+	}
+	src = wd->revert_text;
+	n = (i32)ui_utf8_code_count(src);
+	ui_text_sync_props(ctx, node, src, n, n, n);
+	wd->text_dirty = 0;
+}
+
+static void ui_text_apply_flags(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	if (wd == NULL) {
+		return;
+	}
+	wd->input_flags = flags;
+	(void)ui->node_set_prop_i32(ctx, node, "flags", (i32)flags);
+	(void)ui->node_set_prop_i32(ctx, node, "readonly", (flags & SK_UI_INPUT_TEXT_FLAG_READ_ONLY) != 0u ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, node, "password", (flags & SK_UI_INPUT_TEXT_FLAG_PASSWORD) != 0u ? 1 : 0);
+	if ((flags & SK_UI_INPUT_TEXT_FLAG_MULTILINE) != 0u) {
+		(void)ui->node_set_prop_i32(ctx, node, "wrap", 1);
+		(void)ui->node_set_prop_i32(ctx, node, "vertical_align", 0);
+		(void)ui->node_set_clip_children(ctx, node, 1);
+		ui_text_refresh_content_size(ctx, node, ui_text_input_get_text_impl(ctx, node));
+	}
+	if ((flags & SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR) != 0u) {
+		if (ui->node_has_class(ctx, node, SK_UI_CLASS_TEXT_INPUT_ERROR) == 0) {
+			(void)ui->node_add_class(ctx, node, SK_UI_CLASS_TEXT_INPUT_ERROR);
+		}
+	} else {
+		(void)ui->node_remove_class(ctx, node, SK_UI_CLASS_TEXT_INPUT_ERROR);
+	}
+	ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_PAINT | SK_UI_DIRTY_STYLE));
 }
 
 static void ui_text_input_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot;
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
 	const_chr_t text;
 	i32 caret = 0;
 	i32 sel_a = 0;
 	i32 sel_b = 0;
-	(void)user;
+	i32 multiline;
+	u32 flags = 0u;
 	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
@@ -1257,6 +1728,13 @@ static void ui_text_input_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 	if (slot == NULL) {
 		return;
 	}
+	if (wd == NULL) {
+		wd = ui_widget_data(ctx, node);
+	}
+	if (wd != NULL) {
+		flags = wd->input_flags;
+	}
+	multiline = (flags & SK_UI_INPUT_TEXT_FLAG_MULTILINE) != 0u ? 1 : 0;
 	text = ui_prop_str_const(slot, "text");
 	if (text == NULL) {
 		text = "";
@@ -1265,6 +1743,32 @@ static void ui_text_input_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 	(void)ui_prop_i32_const(slot, "sel_start", &sel_a);
 	(void)ui_prop_i32_const(slot, "sel_end", &sel_b);
 
+	if (event->type == SK_UI_EVENT_FOCUS_IN) {
+		ui_text_snapshot_revert(ctx, node);
+		if ((flags & SK_UI_INPUT_TEXT_FLAG_AUTO_SELECT_ALL) != 0u) {
+			i32 n = (i32)ui_utf8_code_count(text);
+			ui_text_sync_props(ctx, node, text, n, 0, n);
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_FOCUS_OUT) {
+		if (wd != NULL && wd->text_dirty != 0) {
+			ui_text_commit_scalar(ctx, node);
+			wd->edge_text_committed = 1;
+			wd->text_dirty = 0;
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_WHEEL && multiline != 0) {
+		f32 sy = ui_prop_f32_const(slot, "scroll_y", 0.0f);
+		sy -= event->scroll_y * 18.0f;
+		(void)ui->node_set_prop_f32(ctx, node, "scroll_y", sy);
+		ui_scroll_clamp(ctx, node);
+		event->consumed = 1;
+		return;
+	}
 	if (event->type == SK_UI_EVENT_TEXT_INPUT && event->text != NULL && event->text[0] != '\0') {
 		(void)ui_text_input_insert_impl(ctx, node, event->text);
 		event->consumed = 1;
@@ -1273,6 +1777,26 @@ static void ui_text_input_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 	if (event->type == SK_UI_EVENT_KEY_DOWN) {
 		i32 key = event->key;
 		u32 mods = event->mods;
+		if (key == SK_UI_KEY_ESCAPE) {
+			ui_text_restore_revert(ctx, node);
+			(void)ui->focus_set(ctx, SK_UI_NODE_INVALID);
+			event->consumed = 1;
+			return;
+		}
+		if (key == SK_UI_KEY_ENTER) {
+			if (multiline != 0 && (flags & SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE) == 0u) {
+				(void)ui_text_input_insert_impl(ctx, node, "\n");
+			} else {
+				ui_text_commit_scalar(ctx, node);
+				ui_text_mark_edit(ctx, node, 1);
+				if (wd != NULL) {
+					wd->text_dirty = 0;
+				}
+				(void)ui->focus_set(ctx, SK_UI_NODE_INVALID);
+			}
+			event->consumed = 1;
+			return;
+		}
 		if (key == SK_UI_KEY_BACKSPACE) {
 			if (sel_a != sel_b) {
 				(void)ui_text_input_delete_selection_impl(ctx, node);
@@ -1322,13 +1846,67 @@ static void ui_text_input_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 			return;
 		}
 		if (key == SK_UI_KEY_HOME) {
-			ui_text_sync_props(ctx, node, text, 0, 0, 0);
+			if (multiline != 0 && (mods & (u32)(SK_UI_MOD_CTRL | SK_UI_MOD_SUPER)) == 0u) {
+				i32 c = ui_text_line_start(text, caret);
+				if ((mods & (u32)SK_UI_MOD_SHIFT) != 0u) {
+					(void)ui->node_set_prop_i32(ctx, node, "caret", c);
+					(void)ui->node_set_prop_i32(ctx, node, "sel_end", c);
+				} else {
+					ui_text_sync_props(ctx, node, text, c, c, c);
+				}
+			} else {
+				ui_text_sync_props(ctx, node, text, 0, 0, 0);
+			}
 			event->consumed = 1;
 			return;
 		}
 		if (key == SK_UI_KEY_END) {
+			if (multiline != 0 && (mods & (u32)(SK_UI_MOD_CTRL | SK_UI_MOD_SUPER)) == 0u) {
+				i32 c = ui_text_line_end(text, caret);
+				if ((mods & (u32)SK_UI_MOD_SHIFT) != 0u) {
+					(void)ui->node_set_prop_i32(ctx, node, "caret", c);
+					(void)ui->node_set_prop_i32(ctx, node, "sel_end", c);
+				} else {
+					ui_text_sync_props(ctx, node, text, c, c, c);
+				}
+			} else {
+				i32 n = (i32)ui_utf8_code_count(text);
+				ui_text_sync_props(ctx, node, text, n, n, n);
+			}
+			event->consumed = 1;
+			return;
+		}
+		if (key == SK_UI_KEY_UP && multiline != 0) {
+			i32 ls = ui_text_line_start(text, caret);
+			i32 col = caret - ls;
+			i32 prev_end = ls > 0 ? ls - 1 : 0;
+			i32 prev_start = ui_text_line_start(text, prev_end);
+			i32 prev_len = prev_end - prev_start;
+			i32 c = prev_start + (col < prev_len ? col : prev_len);
+			if ((mods & (u32)SK_UI_MOD_SHIFT) != 0u) {
+				(void)ui->node_set_prop_i32(ctx, node, "caret", c);
+				(void)ui->node_set_prop_i32(ctx, node, "sel_end", c);
+			} else {
+				ui_text_sync_props(ctx, node, text, c, c, c);
+			}
+			event->consumed = 1;
+			return;
+		}
+		if (key == SK_UI_KEY_DOWN && multiline != 0) {
+			i32 le = ui_text_line_end(text, caret);
+			i32 ls = ui_text_line_start(text, caret);
+			i32 col = caret - ls;
 			i32 n = (i32)ui_utf8_code_count(text);
-			ui_text_sync_props(ctx, node, text, n, n, n);
+			i32 next_start = le < n && ui_text_cp_at(text, le) == '\n' ? le + 1 : le;
+			i32 next_end = ui_text_line_end(text, next_start);
+			i32 next_len = next_end - next_start;
+			i32 c = next_start + (col < next_len ? col : next_len);
+			if ((mods & (u32)SK_UI_MOD_SHIFT) != 0u) {
+				(void)ui->node_set_prop_i32(ctx, node, "caret", c);
+				(void)ui->node_set_prop_i32(ctx, node, "sel_end", c);
+			} else {
+				ui_text_sync_props(ctx, node, text, c, c, c);
+			}
 			event->consumed = 1;
 			return;
 		}
@@ -2062,6 +2640,10 @@ sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent
 	ui_text_sync_props(ctx, n, text, nlen, nlen, nlen);
 	(void)ui->node_set_focusable(ctx, n, 1);
 	wd = ui_widget_data_ensure(ctx, n, UI_WD_TEXT_INPUT);
+	if (wd != NULL) {
+		wd->input_flags = SK_UI_INPUT_TEXT_FLAG_NONE;
+		wd->input_capacity = 0;
+	}
 	memset(&cbs, 0, sizeof(cbs));
 	cbs.on_event = ui_text_input_on_event;
 	cbs.user = wd;
@@ -3399,12 +3981,36 @@ f32 ui_progress_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 }
 
 i32 ui_text_input_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	char local[256];
+	char* heap = NULL;
+	const_chr_t use = text != NULL ? text : "";
+	u32 len;
 	i32 n;
-	if (text == NULL) {
-		text = "";
+	if (wd != NULL && wd->input_capacity > 0) {
+		len = (u32)strlen(use);
+		if (len > (u32)wd->input_capacity) {
+			u32 fit = ui_utf8_fit_bytes(use, (u32)wd->input_capacity);
+			if (fit + 1u <= sizeof(local)) {
+				memcpy(local, use, fit);
+				local[fit] = '\0';
+				use = local;
+			} else {
+				heap = (char*)ctx->allocator->alloc(ctx->allocator->instance, fit + 1u);
+				if (heap == NULL) {
+					return -1;
+				}
+				memcpy(heap, use, fit);
+				heap[fit] = '\0';
+				use = heap;
+			}
+		}
 	}
-	n = (i32)ui_utf8_code_count(text);
-	ui_text_sync_props(ctx, node, text, n, n, n);
+	n = (i32)ui_utf8_code_count(use);
+	ui_text_sync_props(ctx, node, use, n, n, n);
+	if (heap != NULL) {
+		ctx->allocator->free(ctx->allocator->instance, heap);
+	}
 	return 0;
 }
 
@@ -3429,15 +4035,29 @@ i32 ui_text_input_set_selection_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i3
 }
 
 i32 ui_text_input_insert_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t utf8) {
-	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
 	const_chr_t text;
 	i32 sel_a = 0, sel_b = 0, caret = 0;
-	u32 b0, b1, ins_len, old_len, new_len;
+	u32 b0, ins_len, old_len, new_len, fit;
+	char filtered[2048];
 	char* buf;
 	const sk_allocator_t* a;
+	u32 flags = 0u;
+	i32 multiline = 0;
 	if (slot == NULL || utf8 == NULL || utf8[0] == '\0') {
 		return -1;
+	}
+	if (ui_text_is_readonly(ctx, node) != 0) {
+		return -1;
+	}
+	if (wd != NULL) {
+		flags = wd->input_flags;
+		multiline = (flags & SK_UI_INPUT_TEXT_FLAG_MULTILINE) != 0u ? 1 : 0;
+	}
+	ins_len = ui_text_filter_insert(utf8, flags, multiline, filtered, (u32)sizeof(filtered));
+	if (ins_len == 0u) {
+		return 0;
 	}
 	/* Delete selection first. */
 	(void)ui_prop_i32_const(slot, "sel_start", &sel_a);
@@ -3451,9 +4071,17 @@ i32 ui_text_input_insert_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr
 		text = "";
 	}
 	(void)ui_prop_i32_const(slot, "caret", &caret);
-	b0 = ui_utf8_byte_offset(text, (u32)caret);
-	ins_len = (u32)strlen(utf8);
 	old_len = (u32)strlen(text);
+	if (wd != NULL && wd->input_capacity > 0) {
+		u32 remain = (u32)wd->input_capacity > old_len ? (u32)wd->input_capacity - old_len : 0u;
+		fit = ui_utf8_fit_bytes(filtered, remain);
+		filtered[fit] = '\0';
+		ins_len = fit;
+		if (ins_len == 0u) {
+			return 0;
+		}
+	}
+	b0 = ui_utf8_byte_offset(text, (u32)caret);
 	new_len = old_len + ins_len;
 	a = ctx->allocator;
 	buf = (char*)a->alloc(a->instance, new_len + 1u);
@@ -3461,15 +4089,14 @@ i32 ui_text_input_insert_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr
 		return -1;
 	}
 	memcpy(buf, text, b0);
-	memcpy(buf + b0, utf8, ins_len);
+	memcpy(buf + b0, filtered, ins_len);
 	memcpy(buf + b0 + ins_len, text + b0, old_len - b0 + 1u);
 	{
-		i32 new_caret = caret + (i32)ui_utf8_code_count(utf8);
+		i32 new_caret = caret + (i32)ui_utf8_code_count(filtered);
 		ui_text_sync_props(ctx, node, buf, new_caret, new_caret, new_caret);
 	}
 	a->free(a->instance, buf);
-	(void)ui;
-	(void)b1;
+	ui_text_mark_edit(ctx, node, 0);
 	return 0;
 }
 
@@ -3481,6 +4108,9 @@ i32 ui_text_input_delete_selection_impl(sk_ui_context_t* ctx, sk_ui_node_t node)
 	char* buf;
 	const sk_allocator_t* a;
 	if (slot == NULL) {
+		return -1;
+	}
+	if (ui_text_is_readonly(ctx, node) != 0) {
 		return -1;
 	}
 	text = ui_prop_str_const(slot, "text");
@@ -3509,6 +4139,7 @@ i32 ui_text_input_delete_selection_impl(sk_ui_context_t* ctx, sk_ui_node_t node)
 	memcpy(buf + b0, text + b1, old_len - b1 + 1u);
 	ui_text_sync_props(ctx, node, buf, sel_a, sel_a, sel_a);
 	a->free(a->instance, buf);
+	ui_text_mark_edit(ctx, node, 0);
 	return 0;
 }
 
@@ -3517,8 +4148,9 @@ i32 ui_text_input_copy_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const_chr_t text;
 	i32 sel_a = 0, sel_b = 0;
 	u32 b0, b1;
-	char tmp[1024];
+	char* tmp;
 	u32 len;
+	i32 rc;
 	if (ctx->clipboard_set == NULL || slot == NULL) {
 		return -1;
 	}
@@ -3539,15 +4171,21 @@ i32 ui_text_input_copy_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	b0 = ui_utf8_byte_offset(text, (u32)sel_a);
 	b1 = ui_utf8_byte_offset(text, (u32)sel_b);
 	len = b1 - b0;
-	if (len >= sizeof(tmp)) {
-		len = (u32)sizeof(tmp) - 1u;
+	tmp = (char*)ctx->allocator->alloc(ctx->allocator->instance, len + 1u);
+	if (tmp == NULL) {
+		return -1;
 	}
 	memcpy(tmp, text + b0, len);
 	tmp[len] = '\0';
-	return ctx->clipboard_set(ctx->clipboard_user, tmp);
+	rc = ctx->clipboard_set(ctx->clipboard_user, tmp);
+	ctx->allocator->free(ctx->allocator->instance, tmp);
+	return rc;
 }
 
 i32 ui_text_input_cut_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	if (ui_text_is_readonly(ctx, node) != 0) {
+		return ui_text_input_copy_impl(ctx, node);
+	}
 	if (ui_text_input_copy_impl(ctx, node) != 0 && ctx->clipboard_set == NULL) {
 		/* No clipboard: still delete selection. */
 	}
@@ -3555,8 +4193,11 @@ i32 ui_text_input_cut_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
 }
 
 i32 ui_text_input_paste_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
-	char buf[1024];
+	char buf[4096];
 	u32 len = 0u;
+	if (ui_text_is_readonly(ctx, node) != 0) {
+		return -1;
+	}
 	if (ctx->clipboard_get == NULL) {
 		return -1;
 	}
@@ -3568,6 +4209,445 @@ i32 ui_text_input_paste_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	}
 	buf[len] = '\0';
 	return ui_text_input_insert_impl(ctx, node, buf);
+}
+
+sk_ui_node_t ui_widget_text_input_multiline_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, f32 width, f32 height, const_chr_t id) {
+	sk_ui_node_t n = ui_widget_text_input_impl(ctx, parent, text, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	ui_text_apply_flags(ctx, n, SK_UI_INPUT_TEXT_FLAG_MULTILINE);
+	(void)ui_text_input_set_size_impl(ctx, n, width, height);
+	return n;
+}
+
+sk_ui_node_t ui_widget_text_input_with_hint_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t hint, const_chr_t id) {
+	sk_ui_node_t n = ui_widget_text_input_impl(ctx, parent, text, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui_text_input_set_hint_impl(ctx, n, hint);
+	return n;
+}
+
+sk_ui_node_t ui_widget_search_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_text_input_with_hint_impl(ctx, parent, text, "Search", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_add_class(ctx, n, SK_UI_CLASS_TEXT_INPUT_SEARCH);
+	(void)ui->node_set_prop_str(ctx, n, "widget", "text_input");
+	(void)ui->node_set_prop_i32(ctx, n, "search", 1);
+	return n;
+}
+
+sk_ui_node_t ui_widget_text_input_readonly_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	sk_ui_node_t n = ui_widget_text_input_impl(ctx, parent, text, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	ui_text_apply_flags(ctx, n, SK_UI_INPUT_TEXT_FLAG_READ_ONLY);
+	return n;
+}
+
+sk_ui_node_t ui_widget_input_scalar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_input_data_type_t type, void_ptr_t data, const_chr_t id) {
+	char buf[64];
+	ui_widget_data_t* wd;
+	sk_ui_node_t n;
+	ui_text_format_scalar((i32)type, data, buf, (u32)sizeof(buf));
+	n = ui_widget_text_input_impl(ctx, parent, buf, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	ui_text_apply_flags(ctx, n, SK_UI_INPUT_TEXT_FLAG_CHARS_DECIMAL);
+	wd = ui_widget_data(ctx, n);
+	if (wd != NULL) {
+		wd->scalar_data = data;
+		wd->scalar_type = (i32)type;
+	}
+	return n;
+}
+
+sk_ui_node_t ui_widget_input_float_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id) {
+	return ui_widget_input_scalar_impl(ctx, parent, SK_UI_INPUT_DATA_F32, v, id);
+}
+
+sk_ui_node_t ui_widget_input_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32* v, const_chr_t id) {
+	return ui_widget_input_scalar_impl(ctx, parent, SK_UI_INPUT_DATA_S32, v, id);
+}
+
+sk_ui_node_t ui_widget_input_float3_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t row;
+	sk_ui_layout_style_t ls;
+	char cid[64];
+	i32 i;
+	row = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_VIEW, "input_float3", "ui-input-float3", id);
+	if (!sk_ui_node_is_valid(row)) {
+		return row;
+	}
+	ui_layout_style_init_default(&ls);
+	ls.flex_direction = SK_UI_FLEX_ROW;
+	ls.column_gap = 4.0f;
+	ls.align_items = SK_UI_ALIGN_CENTER;
+	(void)ui->node_set_layout_style(ctx, row, &ls);
+	for (i = 0; i < 3; ++i) {
+		sk_ui_node_t field;
+		sk_ui_style_props_t p;
+		if (id != NULL && id[0] != '\0') {
+			(void)snprintf(cid, sizeof(cid), "%s/%d", id, i);
+		} else {
+			(void)snprintf(cid, sizeof(cid), "f3-%d", i);
+		}
+		field = ui_widget_input_scalar_impl(ctx, row, SK_UI_INPUT_DATA_F32, v != NULL ? &v[i] : NULL, cid);
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_WIDTH;
+		p.layout.flex_grow = 1.0f;
+		p.layout.min_width = sk_ui_pt(32.0f);
+		(void)ui->node_merge_inline_style(ctx, field, &p);
+	}
+	return row;
+}
+
+i32 ui_text_input_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+	ui_text_apply_flags(ctx, node, flags);
+	return 0;
+}
+
+u32 ui_text_input_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return 0u;
+	}
+	return wd->input_flags;
+}
+
+i32 ui_text_input_set_hint_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t hint) {
+	const sk_ui_api_t* ui = ui_wapi();
+	i32 rc = ui->node_set_prop_str(ctx, node, "hint", hint != NULL ? hint : "");
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	return rc;
+}
+
+const_chr_t ui_text_input_get_hint_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t h;
+	if (slot == NULL) {
+		return "";
+	}
+	h = ui_prop_str_const(slot, "hint");
+	return h != NULL ? h : "";
+}
+
+i32 ui_text_input_set_readonly_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 readonly) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	u32 flags;
+	if (wd == NULL) {
+		return -1;
+	}
+	flags = wd->input_flags;
+	if (readonly != 0) {
+		flags |= SK_UI_INPUT_TEXT_FLAG_READ_ONLY;
+	} else {
+		flags &= ~SK_UI_INPUT_TEXT_FLAG_READ_ONLY;
+	}
+	ui_text_apply_flags(ctx, node, flags);
+	return 0;
+}
+
+i32 ui_text_input_get_readonly_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_text_is_readonly(ctx, node);
+}
+
+i32 ui_text_input_set_password_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 password) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	u32 flags;
+	if (wd == NULL) {
+		return -1;
+	}
+	flags = wd->input_flags;
+	if (password != 0) {
+		flags |= SK_UI_INPUT_TEXT_FLAG_PASSWORD;
+	} else {
+		flags &= ~SK_UI_INPUT_TEXT_FLAG_PASSWORD;
+	}
+	ui_text_apply_flags(ctx, node, flags);
+	return 0;
+}
+
+i32 ui_text_input_get_password_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return 0;
+	}
+	return (wd->input_flags & SK_UI_INPUT_TEXT_FLAG_PASSWORD) != 0u ? 1 : 0;
+}
+
+i32 ui_text_input_set_capacity_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 capacity) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	if (wd == NULL) {
+		return -1;
+	}
+	if (capacity < 0) {
+		capacity = 0;
+	}
+	wd->input_capacity = capacity;
+	if (capacity > 0) {
+		(void)ui_text_input_set_text_impl(ctx, node, ui_text_input_get_text_impl(ctx, node));
+	}
+	return 0;
+}
+
+i32 ui_text_input_get_capacity_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return 0;
+	}
+	return wd->input_capacity;
+}
+
+i32 ui_text_input_get_selection_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, i32* out_start, i32* out_end) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 a = 0;
+	i32 b = 0;
+	if (slot == NULL) {
+		return -1;
+	}
+	(void)ui_prop_i32_const(slot, "sel_start", &a);
+	(void)ui_prop_i32_const(slot, "sel_end", &b);
+	if (out_start != NULL) {
+		*out_start = a;
+	}
+	if (out_end != NULL) {
+		*out_end = b;
+	}
+	return 0;
+}
+
+i32 ui_text_input_set_error_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 show_error) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	u32 flags;
+	if (wd == NULL) {
+		return -1;
+	}
+	flags = wd->input_flags;
+	if (show_error != 0) {
+		flags |= SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR;
+	} else {
+		flags &= ~SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR;
+	}
+	ui_text_apply_flags(ctx, node, flags);
+	return 0;
+}
+
+i32 ui_text_input_get_error_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return 0;
+	}
+	return (wd->input_flags & SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR) != 0u ? 1 : 0;
+}
+
+i32 ui_text_input_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height) {
+	return ui_button_set_size_impl(ctx, node, width, height);
+}
+
+i32 ui_text_input_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	return ui_widget_set_disabled(ctx, node, disabled);
+}
+
+i32 ui_text_input_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_text_changed;
+	wd->edge_text_changed = 0;
+	return v;
+}
+
+i32 ui_text_input_committed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_text_committed;
+	wd->edge_text_committed = 0;
+	return v;
+}
+
+i32 ui_text_input_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_text_fn fn, void_ptr_t user) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TEXT_INPUT);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->on_text = fn;
+	wd->cb_user = user;
+	return 0;
+}
+
+static i32 ui_text_ci_contains(const_chr_t hay, const_chr_t needle, u32 nlen) {
+	u32 i;
+	u32 hlen;
+	if (hay == NULL) {
+		hay = "";
+	}
+	if (needle == NULL || nlen == 0u) {
+		return 1;
+	}
+	hlen = (u32)strlen(hay);
+	if (nlen > hlen) {
+		return 0;
+	}
+	for (i = 0u; i + nlen <= hlen; ++i) {
+		u32 k;
+		i32 ok = 1;
+		for (k = 0u; k < nlen; ++k) {
+			unsigned char a = (unsigned char)hay[i + k];
+			unsigned char b = (unsigned char)needle[k];
+			if (a >= 'A' && a <= 'Z') {
+				a = (unsigned char)(a - 'A' + 'a');
+			}
+			if (b >= 'A' && b <= 'Z') {
+				b = (unsigned char)(b - 'A' + 'a');
+			}
+			if (a != b) {
+				ok = 0;
+				break;
+			}
+		}
+		if (ok != 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+i32 ui_text_filter_pass_impl(const_chr_t filter, const_chr_t text) {
+	const_chr_t p;
+	i32 has_include = 0;
+	i32 include_hit = 0;
+	if (filter == NULL || filter[0] == '\0') {
+		return 1;
+	}
+	if (text == NULL) {
+		text = "";
+	}
+	p = filter;
+	while (*p != '\0') {
+		const_chr_t start;
+		u32 n;
+		i32 exclude;
+		while (*p == ' ' || *p == '\t' || *p == ',') {
+			p += 1;
+		}
+		if (*p == '\0') {
+			break;
+		}
+		exclude = 0;
+		if (*p == '-') {
+			exclude = 1;
+			p += 1;
+		}
+		start = p;
+		while (*p != '\0' && *p != ',') {
+			p += 1;
+		}
+		n = (u32)(p - start);
+		while (n > 0u && (start[n - 1u] == ' ' || start[n - 1u] == '\t')) {
+			n -= 1u;
+		}
+		if (n == 0u) {
+			continue;
+		}
+		if (exclude != 0) {
+			if (ui_text_ci_contains(text, start, n) != 0) {
+				return 0;
+			}
+		} else {
+			has_include = 1;
+			if (ui_text_ci_contains(text, start, n) != 0) {
+				include_hit = 1;
+			}
+		}
+	}
+	if (has_include != 0 && include_hit == 0) {
+		return 0;
+	}
+	return 1;
+}
+
+i32 ui_input_scalar_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const void* p_min, const void* p_max) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	if (wd == NULL) {
+		return -1;
+	}
+	if (p_min == NULL || p_max == NULL) {
+		wd->scalar_has_range = 0;
+		return 0;
+	}
+	wd->scalar_min = ui_text_read_scalar_f64(wd->scalar_type, p_min);
+	wd->scalar_max = ui_text_read_scalar_f64(wd->scalar_type, p_max);
+	wd->scalar_has_range = 1;
+	return 0;
+}
+
+i32 ui_input_scalar_apply_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_text_commit_scalar(ctx, node);
+	return 0;
+}
+
+i32 ui_input_float3_component_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_field) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (index < 0 || index > 2 || out_field == NULL) {
+		return -1;
+	}
+	*out_field = ui->node_child_at(ctx, row, (u32)index);
+	if (!sk_ui_node_is_valid(*out_field)) {
+		return -1;
+	}
+	return 0;
+}
+
+void ui_text_input_sync_all(sk_ui_context_t* ctx) {
+	u32 i;
+	if (ctx == NULL) {
+		return;
+	}
+	for (i = 1u; i < ctx->slots.count; ++i) {
+		ui_node_slot_t* slot = &ctx->slots.items[i];
+		ui_widget_data_t* wd;
+		sk_ui_node_t node;
+		sk_ui_node_t focus;
+		char buf[64];
+		if (slot->alive == 0u || slot->user_data == NULL) {
+			continue;
+		}
+		if (!SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_WIDGET_DATA_TYPE_ID)) {
+			continue;
+		}
+		wd = (ui_widget_data_t*)slot->user_data;
+		if (wd->kind != UI_WD_TEXT_INPUT || wd->scalar_data == NULL) {
+			continue;
+		}
+		node.index = i;
+		node.generation = slot->generation;
+		focus = ui_wapi()->focus_get(ctx);
+		if (sk_ui_node_eq(focus, node)) {
+			continue;
+		}
+		ui_text_format_scalar(wd->scalar_type, wd->scalar_data, buf, (u32)sizeof(buf));
+		{
+			const_chr_t cur = ui_text_input_get_text_impl(ctx, node);
+			if (cur != NULL && strcmp(cur, buf) == 0) {
+				continue;
+			}
+		}
+		(void)ui_text_input_set_text_impl(ctx, node, buf);
+	}
 }
 
 sk_ui_node_t ui_scroll_view_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t scroll_view) {
@@ -4950,6 +6030,249 @@ SK_TEST(ui_widget_text_input_edit_ops) {
 	ev.down = 1;
 	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
 	TEST_ASSERT_EQUAL_STRING("H", ui->text_input_get_text(ctx, ti));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_input_family_buffer_edit_selection) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t ti;
+	sk_ui_node_t grow;
+	i32 a = 0;
+	i32 b = 0;
+	char long_src[80];
+	u32 i;
+
+	g_clip_len = 0;
+	g_clip_buf[0] = '\0';
+	ui->set_clipboard_fns(ctx, test_clip_get, test_clip_set, NULL);
+
+	ti = ui->widget_text_input(ctx, root, "abcdef", "ti-cap");
+	wtest_set_size(ui, ctx, ti, 160.0f, 28.0f);
+	wtest_layout(ui, ctx, 200.0f, 60.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_capacity(ctx, ti, 8));
+	TEST_ASSERT_EQUAL_INT(8, ui->text_input_get_capacity(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "abcdefghijklmnop"));
+	TEST_ASSERT_EQUAL_STRING("abcdefgh", ui->text_input_get_text(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "ab"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ti, 2, 2));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, ti, "XYZXYZ"));
+	TEST_ASSERT_EQUAL_STRING("abXYZXYZ", ui->text_input_get_text(ctx, ti));
+	/* UTF-8: 2-byte é must not split. capacity 5 → "ab" + "é" + "x" = 5. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_capacity(ctx, ti, 5));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "ab"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, ti, "\xc3\xa9xy"));
+	TEST_ASSERT_EQUAL_STRING("ab\xc3\xa9x", ui->text_input_get_text(ctx, ti));
+
+	/* Unbounded grow (CallbackResize): no 256-char cap. */
+	grow = ui->widget_text_input(ctx, root, "", "ti-grow");
+	memset(long_src, 'a', sizeof(long_src) - 1u);
+	long_src[sizeof(long_src) - 1u] = '\0';
+	for (i = 0u; i < 6u; ++i) {
+		TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, grow, long_src));
+	}
+	TEST_ASSERT_EQUAL_UINT((u32)(6u * (sizeof(long_src) - 1u)), (u32)strlen(ui->text_input_get_text(ctx, grow)));
+
+	/* Cursor / selection / clipboard. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_capacity(ctx, ti, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "hello"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ti, 1, 4)); /* ell */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_get_selection(ctx, ti, &a, &b));
+	TEST_ASSERT_EQUAL_INT(1, a);
+	TEST_ASSERT_EQUAL_INT(4, b);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_copy(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("ell", g_clip_buf);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_delete_selection(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("ho", ui->text_input_get_text(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_paste(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("hello", ui->text_input_get_text(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ti, 0, 5));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_cut(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("", ui->text_input_get_text(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_paste(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("hello", ui->text_input_get_text(ctx, ti));
+
+	/* UTF-8 caret is in codepoints, not bytes. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "h\xc3\xa9"));
+	TEST_ASSERT_EQUAL_INT(2, ui->text_input_get_caret(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ti, 1, 2));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_delete_selection(ctx, ti));
+	TEST_ASSERT_EQUAL_STRING("h", ui->text_input_get_text(ctx, ti));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_input_family_flags_commit_revert) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t ti;
+	sk_ui_node_t ro;
+	sk_ui_node_t pw;
+	sk_ui_node_t hint;
+	sk_ui_node_t ml;
+	sk_ui_input_event_t ev;
+
+	g_clip_len = 0;
+	g_clip_buf[0] = '\0';
+	ui->set_clipboard_fns(ctx, test_clip_get, test_clip_set, NULL);
+
+	ti = ui->widget_text_input(ctx, root, "Name", "ti-flags");
+	wtest_set_size(ui, ctx, ti, 160.0f, 28.0f);
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_flags(ctx, ti, SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE | SK_UI_INPUT_TEXT_FLAG_AUTO_SELECT_ALL));
+	TEST_ASSERT_TRUE((ui->text_input_get_flags(ctx, ti) & SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE) != 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->focus_set(ctx, ti));
+	{
+		i32 a = 0;
+		i32 b = 0;
+		TEST_ASSERT_EQUAL_INT(0, ui->text_input_get_selection(ctx, ti, &a, &b));
+		TEST_ASSERT_EQUAL_INT(0, a);
+		TEST_ASSERT_EQUAL_INT(4, b);
+	}
+	/* Live edit with EnterReturnsTrue: text updates, changed stays 0. */
+	(void)ui->text_input_changed(ctx, ti);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, ti, "X"));
+	TEST_ASSERT_EQUAL_STRING("X", ui->text_input_get_text(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_changed(ctx, ti));
+	/* Enter commits and returns true. */
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_KEY;
+	ev.key = SK_UI_KEY_ENTER;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_input_changed(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_input_committed(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_changed(ctx, ti));
+
+	/* Escape restores the snapshot from focus-in. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_flags(ctx, ti, SK_UI_INPUT_TEXT_FLAG_NONE));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "keep"));
+	TEST_ASSERT_EQUAL_INT(0, ui->focus_set(ctx, ti));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ti, "keep"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ti, 4, 4));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, ti, "x"));
+	TEST_ASSERT_EQUAL_STRING("keepx", ui->text_input_get_text(ctx, ti));
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_KEY;
+	ev.key = SK_UI_KEY_ESCAPE;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_STRING("keep", ui->text_input_get_text(ctx, ti));
+
+	/* Read-only: focusable, no mutate, copy still works. */
+	ro = ui->widget_text_input_readonly(ctx, root, "uuid-1234", "ti-ro");
+	wtest_set_size(ui, ctx, ro, 160.0f, 28.0f);
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->text_input_get_readonly(ctx, ro));
+	TEST_ASSERT_EQUAL_INT(0, ui->focus_set(ctx, ro));
+	TEST_ASSERT_TRUE(ui->text_input_insert(ctx, ro, "x") != 0);
+	TEST_ASSERT_EQUAL_STRING("uuid-1234", ui->text_input_get_text(ctx, ro));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_selection(ctx, ro, 0, 4));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_copy(ctx, ro));
+	TEST_ASSERT_EQUAL_STRING("uuid", g_clip_buf);
+
+	/* Password stores the real string. */
+	pw = ui->widget_text_input(ctx, root, "secret", "ti-pw");
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_password(ctx, pw, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_input_get_password(ctx, pw));
+	TEST_ASSERT_EQUAL_STRING("secret", ui->text_input_get_text(ctx, pw));
+
+	/* Hint + search + error chrome. */
+	hint = ui->widget_text_input_with_hint(ctx, root, "", "Search", "ti-hint");
+	TEST_ASSERT_EQUAL_STRING("Search", ui->text_input_get_hint(ctx, hint));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_error(ctx, hint, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_input_get_error(ctx, hint));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, hint, SK_UI_CLASS_TEXT_INPUT_ERROR));
+
+	ml = ui->widget_text_input_multiline(ctx, root, "line1\nline2\nline3", 120.0f, 48.0f, "ti-ml");
+	TEST_ASSERT_TRUE((ui->text_input_get_flags(ctx, ml) & SK_UI_INPUT_TEXT_FLAG_MULTILINE) != 0u);
+	TEST_ASSERT_EQUAL_STRING("line1\nline2\nline3", ui->text_input_get_text(ctx, ml));
+	TEST_ASSERT_EQUAL_INT(0, ui->focus_set(ctx, ml));
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_KEY;
+	ev.key = SK_UI_KEY_ENTER;
+	ev.down = 1;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_TRUE(strstr(ui->text_input_get_text(ctx, ml), "\n\n") != NULL || strlen(ui->text_input_get_text(ctx, ml)) > 17u);
+
+	/* Filter helper. */
+	TEST_ASSERT_EQUAL_INT(1, ui->text_filter_pass("", "anything"));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_filter_pass("ent", "Entity_01"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_filter_pass("zzz", "Entity_01"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_filter_pass("-cam,ent", "Camera"));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_filter_pass("-cam,ent", "Entity"));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_input_family_numeric_parse_clamp) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t fi;
+	sk_ui_node_t ii;
+	sk_ui_node_t sc;
+	sk_ui_node_t f3;
+	sk_ui_node_t c0;
+	sk_ui_node_t c1;
+	sk_ui_node_t c2;
+	f32 fv = 1.5f;
+	i32 iv = 4;
+	u32 uv = 7u;
+	f32 vmin = 0.0f;
+	f32 vmax = 10.0f;
+	f32 vec[3] = {1.0f, 2.0f, 3.0f};
+
+	fi = ui->widget_input_float(ctx, root, &fv, "in-f");
+	wtest_set_size(ui, ctx, fi, 80.0f, 24.0f);
+	TEST_ASSERT_EQUAL_STRING("1.500", ui->text_input_get_text(ctx, fi));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, fi, "8.25"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, fi));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 8.25f, fv);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_set_range(ctx, fi, &vmin, &vmax));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, fi, "99"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, fi));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f, fv);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, fi, "-3"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, fi));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, fv);
+
+	/* CharsDecimal rejects letters. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, fi, ""));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_insert(ctx, fi, "12ab.3"));
+	TEST_ASSERT_EQUAL_STRING("12.3", ui->text_input_get_text(ctx, fi));
+
+	ii = ui->widget_input_int(ctx, root, &iv, "in-i");
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, ii, "42"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, ii));
+	TEST_ASSERT_EQUAL_INT(42, iv);
+
+	sc = ui->widget_input_scalar(ctx, root, SK_UI_INPUT_DATA_U32, &uv, "in-u");
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, sc, "9"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, sc));
+	TEST_ASSERT_EQUAL_UINT(9u, uv);
+
+	f3 = ui->widget_input_float3(ctx, root, vec, "in-f3");
+	TEST_ASSERT_EQUAL_INT(0, ui->input_float3_component(ctx, f3, 0, &c0));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_float3_component(ctx, f3, 1, &c1));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_float3_component(ctx, f3, 2, &c2));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, c0, "4"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, c1, "5"));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, c2, "6"));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, c0));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, c1));
+	TEST_ASSERT_EQUAL_INT(0, ui->input_scalar_apply(ctx, c2));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.0f, vec[0]);
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.0f, vec[1]);
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 6.0f, vec[2]);
+
+	/* External mutation is pulled when not focused. */
+	fv = 3.0f;
+	wtest_layout(ui, ctx, 240.0f, 120.0f);
+	TEST_ASSERT_EQUAL_STRING("3.000", ui->text_input_get_text(ctx, fi));
+
 	ui->context_destroy(ctx);
 }
 

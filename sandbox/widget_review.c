@@ -382,6 +382,107 @@ static i32 sandbox_widget_build_radio_group(const sandbox_widget_host_t* host, s
 	return 0;
 }
 
+static void sandbox_ti_size(const sandbox_widget_host_t* host, sk_ui_node_t n, f32 w, f32 h) {
+	(void)host->ui->text_input_set_size(host->ctx, n, w, h);
+}
+
+static i32 sandbox_widget_build_text_input(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* EntityTree inline rename / string property: filled single-line field. */
+	n = ui->widget_text_input(host->ctx, root, "Entity_01", "review-text-input");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_input failed\n");
+		return -1;
+	}
+	sandbox_ti_size(host, n, 240.0f, 28.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_input_hint(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* ImGuiSearchInputText: magnifier + "Search" placeholder when empty. */
+	n = ui->widget_search_input(host->ctx, root, "", "review-text-input-hint");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_search_input failed\n");
+		return -1;
+	}
+	sandbox_ti_size(host, n, 240.0f, 28.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_input_selection(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	n = ui->widget_text_input(host->ctx, root, "Hello World", "review-text-input-sel");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_input (selection) failed\n");
+		return -1;
+	}
+	sandbox_ti_size(host, n, 240.0f, 28.0f);
+	(void)ui->focus_set(host->ctx, n);
+	(void)ui->text_input_set_selection(host->ctx, n, 0, 5);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_input_multiline(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+	const_chr_t src = "// generated HLSL\n"
+					  "float4 main(float2 uv : TEXCOORD0) : SV_Target {\n"
+					  "    float3 n = float3(0, 1, 0);\n"
+					  "    float ndotl = saturate(dot(n, float3(0.4, 0.8, 0.2)));\n"
+					  "    return float4(ndotl, ndotl, ndotl, 1);\n"
+					  "    // extra lines force a vertical scrollbar\n"
+					  "    // line 7\n"
+					  "    // line 8\n"
+					  "    // line 9\n"
+					  "    // line 10\n"
+					  "}";
+
+	sandbox_widget_style_stage(host);
+	/* Properties / shader log: InputTextMultiline with overflow scroll. */
+	n = ui->widget_text_input_multiline(host->ctx, root, src, 320.0f, 120.0f, "review-text-input-ml");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_input_multiline failed\n");
+		return -1;
+	}
+	(void)ui->node_set_prop_f32(host->ctx, n, "scroll_y", 36.0f);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_input_readonly(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* ImGuiInputTextReadOnly: UUID / path, still focusable. */
+	n = ui->widget_text_input_readonly(host->ctx, root, "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "review-text-input-ro");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_input_readonly failed\n");
+		return -1;
+	}
+	sandbox_ti_size(host, n, 320.0f, 28.0f);
+	*out_target = n;
+	return 0;
+}
+
 static i32 sandbox_widget_build_separator_text(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
 	const sk_ui_api_t* ui = host->ui;
 	sk_ui_node_t root = ui->context_root(host->ctx);
@@ -414,7 +515,12 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"checkbox", NULL, "§4 Checkbox", SANDBOX_WS_BITS_CHECKBOX, 320u, 96u, sandbox_widget_build_checkbox},
 	{"radio", NULL, "§4 RadioButton", SANDBOX_WS_BITS_RADIO, 320u, 96u, sandbox_widget_build_radio},
 	{"radio_group", "radiogroup", "§4 Radio group", SANDBOX_WS_BIT_DEFAULT, 320u, 160u, sandbox_widget_build_radio_group},
-	{"text_input", "input", "§5 InputText", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
+	{"text_input", "input", "§5 InputText", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, sandbox_widget_build_text_input},
+	{"text_input_hint", "inputhint", "§5 InputText hint / Search", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_FOCUSED, 384u, 96u, sandbox_widget_build_text_input_hint},
+	{"text_input_selection", "inputsel", "§5 InputText selection", SANDBOX_WS_BIT_FOCUSED, 384u, 96u, sandbox_widget_build_text_input_selection},
+	{"text_input_multiline", "inputml", "§5 InputTextMultiline", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_FOCUSED, 400u, 180u, sandbox_widget_build_text_input_multiline},
+	{"text_input_readonly", "inputro", "§5 InputText ReadOnly", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_FOCUSED | SANDBOX_WS_BIT_DISABLED, 400u, 96u,
+	 sandbox_widget_build_text_input_readonly},
 	{"slider", NULL, "§6 Slider / Drag", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
 	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
 	{"tree", NULL, "§8 TreeNode / CollapsingHeader", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u, NULL},
@@ -477,6 +583,8 @@ void sandbox_widget_list(void) {
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");
 	printf("         separatortext=separator_text radiogroup=radio_group\n");
+	printf("         inputhint=text_input_hint inputsel=text_input_selection\n");
+	printf("         inputml=text_input_multiline inputro=text_input_readonly\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -516,6 +624,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	/* Clear leftover disabled on the node + label child from a prior frame. */
 	(void)ui->checkbox_set_disabled(host->ctx, node, 0);
 	(void)ui->radio_set_disabled(host->ctx, node, 0);
+	(void)ui->text_input_set_disabled(host->ctx, node, 0);
 	switch (st) {
 	case SANDBOX_WS_DEFAULT:
 		return 0;
@@ -526,6 +635,7 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 	case SANDBOX_WS_DISABLED:
 		(void)ui->checkbox_set_disabled(host->ctx, node, 1);
 		(void)ui->radio_set_disabled(host->ctx, node, 1);
+		(void)ui->text_input_set_disabled(host->ctx, node, 1);
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_DISABLED);
 	case SANDBOX_WS_FOCUSED:
 		if (ui->focus_set(host->ctx, node) == 0) {

@@ -663,6 +663,40 @@ i32 ui_text_input_copy_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_text_input_cut_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_text_input_paste_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
 
+sk_ui_node_t ui_widget_text_input_multiline_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, f32 width, f32 height, const_chr_t id);
+sk_ui_node_t ui_widget_text_input_with_hint_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t hint, const_chr_t id);
+sk_ui_node_t ui_widget_search_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_text_input_readonly_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_input_scalar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_input_data_type_t type, void_ptr_t data, const_chr_t id);
+sk_ui_node_t ui_widget_input_float_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+sk_ui_node_t ui_widget_input_int_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32* v, const_chr_t id);
+sk_ui_node_t ui_widget_input_float3_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+i32 ui_text_input_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+u32 ui_text_input_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_hint_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t hint);
+const_chr_t ui_text_input_get_hint_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_readonly_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 readonly);
+i32 ui_text_input_get_readonly_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_password_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 password);
+i32 ui_text_input_get_password_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_capacity_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 capacity);
+i32 ui_text_input_get_capacity_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_get_selection_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, i32* out_start, i32* out_end);
+i32 ui_text_input_set_error_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 show_error);
+i32 ui_text_input_get_error_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+i32 ui_text_input_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_text_input_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_committed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_text_fn fn, void_ptr_t user);
+i32 ui_text_filter_pass_impl(const_chr_t filter, const_chr_t text);
+i32 ui_input_scalar_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const void* p_min, const void* p_max);
+i32 ui_input_scalar_apply_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_input_float3_component_impl(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_field);
+
+/** Pull bound InputScalar pointers when the field is not focused (style_resolve). */
+void ui_text_input_sync_all(sk_ui_context_t* ctx);
+
 sk_ui_node_t ui_scroll_view_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t scroll_view);
 i32 ui_scroll_view_set_scroll_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 scroll_x, f32 scroll_y);
 i32 ui_scroll_view_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_x, f32* out_y);

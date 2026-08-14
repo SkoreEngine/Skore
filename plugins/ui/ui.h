@@ -792,10 +792,35 @@ typedef i32 (*sk_ui_clipboard_set_fn)(void_ptr_t user, const_chr_t text);
 #define SK_UI_ARROW_UP 2
 #define SK_UI_ARROW_DOWN 3
 
+/**
+ * InputText flags (ImGuiInputTextFlags + editor extra ShowError).
+ * READ_ONLY stays focusable (blue focus rect). ENTER_RETURNS_TRUE makes
+ * text_input_changed fire on Enter rather than every live edit.
+ */
+#define SK_UI_INPUT_TEXT_FLAG_NONE 0u
+#define SK_UI_INPUT_TEXT_FLAG_READ_ONLY (1u << 0)
+#define SK_UI_INPUT_TEXT_FLAG_PASSWORD (1u << 1)
+#define SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE (1u << 2)
+#define SK_UI_INPUT_TEXT_FLAG_AUTO_SELECT_ALL (1u << 3)
+#define SK_UI_INPUT_TEXT_FLAG_CHARS_DECIMAL (1u << 4)
+#define SK_UI_INPUT_TEXT_FLAG_MULTILINE (1u << 5)
+#define SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR (1u << 6)
+
+/** InputScalar data types the editor actually binds (FieldRenderers). */
+typedef enum sk_ui_input_data_type_t {
+	SK_UI_INPUT_DATA_S32 = 0,
+	SK_UI_INPUT_DATA_U32 = 1,
+	SK_UI_INPUT_DATA_U64 = 2,
+	SK_UI_INPUT_DATA_F32 = 3,
+	SK_UI_INPUT_DATA_F64 = 4,
+} sk_ui_input_data_type_t;
+
 /** Widget bool change (checkbox). */
 typedef void (*sk_ui_widget_bool_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value, void_ptr_t user);
 /** Widget float change (slider). */
 typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user);
+/** Widget text change (InputText live edit / commit). */
+typedef void (*sk_ui_widget_text_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text, void_ptr_t user);
 /**
  * Item-array interaction (activate a row, toggle expand).
  * @p host is the bound widget; @p item_id is the stable caller id.
@@ -823,6 +848,8 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
 #define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
+#define SK_UI_CLASS_TEXT_INPUT_ERROR "ui-text-input-error"
+#define SK_UI_CLASS_TEXT_INPUT_SEARCH "ui-text-input-search"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
 /** Menu surfaces (APX-234): bar, items, floating popups / dropdowns / context. */
@@ -2369,7 +2396,7 @@ typedef struct sk_ui_api_t {
 	 */
 	sk_ui_node_t (*widget_progress)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id);
 
-	/** Single-line text field with caret/selection editing. */
+	/** Single-line text field with caret/selection editing (InputText). */
 	sk_ui_node_t (*widget_text_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 
 	/** Clipped scroll container with wheel/drag scrolling and painted scrollbars. */
@@ -3508,6 +3535,86 @@ typedef struct sk_ui_api_t {
 	/** Edge-triggered: 1 once after this radio becomes selected by a click. */
 	i32 (*radio_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
 	i32 (*radio_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/* ---- InputText family (APX-342; editor InputText / Multiline / Search /
+	 * ReadOnly / InputFloat / InputFloat3 / InputScalar) ---- */
+
+	/**
+	 * Multi-line InputText. Zero on a size axis is auto. Enter inserts a
+	 * newline unless ENTER_RETURNS_TRUE is set.
+	 */
+	sk_ui_node_t (*widget_text_input_multiline)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, f32 width, f32 height, const_chr_t id);
+
+	/** Single-line field with a dimmed placeholder when empty (InputTextWithHint). */
+	sk_ui_node_t (*widget_text_input_with_hint)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t hint, const_chr_t id);
+
+	/**
+	 * Browser / tree search bar: magnifier + "Search" placeholder.
+	 * Same model as widget_text_input.
+	 */
+	sk_ui_node_t (*widget_search_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Read-only field (UUID / path / entity id). Still focusable. */
+	sk_ui_node_t (*widget_text_input_readonly)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** InputScalar: typed numeric text bound to caller storage. */
+	sk_ui_node_t (*widget_input_scalar)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_input_data_type_t type, void_ptr_t data, const_chr_t id);
+
+	/** InputFloat: widget_input_scalar(F32, v). */
+	sk_ui_node_t (*widget_input_float)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+
+	/** InputInt: widget_input_scalar(S32, v). */
+	sk_ui_node_t (*widget_input_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32* v, const_chr_t id);
+
+	/**
+	 * InputFloat3: horizontal row of three F32 scalars bound to v[0..2].
+	 * Returns the row; children via input_float3_component.
+	 */
+	sk_ui_node_t (*widget_input_float3)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+
+	i32 (*text_input_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*text_input_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_hint)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t hint);
+	const_chr_t (*text_input_get_hint)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_readonly)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 readonly);
+	i32 (*text_input_get_readonly)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_password)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 password);
+	i32 (*text_input_get_password)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Max UTF-8 bytes excluding the NUL. 0 = unbounded grow (CallbackResize).
+	 * Insert / set_text truncate on a codepoint boundary.
+	 */
+	i32 (*text_input_set_capacity)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 capacity);
+	i32 (*text_input_get_capacity)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_get_selection)(const sk_ui_context_t* ctx, sk_ui_node_t node, i32* out_start, i32* out_end);
+	i32 (*text_input_set_error)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 show_error);
+	i32 (*text_input_get_error)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+	i32 (*text_input_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	/**
+	 * Edge-triggered live-edit return (ImGui InputText). Consume-on-read.
+	 * With ENTER_RETURNS_TRUE this is 1 only on Enter, not on each keystroke.
+	 */
+	i32 (*text_input_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Edge-triggered commit (Enter, or deactivate-after-edit). Consume-on-read.
+	 */
+	i32 (*text_input_committed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_text_fn fn, void_ptr_t user);
+
+	/**
+	 * ImGuiTextFilter::PassFilter: empty filter passes; comma-separated
+	 * tokens; a leading '-' excludes; otherwise at least one inclusion
+	 * token must match (case-insensitive substring).
+	 */
+	i32 (*text_filter_pass)(const_chr_t filter, const_chr_t text);
+
+	/** Optional min/max clamp applied when a scalar field commits. NULL = clear. */
+	i32 (*input_scalar_set_range)(sk_ui_context_t* ctx, sk_ui_node_t node, const void* p_min, const void* p_max);
+	/** Parse the current text into the bound scalar (used by tests / commit). */
+	i32 (*input_scalar_apply)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Child field of an InputFloat3 row (index 0..2). */
+	i32 (*input_float3_component)(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_field);
 } sk_ui_api_t;
 
 #ifdef __cplusplus
