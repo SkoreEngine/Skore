@@ -355,15 +355,18 @@ Any task that changes what pixels come out: UI widgets, docking, layout→paint,
 
 **What to do**
 
-1. Add or update a sandbox `.c` under `sandbox/` following `sandbox/dock_preview_sandbox.c` (reuse `sk-sandbox` when the same scene still applies; otherwise add another host in `sandbox/` with the same pattern).
+1. Add or update a sandbox `.c` under `sandbox/` following `sandbox/dock_preview_sandbox.c` (reuse `sk-sandbox` when the same scene still applies; otherwise add another host in `sandbox/` with the same pattern). Widget families go through `--widget` in `sandbox/widget_review.c` — see `docs/widget-lavapipe-png-review.md`.
 2. Boot like a real app: `sk_app_init` → plugin APIs via `get_api` → `capture_create` (offscreen RGBA8 texture, no window) → build the scene → `paint` → `capture_frame` → `cpu_image_write_png`.
 3. Build the **engine** tree and run from that `bin/` (so `{app_folder}/plugins` resolves):
    ```bash
-   cmake --build cmake-build-debug --target sk-sandbox
-   cd cmake-build-debug/bin && ./sk-sandbox [--out dock_preview.png]
+   cmake --build build --target sk-sandbox
+   export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+   export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
+   (cd build/bin && ./sk-sandbox --widget button --out ../widget-review)
    ```
+   Dock drop-preview (no `--widget`): `(cd build/bin && ./sk-sandbox --out dock_preview.png)`.
    On Windows: `skore\cmake-build-debug\bin\sk-sandbox.exe`.
-4. **Open and read the PNG.** Exit code 0 is not a visual check. Compare the frame to the intended layout/colors/preview. Report what is right and what is wrong. If it is wrong, fix and recapture in the same session.
+4. **Open and read the PNG.** Exit code 0 is not a visual check. Compare the frame to the intended layout/colors/preview. Report what is right and what is wrong. If it is wrong, fix and recapture in the same session. Never shell out to grok or another LLM to grade the image.
 
 **Do / don’t**
 

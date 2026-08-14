@@ -1,10 +1,11 @@
-/* Headless host: render the sk-player docking drop preview to an offscreen
- * GPU texture and write a PNG. Same dock demo as `sk-player --dock-demo`.
+/* Headless host: offscreen GPU capture to PNG.
+ *
+ * Default scene: sk-player docking drop preview (same as `sk-player --dock-demo`).
+ * Widget review: `--widget <name> --out <dir>` writes `{name}_{state}.png`
+ * (see docs/widget-lavapipe-png-review.md). Not a test; not registered with CTest.
  *
  * Usage:
- *   sk-sandbox [--out <png>] [--help]
- *
- * Default output: dock_preview.png in the current working directory.
+ *   sk-sandbox [--widget <name>] [--state <name>] [--out <path>] [--list] [--help]
  */
 
 #include "app.h"
@@ -13,6 +14,7 @@
 #include "path.h"
 #include "render_device.h"
 #include "ui.h"
+#include "widget_review.h"
 
 #include "skore_test_font_ttf.h"
 
@@ -24,6 +26,7 @@
 #define SANDBOX_TAB "dock-demo-hierarchy-dock-tab"
 #define SANDBOX_PREVIEW "dock-demo-drop-preview"
 #define SANDBOX_DEFAULT_PNG "dock_preview.png"
+#define SANDBOX_DEFAULT_WIDGET_DIR "widget-review"
 
 typedef struct sandbox_t {
 	const sk_app_api_t* app_api;
@@ -64,9 +67,14 @@ static const_chr_t sandbox_arg_value(int argc, char* argv[], const_chr_t flag) {
 
 static void sandbox_usage(const_chr_t prog) {
 	fprintf(stderr,
-			"usage: %s [--out <png>] [--help]\n"
-			"  --out   PNG path (default: ./%s)\n"
-			"  --help  this message\n",
+			"usage: %s [--widget <name>] [--state <name>] [--out <path>] [--list] [--help]\n"
+			"  --widget  manifest family (button, text, checkbox, …); omit for dock preview\n"
+			"  --state   default|hovered|pressed|disabled|focused|all (widget mode only)\n"
+			"  --out     dock: PNG file (default: ./%s)\n"
+			"            --widget: output directory (default: ./widget-review)\n"
+			"  --list    print widget names and states; no GPU\n"
+			"  --help    this message\n"
+			"Recipe: docs/widget-lavapipe-png-review.md\n",
 			prog, SANDBOX_DEFAULT_PNG);
 }
 
@@ -284,7 +292,7 @@ static void sandbox_shutdown(sandbox_t* s) {
 	}
 }
 
-static i32 sandbox_init(sandbox_t* s, int argc, char* argv[]) {
+static i32 sandbox_init(sandbox_t* s, int argc, char* argv[], u32 width, u32 height) {
 	sk_app_boot_t boot;
 	sk_adapter_t adapter;
 	sk_ui_capture_desc_t cdesc;
@@ -330,8 +338,8 @@ static i32 sandbox_init(sandbox_t* s, int argc, char* argv[]) {
 	cdesc.device_api = s->rd;
 	cdesc.device = s->device;
 	cdesc.dxc = s->dxc;
-	cdesc.width = SANDBOX_W;
-	cdesc.height = SANDBOX_H;
+	cdesc.width = width;
+	cdesc.height = height;
 	cdesc.clear_color.color.r = 0.05f;
 	cdesc.clear_color.color.g = 0.06f;
 	cdesc.clear_color.color.b = 0.08f;
@@ -358,40 +366,106 @@ static i32 sandbox_init(sandbox_t* s, int argc, char* argv[]) {
 	return 0;
 }
 
-static i32 sandbox_resolve_out(sandbox_t* s, const_chr_t requested, char* out, u32 out_cap) {
+static i32 sandbox_path_is_absolute(const_chr_t path) {
+	if (path == NULL || path[0] == '\0') {
+		return 0;
+	}
+	if (path[0] == '/' || path[0] == '\\') {
+		return 1;
+	}
+	if (path[1] == ':' && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))) {
+		return 1;
+	}
+	return 0;
+}
+
+static i32 sandbox_resolve_path(sandbox_t* s, const_chr_t requested, const_chr_t fallback, char* out, u32 out_cap) {
 	char cwd[SK_FS_PATH_MAX];
-	if (requested != NULL && requested[0] != '\0') {
-		if (snprintf(out, out_cap, "%s", requested) < 0 || out[0] == '\0') {
+	const_chr_t name = (requested != NULL && requested[0] != '\0') ? requested : fallback;
+	if (sandbox_path_is_absolute(name) != 0) {
+		if (snprintf(out, out_cap, "%s", name) < 0 || out[0] == '\0') {
 			return -1;
 		}
 		return 0;
 	}
 	if (s->fs->current_dir(cwd, (u32)sizeof(cwd)) != 0 || cwd[0] == '\0') {
-		if (snprintf(out, out_cap, "%s", SANDBOX_DEFAULT_PNG) < 0) {
+		if (snprintf(out, out_cap, "%s", name) < 0) {
 			return -1;
 		}
 		return 0;
 	}
-	return sk_path_join(sk_str_view_cstr(cwd), sk_str_view_cstr(SANDBOX_DEFAULT_PNG), out, out_cap) < 0 ? -1 : 0;
+	return sk_path_join(sk_str_view_cstr(cwd), sk_str_view_cstr(name), out, out_cap) < 0 ? -1 : 0;
 }
 
 int main(int argc, char* argv[]) {
 	sandbox_t s;
-	char png_path[SK_FS_PATH_MAX];
+	char out_path[SK_FS_PATH_MAX];
 	const_chr_t out_arg;
+	const_chr_t widget_arg;
+	const_chr_t state_arg;
+	u32 width;
+	u32 height;
+	i32 widget_ready;
 	i32 rc;
 
 	if (sandbox_has_arg(argc, argv, "--help") != 0 || sandbox_has_arg(argc, argv, "-h") != 0) {
 		sandbox_usage(argv[0]);
 		return 0;
 	}
+	if (sandbox_has_arg(argc, argv, "--list") != 0) {
+		sandbox_widget_list();
+		return 0;
+	}
 
 	out_arg = sandbox_arg_value(argc, argv, "--out");
-	if (sandbox_init(&s, argc, argv) != 0) {
+	widget_arg = sandbox_arg_value(argc, argv, "--widget");
+	state_arg = sandbox_arg_value(argc, argv, "--state");
+	if (sandbox_has_arg(argc, argv, "--widget") != 0 && (widget_arg == NULL || widget_arg[0] == '\0')) {
+		fprintf(stderr, "sk-sandbox: --widget requires a name (use --list)\n");
+		return 1;
+	}
+
+	if (widget_arg != NULL) {
+		if (sandbox_widget_lookup(widget_arg, &width, &height, &widget_ready) != 0) {
+			fprintf(stderr, "sk-sandbox: unknown --widget '%s' (use --list)\n", widget_arg);
+			return 1;
+		}
+		if (widget_ready == 0) {
+			fprintf(stderr, "sk-sandbox: widget '%s' has no scene yet; add a builder in sandbox/widget_review.c\n", widget_arg);
+			return 1;
+		}
+	} else {
+		width = SANDBOX_W;
+		height = SANDBOX_H;
+	}
+
+	if (sandbox_init(&s, argc, argv, width, height) != 0) {
 		sandbox_shutdown(&s);
 		return 1;
 	}
-	if (sandbox_resolve_out(&s, out_arg, png_path, (u32)sizeof(png_path)) != 0) {
+
+	if (widget_arg != NULL) {
+		sandbox_widget_host_t host;
+		if (sandbox_resolve_path(&s, out_arg, SANDBOX_DEFAULT_WIDGET_DIR, out_path, (u32)sizeof(out_path)) != 0) {
+			fprintf(stderr, "sk-sandbox: cannot resolve output directory\n");
+			sandbox_shutdown(&s);
+			return 1;
+		}
+		memset(&host, 0, sizeof(host));
+		host.ui = s.ui;
+		host.fs = s.fs;
+		host.ctx = s.ctx;
+		host.fonts = s.fonts;
+		host.font = s.font;
+		host.capture = s.capture;
+		host.width = width;
+		host.height = height;
+		rc = sandbox_widget_run(&host, widget_arg, state_arg, out_path);
+		sandbox_shutdown(&s);
+		return rc == 0 ? 0 : 1;
+	}
+
+	if (sandbox_resolve_path(&s, out_arg, SANDBOX_DEFAULT_PNG, out_path, (u32)sizeof(out_path)) != 0) {
 		fprintf(stderr, "sk-sandbox: cannot resolve output path\n");
 		sandbox_shutdown(&s);
 		return 1;
@@ -400,7 +474,7 @@ int main(int argc, char* argv[]) {
 		sandbox_shutdown(&s);
 		return 1;
 	}
-	rc = sandbox_paint_and_capture(&s, png_path);
+	rc = sandbox_paint_and_capture(&s, out_path);
 	sandbox_shutdown(&s);
 	return rc == 0 ? 0 : 1;
 }

@@ -1370,5 +1370,11 @@ checked:
    vision-reviewed) against a rubric for the *editor* overload, not a
    generic sample.
 
+Check #3 uses the committed `sk-sandbox --widget` host
+(`docs/widget-lavapipe-png-review.md`): build `sk-sandbox`, force lavapipe
+with `VK_ICD_FILENAMES` / `VK_DRIVER_FILES` → `lvp_icd.json`, run
+`sk-sandbox --widget <family> --out <dir>`, and **open the PNGs**. Do not
+add CTest cases and do not shell out to a vision / LLM CLI.
+
 This manifest is the queue. Later waves tick the boxes; they do not
 re-audit `main` unless a new editor panel appears there.
