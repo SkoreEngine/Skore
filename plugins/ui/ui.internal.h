@@ -256,6 +256,7 @@ struct sk_ui_context_t {
 	i32 widgets_defaults_registered;
 	ui_node_list_t item_binds;		  /**< Hosts with a live item-array bind (item_bind.c). */
 	ui_node_list_t tables;			  /**< Live widget_table hosts (table.c). */
+	ui_node_list_t content_grids;	  /**< widget_content_grid hosts (content_item.c). */
 	struct ui_drag_drop_t* drag_drop; /**< Transient payload session (drag_drop.c). */
 
 	/* Dock model (dock.c). Unused when dockspace_count == 0. */
@@ -536,6 +537,8 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_TOOLTIP_DATA_TYPE_ID SK_TYPE_ID("sk.ui_tooltip_data", 0x9f2a6c8e1b4d5073ULL, 0xa7c5e913d8462b0fULL)
 /** Type id for color-family user_data (color.c). */
 #define SK_UI_COLOR_DATA_TYPE_ID SK_TYPE_ID("sk.ui_color_data", 0x3b7e1a9c5d8024f6ULL, 0x8c2e4a60b1d7395fULL)
+/** Type id for content-grid sidecar (content_item.c). */
+#define SK_UI_CONTENT_GRID_DATA_TYPE_ID SK_TYPE_ID("sk.ui_content_grid_data", 0x6a4c8e2f1b09357dULL, 0x91d3b5e7c0a2468fULL)
 
 /* Drag-drop payload (APX-356; manifest §17). */
 i32 ui_drag_drop_init(sk_ui_context_t* ctx);
@@ -621,6 +624,30 @@ void ui_table_sync_all(sk_ui_context_t* ctx);
 i32 ui_table_is_table(const sk_ui_context_t* ctx, sk_ui_node_t host);
 /** Bind items onto a widget_table. @return 0 if handled. */
 i32 ui_table_bind_if_table(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items);
+/** Restyle thumbnail cells after item_bind_sync (style_resolve). */
+void ui_content_grid_sync_all(sk_ui_context_t* ctx);
+/** Drop sidecar when the LIST host is destroyed. */
+void ui_content_grid_release_host(sk_ui_context_t* ctx, sk_ui_node_t host);
+void ui_content_grid_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+void ui_content_grid_shutdown(sk_ui_context_t* ctx);
+
+sk_ui_node_t ui_widget_content_grid_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, f32 thumbnail_scale, const_chr_t id);
+i32 ui_content_grid_set_scale_impl(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 thumbnail_scale);
+f32 ui_content_grid_get_scale_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+i32 ui_content_grid_set_available_width_impl(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 width);
+i32 ui_content_grid_get_column_count_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+f32 ui_content_grid_get_thumb_size_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+i32 ui_content_grid_begin_rename_impl(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+i32 ui_content_grid_commit_rename_impl(sk_ui_context_t* ctx, sk_ui_node_t grid);
+i32 ui_content_grid_cancel_rename_impl(sk_ui_context_t* ctx, sk_ui_node_t grid);
+u64 ui_content_grid_rename_id_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+i32 ui_content_grid_item_state_impl(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id, sk_ui_content_item_state_t* out);
+u64 ui_content_grid_last_enter_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+u64 ui_content_grid_last_right_click_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+sk_ui_node_t ui_content_grid_thumb_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+sk_ui_node_t ui_content_grid_icon_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+sk_ui_node_t ui_content_grid_error_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+sk_ui_node_t ui_content_grid_rename_input_impl(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
 
 sk_ui_node_t ui_widget_item_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind, const_chr_t id);
 sk_ui_node_t ui_widget_tree_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);

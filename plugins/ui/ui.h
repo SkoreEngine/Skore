@@ -1007,6 +1007,14 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_TABLE_CELL "ui-table-cell"
 #define SK_UI_CLASS_TABLE_BODY "ui-table-body"
 #define SK_UI_CLASS_TABLE_RESIZE "ui-table-resize"
+/** Content-item thumbnail grid (APX-358; manifest §16 grid half). */
+#define SK_UI_CLASS_CONTENT_GRID "ui-content-grid"
+#define SK_UI_CLASS_CONTENT_ITEM "ui-content-item"
+#define SK_UI_CLASS_CONTENT_THUMB "ui-content-thumb"
+#define SK_UI_CLASS_CONTENT_ICON "ui-content-icon"
+#define SK_UI_CLASS_CONTENT_ERROR "ui-content-error"
+/** ImGui BeginContentTable cell: thumbnailScale * 112. */
+#define SK_UI_CONTENT_THUMB_BASE 112.0f
 #define SK_UI_CLASS_ITEM_ROW "ui-item-row"
 #define SK_UI_CLASS_TREE_ARROW "ui-tree-arrow"
 #define SK_UI_CLASS_COLLAPSING_HEADER "ui-collapsing-header"
@@ -1272,6 +1280,42 @@ SK_FINLINE void sk_ui_item_set(sk_ui_item_t* item, u64 id, u64 parent_id, const_
 	item->flags = flags;
 	item->icon = 0u;
 	item->label = label;
+}
+
+/**
+ * ImGuiContentItemState for one thumbnail cell. hovered / rect are live;
+ * clicked / released / enter / right_clicked / rename_finish are
+ * consume-on-read when read through content_grid_item_state.
+ */
+typedef struct sk_ui_content_item_state_t {
+	i32 hovered;
+	i32 clicked;
+	i32 released;
+	i32 enter; /**< Double-click or Enter while selected (not renaming). */
+	i32 right_clicked;
+	i32 rename_finish;	  /**< Non-zero after commit (not cancel). */
+	const_chr_t new_name; /**< Valid until the next rename or host destroy. */
+	sk_ui_rect_t rect;	  /**< Absolute screen rect of the cell. */
+} sk_ui_content_item_state_t;
+
+/** Cell size used by ImGuiBeginContentTable (logical px). Scale <= 0 → 1. */
+SK_FINLINE f32 sk_ui_content_thumb_size(f32 thumbnail_scale) {
+	if (thumbnail_scale <= 0.0f) {
+		thumbnail_scale = 1.0f;
+	}
+	return thumbnail_scale * SK_UI_CONTENT_THUMB_BASE;
+}
+
+/** Column count from available width and zoom. Always at least 1. */
+SK_FINLINE i32 sk_ui_content_grid_columns_for(f32 avail_width, f32 thumbnail_scale) {
+	f32 size = sk_ui_content_thumb_size(thumbnail_scale);
+	if (size < 1.0f) {
+		size = 1.0f;
+	}
+	if (avail_width < size) {
+		return 1;
+	}
+	return (i32)(avail_width / size);
 }
 
 /* ------------------------------------------------------------------ */
@@ -4582,6 +4626,40 @@ typedef struct sk_ui_api_t {
 
 	void (*color_rgb_to_hsv)(f32 r, f32 g, f32 b, f32* h, f32* s, f32* v);
 	void (*color_hsv_to_rgb)(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b);
+
+	/* ---- content-item thumbnail grid (APX-358; manifest §16 grid half) ---- */
+
+	/**
+	 * ImGuiBeginContentTable + ImGuiContentItem grid. Binds @p items with
+	 * SK_UI_ITEM_BIND_LIST (stable ids, no per-frame node churn). Column
+	 * count is floor(available_width / (thumbnail_scale * 112)). Item
+	 * `icon` != 0 is a texture id; 0 draws a glyph icon. ERROR flag paints
+	 * the error mark. Selection / rename are keyed on item id.
+	 */
+	sk_ui_node_t (*widget_content_grid)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, f32 thumbnail_scale, const_chr_t id);
+	i32 (*content_grid_set_scale)(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 thumbnail_scale);
+	f32 (*content_grid_get_scale)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	/** Override available width used for column count (tests; 0 = last layout). */
+	i32 (*content_grid_set_available_width)(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 width);
+	i32 (*content_grid_get_column_count)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	f32 (*content_grid_get_thumb_size)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+
+	i32 (*content_grid_begin_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	i32 (*content_grid_commit_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid);
+	i32 (*content_grid_cancel_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid);
+	u64 (*content_grid_rename_id)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+
+	/**
+	 * Live hover / rect plus consume-on-read click / release / enter /
+	 * right-click / rename-finish for @p item_id.
+	 */
+	i32 (*content_grid_item_state)(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id, sk_ui_content_item_state_t* out);
+	u64 (*content_grid_last_enter)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	u64 (*content_grid_last_right_click)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	sk_ui_node_t (*content_grid_thumb)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_icon)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_error)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_rename_input)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

@@ -2007,6 +2007,75 @@ static i32 sandbox_widget_build_color_edit3(const sandbox_widget_host_t* host, s
 	return 0;
 }
 
+static sk_ui_item_t s_review_cg_small[8];
+static sk_ui_item_t s_review_cg_large[6];
+static sk_ui_item_array_t s_review_cg_small_arr;
+static sk_ui_item_array_t s_review_cg_large_arr;
+
+static i32 sandbox_widget_build_content_item(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t small;
+	sk_ui_node_t large;
+	sk_ui_node_t selected;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-cg-col");
+	if (!sk_ui_node_is_valid(col)) {
+		fprintf(stderr, "sk-sandbox: content_item column failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
+	p.layout.width = sk_ui_pt((f32)host->width - 32.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	(void)ui->widget_text(host->ctx, col, "zoom 0.5", "review-cg-z0");
+	sk_ui_item_set(&s_review_cg_small[0], 1ull, 0ull, "Mesh.skmesh", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_cg_small[0].icon = 21u;
+	sk_ui_item_set(&s_review_cg_small[1], 2ull, 0ull, "Hero.skent", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_cg_small[2], 3ull, 0ull, "Dirt.sktex", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_cg_small[2].icon = 23u;
+	sk_ui_item_set(&s_review_cg_small[3], 4ull, 0ull, "Folder", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_cg_small[4], 5ull, 0ull, "Light.skent", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_cg_small[5], 6ull, 0ull, "Sky.skmat", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_cg_small_arr.items = s_review_cg_small;
+	s_review_cg_small_arr.count = 6u;
+	s_review_cg_small_arr.revision = 1u;
+	small = ui->widget_content_grid(host->ctx, col, &s_review_cg_small_arr, 0.5f, "review-cg-small");
+	if (!sk_ui_node_is_valid(small)) {
+		fprintf(stderr, "sk-sandbox: content_grid zoom 0.5 failed\n");
+		return -1;
+	}
+	(void)ui->content_grid_set_available_width(host->ctx, small, (f32)host->width - 48.0f);
+
+	(void)ui->widget_text(host->ctx, col, "zoom 1.0  selected / error / rename", "review-cg-z1");
+	sk_ui_item_set(&s_review_cg_large[0], 10ull, 0ull, "Logo.sktex", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_cg_large[0].icon = 31u;
+	sk_ui_item_set(&s_review_cg_large[1], 11ull, 0ull, "Player.skent", (u32)SK_UI_ITEM_FLAG_LEAF | (u32)SK_UI_ITEM_FLAG_SELECTED);
+	sk_ui_item_set(&s_review_cg_large[2], 12ull, 0ull, "Missing.skmat", (u32)SK_UI_ITEM_FLAG_LEAF | (u32)SK_UI_ITEM_FLAG_ERROR);
+	sk_ui_item_set(&s_review_cg_large[3], 13ull, 0ull, "RenameMe", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_cg_large[4], 14ull, 0ull, "Props", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_cg_large_arr.items = s_review_cg_large;
+	s_review_cg_large_arr.count = 5u;
+	s_review_cg_large_arr.revision = 1u;
+	large = ui->widget_content_grid(host->ctx, col, &s_review_cg_large_arr, 1.0f, "review-cg-large");
+	if (!sk_ui_node_is_valid(large)) {
+		fprintf(stderr, "sk-sandbox: content_grid zoom 1.0 failed\n");
+		return -1;
+	}
+	(void)ui->content_grid_set_available_width(host->ctx, large, (f32)host->width - 48.0f);
+	(void)ui->item_bind_set_selected(host->ctx, large, 11ull, 1);
+	(void)ui->content_grid_begin_rename(host->ctx, large, 13ull);
+	selected = ui->item_bind_find(host->ctx, large, 11ull);
+	*out_target = sk_ui_node_is_valid(selected) ? selected : large;
+	return 0;
+}
+
 static i32 sandbox_widget_build_color_swatch(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
 	const sk_ui_api_t* ui = host->ui;
 	sk_ui_node_t root = ui->context_root(host->ctx);
@@ -2088,7 +2157,8 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"color_picker", "picker", "§15 ColorPicker4 open (alpha bar + half preview)", SANDBOX_WS_BIT_DEFAULT, 640u, 420u, sandbox_widget_build_color_picker},
 	{"color_edit3", "edit3", "§15 ColorEdit3 compact float[3]", SANDBOX_WS_BIT_DEFAULT, 420u, 96u, sandbox_widget_build_color_edit3},
 	{"color_swatch", "swatch", "§15 14x14 read-only swatch", SANDBOX_WS_BIT_DEFAULT, 192u, 96u, sandbox_widget_build_color_swatch},
-	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
+	{"image", NULL, "§16 Image / textured quad", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
+	{"content_item", "contentgrid", "§16 content-item thumbnail grid", SANDBOX_WS_BIT_DEFAULT, 720u, 520u, sandbox_widget_build_content_item},
 	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_SELECTABLE, 360u, 128u, sandbox_widget_build_selectable},
 	{"selectable_list", "selectable_rows", "§18 Selectable list of rows", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_selectable_list},
 	{"tooltip", NULL, "§20 Tooltip simple text", SANDBOX_WS_BIT_DEFAULT, 320u, 128u, sandbox_widget_build_tooltip},

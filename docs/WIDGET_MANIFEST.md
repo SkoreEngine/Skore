@@ -76,7 +76,9 @@ editor_window. Missing factories that this audit makes load-bearing:
 **drag-drop payload**. Color picker (APX-357) now has a factory. Tooltip (APX-354) now has a factory.
 Combo that binds an
 int + zero-separated items (APX-353) now has factories. Tree (APX-350) and
-table (APX-351) now have factories.
+table (APX-351) now have factories. Content-item thumbnail grid (APX-358,
+`widget_content_grid` on `SK_UI_ITEM_BIND_LIST`) now has a factory; the
+textured-quad half of §16 is a sibling task.
 
 ---
 
@@ -1176,11 +1178,20 @@ hierarchical — folders use the Tree family.)
   click / double-click / right-click, inline rename.
 - Grid column count from available width and zoom.
 
-**sk-ui today:** `widget_image`. No content-item / thumbnail-grid factory.
+**sk-ui today:** `widget_image` (textured quad; sibling task). Content-item
+grid: `widget_content_grid` in `plugins/ui/content_item.c` binds
+`sk_ui_item_array_t*` via `SK_UI_ITEM_BIND_LIST` (`item_bind.c`). Cells
+show image (`item.icon` as texture id) or a glyph icon, a clipped label,
+selected rect, error mark, click / double-click-or-Enter / right-click,
+and inline rename. Column count is `floor(avail / (thumbnailScale * 112))`.
 
 - [ ] Unit test
 - [ ] Headless UI automation
 - [ ] lavapipe PNG reviewed
+
+Grid half files: `plugins/ui/content_item.c`, `plugins/ui/content_item_family_tests.c`,
+`sandbox/widget_review.c` (`content_item`). Do not tick a box until the
+textured-quad half is also reviewed.
 
 ---
 

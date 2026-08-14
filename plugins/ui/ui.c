@@ -467,6 +467,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_array_init(&ctx->freelist, a);
 	sk_array_init(&ctx->item_binds, a);
 	sk_array_init(&ctx->tables, a);
+	sk_array_init(&ctx->content_grids, a);
 	if (sk_hash_map_init(&ctx->id_map, a, sk_hash_cstr, sk_equals_cstr) != 0) {
 		a->free(a->instance, ctx);
 		return NULL;
@@ -479,6 +480,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->content_grids);
 		sk_array_free(&ctx->tables);
 		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
@@ -493,6 +495,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
+		sk_array_free(&ctx->content_grids);
 		sk_array_free(&ctx->tables);
 		sk_array_free(&ctx->item_binds);
 		sk_array_free(&ctx->freelist);
@@ -555,6 +558,8 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_array_free(&ctx->freelist);
 	sk_array_free(&ctx->item_binds);
 	sk_array_free(&ctx->tables);
+	ui_content_grid_shutdown(ctx);
+	sk_array_free(&ctx->content_grids);
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
@@ -1994,6 +1999,23 @@ static const sk_ui_api_t ui_api = {
 	ui_color_component_impl,
 	ui_color_rgb_to_hsv_impl,
 	ui_color_hsv_to_rgb_impl,
+	ui_widget_content_grid_impl,
+	ui_content_grid_set_scale_impl,
+	ui_content_grid_get_scale_impl,
+	ui_content_grid_set_available_width_impl,
+	ui_content_grid_get_column_count_impl,
+	ui_content_grid_get_thumb_size_impl,
+	ui_content_grid_begin_rename_impl,
+	ui_content_grid_commit_rename_impl,
+	ui_content_grid_cancel_rename_impl,
+	ui_content_grid_rename_id_impl,
+	ui_content_grid_item_state_impl,
+	ui_content_grid_last_enter_impl,
+	ui_content_grid_last_right_click_impl,
+	ui_content_grid_thumb_impl,
+	ui_content_grid_icon_impl,
+	ui_content_grid_error_impl,
+	ui_content_grid_rename_input_impl,
 };
 
 /**

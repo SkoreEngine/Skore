@@ -145,6 +145,10 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 		ui_color_release_user_data(ctx, slot);
 		return;
 	}
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_CONTENT_GRID_DATA_TYPE_ID)) {
+		ui_content_grid_release_user_data(ctx, slot);
+		return;
+	}
 	ui_item_bind_release_user_data(ctx, slot);
 }
 
@@ -1806,6 +1810,72 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.color = sk_ui_rgba(0.90f, 0.91f, 0.93f, 1.0f);
 	base.font_size = 13.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG_DROP_PREVIEW, &base) != 0) {
+		return -1;
+	}
+
+	/* Content-item thumbnail grid (APX-358; Project Browser / launcher tiles). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ALIGN_CONTENT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_PADDING;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.align_content = SK_UI_ALIGN_FLEX_START;
+	base.background_color = sk_ui_rgba(0.106f, 0.110f, 0.118f, 1.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.padding.left = 4.0f;
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.right = 4.0f;
+	base.layout.padding.bottom = 4.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTENT_GRID, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH |
+				SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.justify_content = SK_UI_JUSTIFY_FLEX_START;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 12.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTENT_ITEM, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(40.0f / 255.0f, 41.0f / 255.0f, 43.0f / 255.0f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_CONTENT_ITEM, SK_UI_STATE_HOVER, &var);
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT;
+	base.background_color = sk_ui_rgba(0.22f, 0.48f, 0.62f, 1.0f);
+	base.corner_radius = 3.0f;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTENT_THUMB, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.background_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	base.corner_radius = 3.0f;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+	base.font_size = 28.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTENT_ICON, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT;
+	base.color = sk_ui_rgba(202.0f / 255.0f, 98.0f / 255.0f, 87.0f / 255.0f, 1.0f);
+	base.font_size = 14.0f;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTENT_ERROR, &base) != 0) {
 		return -1;
 	}
 

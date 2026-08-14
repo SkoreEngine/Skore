@@ -118,6 +118,7 @@ void ui_item_bind_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) 
 		return;
 	}
 	b = (ui_item_bind_data_t*)slot->user_data;
+	ui_content_grid_release_host(ctx, b->host);
 	ib_unreg(ctx, b->host);
 	sk_hash_map_free(&b->rows);
 	sk_hash_map_free(&b->arrows);

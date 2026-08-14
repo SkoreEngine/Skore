@@ -841,6 +841,7 @@ i32 ui_style_resolve_impl(sk_ui_context_t* ctx) {
 	/* Pick up caller item-array mutations before style/layout this frame. */
 	ui_item_bind_sync_all(ctx);
 	ui_table_sync_all(ctx);
+	ui_content_grid_sync_all(ctx);
 	/* Pull checkbox / radio bound scalars (bool*, flags*, radio int*). */
 	ui_checkbox_radio_sync_all(ctx);
 	/* Pull combo bound int* (enum / layer / material index). */
