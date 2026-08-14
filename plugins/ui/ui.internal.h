@@ -694,6 +694,8 @@ sk_ui_node_t ui_widget_progress_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, 
 sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_scroll_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+sk_ui_node_t ui_widget_image_rect_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, f32 width, f32 height, f32 uv0x, f32 uv0y, f32 uv1x, f32 uv1y,
+									   const sk_ui_color_t* tint, const sk_ui_color_t* border, const_chr_t id);
 
 sk_ui_node_t ui_widget_menu_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);

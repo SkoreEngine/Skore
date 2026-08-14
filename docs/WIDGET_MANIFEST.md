@@ -76,9 +76,9 @@ editor_window. Missing factories that this audit makes load-bearing:
 **drag-drop payload**. Color picker (APX-357) now has a factory. Tooltip (APX-354) now has a factory.
 Combo that binds an
 int + zero-separated items (APX-353) now has factories. Tree (APX-350) and
-table (APX-351) now have factories. Content-item thumbnail grid (APX-358,
-`widget_content_grid` on `SK_UI_ITEM_BIND_LIST`) now has a factory; the
-textured-quad half of §16 is a sibling task.
+table (APX-351) now have factories. §16 (APX-358/359): content-item
+thumbnail grid (`widget_content_grid` on `SK_UI_ITEM_BIND_LIST`) and the
+textured quad (`widget_image_rect`, `ImGui::Image` form) now have factories.
 
 ---
 
@@ -1178,20 +1178,32 @@ hierarchical — folders use the Tree family.)
   click / double-click / right-click, inline rename.
 - Grid column count from available width and zoom.
 
-**sk-ui today:** `widget_image` (textured quad; sibling task). Content-item
-grid: `widget_content_grid` in `plugins/ui/content_item.c` binds
-`sk_ui_item_array_t*` via `SK_UI_ITEM_BIND_LIST` (`item_bind.c`). Cells
-show image (`item.icon` as texture id) or a glyph icon, a clipped label,
-selected rect, error mark, click / double-click-or-Enter / right-click,
-and inline rename. Column count is `floor(avail / (thumbnailScale * 112))`.
+**sk-ui today:** `widget_image` (texture id only) plus the editor
+`ImGui::Image` form `widget_image_rect` (explicit size, sub-rect / flipped
+UV, tint, 1px border; `uv0_x/uv0_y/uv1_x/uv1_y` + `tint_r/g/b/a` +
+`border_r/g/b/a` props drive paint). IMAGE draws bind the host texture by
+`texture_id` with a nearest/clamp sampler (white fallback when unbound).
+Content-item grid: `widget_content_grid` in `plugins/ui/content_item.c`
+binds `sk_ui_item_array_t*` via `SK_UI_ITEM_BIND_LIST` (`item_bind.c`).
+Cells show image (`item.icon` as texture id) or a glyph icon, a clipped
+label, selected rect, error mark, click / double-click-or-Enter /
+right-click, and inline rename. Column count is
+`floor(avail / (thumbnailScale * 112))`.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_image_rect_props_and_size`) and `plugins/ui/image_family_tests.c`
+  (`image_family_size_aspect`, `image_family_size_uv_tint_border`)
+- [x] Headless UI automation — `plugins/ui/image_family_tests.c`
+  (`image_family_flipped_v_texture_change`, `image_family_zero_invalid_texture`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget image`,
+  states fulluv/subrect/tinted/bordered; checkerboard host texture so the
+  UV crop, tint multiplication and nearest/clamp edges are visible)
 
 Grid half files: `plugins/ui/content_item.c`, `plugins/ui/content_item_family_tests.c`,
-`sandbox/widget_review.c` (`content_item`). Do not tick a box until the
-textured-quad half is also reviewed.
+`sandbox/widget_review.c` (`content_item`). Textured-quad half files:
+`plugins/ui/widgets.c` (widget_image_rect), `plugins/ui/paint.c` (UV/tint/
+border), `plugins/ui/render.c` (host-image views + nearest sampler),
+`sandbox/widget_review.c` (`image`).
 
 ---
 

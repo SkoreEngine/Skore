@@ -1509,6 +1509,7 @@ static const sk_ui_api_t ui_api = {
 	ui_widget_text_input_impl,
 	ui_widget_scroll_view_impl,
 	ui_widget_image_impl,
+	ui_widget_image_rect_impl,
 	ui_widget_menu_bar_impl,
 	ui_widget_menu_impl,
 	ui_widget_menu_item_impl,

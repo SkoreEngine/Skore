@@ -132,6 +132,7 @@ enum {
 	UI_VB_MIN_BYTES = 64u * 1024u,
 	UI_IB_MIN_BYTES = 32u * 1024u,
 	UI_MSDF_ATLAS_CAP = 8u,
+	UI_HOST_IMAGE_CAP = 16u, /**< texture_id indexes this (out of range → white). */
 };
 
 /* Compile-time layout check: push block size. */
@@ -154,6 +155,13 @@ typedef struct ui_gpu_msdf_atlas_t {
 	f32 px_range;
 } ui_gpu_msdf_atlas_t;
 
+/** Host-image binding cache (sk_ui_renderer_images_t from encode info). */
+typedef struct ui_gpu_host_image_t {
+	sk_texture_view_t view;
+	sk_descriptor_set_t desc_set;
+	u32 valid;
+} ui_gpu_host_image_t;
+
 /* -------------------------------------------------------------------------- */
 /* Renderer                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -167,8 +175,10 @@ struct sk_ui_renderer_t {
 	sk_shader_t vs;
 	sk_shader_t ps;
 	sk_pipeline_t pipeline;
-	sk_descriptor_set_t desc_set_white; /**< Solid / image fallback. */
+	sk_descriptor_set_t desc_set_white; /**< Solid / image fallback (linear). */
+	sk_descriptor_set_t desc_set_image; /**< IMAGE draws: white tex + nearest/clamp sampler. */
 	sk_sampler_t sampler;
+	sk_sampler_t sampler_nearest; /**< Nearest min/mag + clamp (IMAGE, §16 viewport). */
 
 	sk_texture_t white_tex;
 	sk_texture_view_t white_view;
@@ -184,6 +194,11 @@ struct sk_ui_renderer_t {
 
 	ui_gpu_msdf_atlas_t msdf_atlases[UI_MSDF_ATLAS_CAP];
 	u32 msdf_atlas_count;
+
+	/* Host image views bound per frame via renderer_encode info->images;
+	 * texture_id on IMAGE mesh commands indexes this array. */
+	ui_gpu_host_image_t host_images[UI_HOST_IMAGE_CAP];
+	const sk_ui_renderer_images_t* active_images;
 
 	/* Cached pipeline layout pieces (rebuilt with pipeline). */
 	sk_descriptor_set_layout_binding_t set_bindings[2];
@@ -255,10 +270,22 @@ static void ui_render_destroy_atlas(sk_ui_renderer_t* r) {
 static void ui_render_destroy_desc_sets(sk_ui_renderer_t* r) {
 	const sk_render_device_api_t* api = r->api;
 	sk_render_device_t dev = r->device;
+	u32 i;
 	if (sk_descriptor_set_t_is_valid(r->desc_set_white)) {
 		api->destroy_descriptor_set(dev, r->desc_set_white);
 		r->desc_set_white = sk_descriptor_set_t_zero();
 	}
+	if (sk_descriptor_set_t_is_valid(r->desc_set_image)) {
+		api->destroy_descriptor_set(dev, r->desc_set_image);
+		r->desc_set_image = sk_descriptor_set_t_zero();
+	}
+	for (i = 0u; i < UI_HOST_IMAGE_CAP; ++i) {
+		if (r->host_images[i].valid != 0u && sk_descriptor_set_t_is_valid(r->host_images[i].desc_set)) {
+			api->destroy_descriptor_set(dev, r->host_images[i].desc_set);
+		}
+		memset(&r->host_images[i], 0, sizeof(r->host_images[i]));
+	}
+	r->active_images = NULL;
 }
 
 static void ui_render_destroy_pipeline(sk_ui_renderer_t* r) {
@@ -271,7 +298,7 @@ static void ui_render_destroy_pipeline(sk_ui_renderer_t* r) {
 	ui_render_destroy_desc_sets(r);
 }
 
-static sk_descriptor_set_t ui_render_make_image_set(sk_ui_renderer_t* r, sk_texture_view_t view) {
+static sk_descriptor_set_t ui_render_make_image_set(sk_ui_renderer_t* r, sk_texture_view_t view, sk_sampler_t sampler) {
 	const sk_render_device_api_t* api = r->api;
 	sk_render_device_t dev = r->device;
 	sk_descriptor_set_desc_t set_desc;
@@ -292,9 +319,42 @@ static sk_descriptor_set_t ui_render_make_image_set(sk_ui_renderer_t* r, sk_text
 	writes[0].texture_view = view;
 	writes[1].binding = 1u;
 	writes[1].type = SK_DESCRIPTOR_TYPE_SAMPLER;
-	writes[1].sampler = r->sampler;
+	writes[1].sampler = sampler;
 	api->update_descriptor_set(dev, set, writes, 2u);
 	return set;
+}
+
+/**
+ * Refresh the per-frame host-image descriptor cache from encode info. Each
+ * IMAGE mesh texture_id indexes @p images->views (out of range → white
+ * fallback). Sets are recreated only when the bound view changes.
+ */
+static i32 ui_render_sync_host_images(sk_ui_renderer_t* r, const sk_ui_renderer_images_t* images) {
+	const sk_render_device_api_t* api = r->api;
+	sk_render_device_t dev = r->device;
+	u32 i;
+	for (i = 0u; i < UI_HOST_IMAGE_CAP; ++i) {
+		ui_gpu_host_image_t* slot = &r->host_images[i];
+		sk_texture_view_t want = sk_texture_view_t_zero();
+		if (images != NULL && i < images->count) {
+			want = images->views[i];
+		}
+		if (slot->valid != 0u && !sk_texture_view_t_eq(slot->view, want)) {
+			if (sk_descriptor_set_t_is_valid(slot->desc_set)) {
+				api->destroy_descriptor_set(dev, slot->desc_set);
+			}
+			memset(slot, 0, sizeof(*slot));
+		}
+		if (sk_texture_view_t_is_valid(want) && slot->valid == 0u) {
+			slot->desc_set = ui_render_make_image_set(r, want, r->sampler_nearest);
+			if (!sk_descriptor_set_t_is_valid(slot->desc_set)) {
+				return -1;
+			}
+			slot->view = want;
+			slot->valid = 1u;
+		}
+	}
+	return 0;
 }
 
 /** Device-local VB/IB (uploaded via update_buffer each frame — matches triangle test). */
@@ -571,7 +631,7 @@ static i32 ui_render_ensure_msdf_atlas(sk_ui_renderer_t* r, sk_command_buffer_t 
 		gpu->desc_set = sk_descriptor_set_t_zero();
 		gpu->desc_valid = 0u;
 	}
-	gpu->desc_set = ui_render_make_image_set(r, gpu->view);
+	gpu->desc_set = ui_render_make_image_set(r, gpu->view, r->sampler);
 	if (!sk_descriptor_set_t_is_valid(gpu->desc_set)) {
 		return -1;
 	}
@@ -679,8 +739,18 @@ static i32 ui_render_create_pipeline(sk_ui_renderer_t* r) {
 	}
 
 	/* One descriptor set per texture; updated only outside draw recording. */
-	r->desc_set_white = ui_render_make_image_set(r, r->white_view);
+	r->desc_set_white = ui_render_make_image_set(r, r->white_view, r->sampler);
 	if (!sk_descriptor_set_t_is_valid(r->desc_set_white)) {
+		ui_render_destroy_pipeline(r);
+		return -1;
+	}
+
+	/* IMAGE draws (host texture quads, viewport ImGuiDrawTextureView) use a
+	 * nearest min/mag + clamp-to-edge sampler per manifest §16 — no bilinear
+	 * blur on the viewport texture and no repeat wrapping. This set binds the
+	 * 1x1 white texel and is the fallback when no host view is bound. */
+	r->desc_set_image = ui_render_make_image_set(r, r->white_view, r->sampler_nearest);
+	if (!sk_descriptor_set_t_is_valid(r->desc_set_image)) {
 		ui_render_destroy_pipeline(r);
 		return -1;
 	}
@@ -782,6 +852,23 @@ sk_ui_renderer_t* ui_renderer_create_impl(const sk_ui_renderer_desc_t* desc) {
 		return NULL;
 	}
 
+	/* Nearest min/mag + clamp for IMAGE host textures (manifest §16 viewport
+	 * case). Reuses the same white texel until host views are wired. */
+	memset(&sdesc, 0, sizeof(sdesc));
+	sdesc.min_filter = SK_FILTER_MODE_NEAREST;
+	sdesc.mag_filter = SK_FILTER_MODE_NEAREST;
+	sdesc.mipmap_filter = SK_FILTER_MODE_NEAREST;
+	sdesc.address_mode_u = SK_TEXTURE_ADDRESS_CLAMP_TO_EDGE;
+	sdesc.address_mode_v = SK_TEXTURE_ADDRESS_CLAMP_TO_EDGE;
+	sdesc.address_mode_w = SK_TEXTURE_ADDRESS_CLAMP_TO_EDGE;
+	sdesc.max_lod = 0.0f;
+	sdesc.debug_name = "ui-sampler-image-nearest";
+	r->sampler_nearest = api->create_sampler(dev, &sdesc);
+	if (!sk_sampler_t_is_valid(r->sampler_nearest)) {
+		ui_renderer_destroy_impl(r);
+		return NULL;
+	}
+
 	memset(&tdesc, 0, sizeof(tdesc));
 	tdesc.extent.width = 1u;
 	tdesc.extent.height = 1u;
@@ -854,6 +941,9 @@ void ui_renderer_destroy_impl(sk_ui_renderer_t* renderer) {
 	}
 	if (sk_sampler_t_is_valid(renderer->sampler)) {
 		api->destroy_sampler(dev, renderer->sampler);
+	}
+	if (sk_sampler_t_is_valid(renderer->sampler_nearest)) {
+		api->destroy_sampler(dev, renderer->sampler_nearest);
 	}
 	if (sk_shader_t_is_valid(renderer->vs)) {
 		api->destroy_shader(dev, renderer->vs);
@@ -972,7 +1062,18 @@ static sk_descriptor_set_t ui_render_resolve_desc_set(sk_ui_renderer_t* r, const
 			return slot->desc_set;
 		}
 	}
-	/* IMAGE host textures: v1 falls back to white (host may extend later). */
+	if (cmd->texture_kind == SK_UI_DRAW_TEX_IMAGE) {
+		/* IMAGE host textures: texture_id indexes the encode-time view array;
+		 * out of range / unbound falls back to white. All IMAGE draws use the
+		 * nearest/clamp image sampler (manifest §16 viewport case). */
+		if (r->active_images != NULL && cmd->texture_id < r->active_images->count && cmd->texture_id < UI_HOST_IMAGE_CAP) {
+			const ui_gpu_host_image_t* slot = &r->host_images[cmd->texture_id];
+			if (slot->valid != 0u && sk_descriptor_set_t_is_valid(slot->desc_set)) {
+				return slot->desc_set;
+			}
+		}
+		return r->desc_set_image;
+	}
 	(void)cmd;
 	return r->desc_set_white;
 }
@@ -1068,6 +1169,12 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 		return 0;
 	}
 
+	/* Refresh host-image descriptor sets (IMAGE texture_id → view). */
+	if (ui_render_sync_host_images(renderer, &info->images) != 0) {
+		return -1;
+	}
+	renderer->active_images = &info->images;
+
 	viewport.x = 0.0f;
 	viewport.y = 0.0f;
 	viewport.width = (f32)info->target_width;
@@ -1134,5 +1241,6 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 		}
 	}
 
+	renderer->active_images = NULL;
 	return 0;
 }

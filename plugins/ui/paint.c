@@ -1336,12 +1336,51 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
-	/* Image: full content box textured quad. */
+	/* Image: textured quad over the content box with UV rect, tint and border.
+	 * Editor ImGui::Image passes explicit size (layout width/height), uv0/uv1
+	 * (sub-rect or flipped), tint_col and border_col. tex_id == 0 skips the
+	 * quad (invalid/empty host texture); a non-transparent border still draws
+	 * (AddRect does not sample the texture), with the quad inset by 1px. */
 	if ((sk_ui_node_kind_t)slot->kind == SK_UI_NODE_KIND_IMAGE) {
 		i32 tex_id = 0;
+		f32 u0 = ui_paint_prop_f32_or(slot, "uv0_x", 0.0f);
+		f32 v0 = ui_paint_prop_f32_or(slot, "uv0_y", 0.0f);
+		f32 u1 = ui_paint_prop_f32_or(slot, "uv1_x", 1.0f);
+		f32 v1 = ui_paint_prop_f32_or(slot, "uv1_y", 1.0f);
+		sk_ui_color_t tint;
+		sk_ui_color_t border_col;
+
+		tint.r = ui_paint_prop_f32_or(slot, "tint_r", 1.0f);
+		tint.g = ui_paint_prop_f32_or(slot, "tint_g", 1.0f);
+		tint.b = ui_paint_prop_f32_or(slot, "tint_b", 1.0f);
+		tint.a = ui_paint_prop_f32_or(slot, "tint_a", 1.0f);
+		border_col.r = ui_paint_prop_f32_or(slot, "border_r", 0.0f);
+		border_col.g = ui_paint_prop_f32_or(slot, "border_g", 0.0f);
+		border_col.b = ui_paint_prop_f32_or(slot, "border_b", 0.0f);
+		border_col.a = ui_paint_prop_f32_or(slot, "border_a", 0.0f);
 		if (ui_paint_prop_i32(slot, "texture_id", &tex_id) == 0 && tex_id != 0) {
-			u32 col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
-			if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_IMAGE, (u32)tex_id, cx, cy, cx + cw, cy + ch, 0.0f, 0.0f, 1.0f, 1.0f, col) != 0) {
+			u32 col = sk_ui_pack_color(ui_paint_mul_opacity(tint, opacity));
+			f32 ix0 = cx;
+			f32 iy0 = cy;
+			f32 ix1 = cx + cw;
+			f32 iy1 = cy + ch;
+			if (border_col.a > 0.0f && cw > 2.0f && ch > 2.0f) {
+				u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(border_col, opacity));
+				if (ui_paint_add_border(em, bx, by, bw, bh, 1.0f, 1.0f, 1.0f, 1.0f, bd) != 0) {
+					return -1;
+				}
+				ix0 += 1.0f;
+				iy0 += 1.0f;
+				ix1 -= 1.0f;
+				iy1 -= 1.0f;
+			}
+			if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_IMAGE, (u32)tex_id, ix0, iy0, ix1, iy1, u0, v0, u1, v1, col) != 0) {
+				return -1;
+			}
+		} else if (border_col.a > 0.0f && cw > 2.0f && ch > 2.0f) {
+			/* Invalid / zero texture: border rect still paints (ImGui AddRect). */
+			u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(border_col, opacity));
+			if (ui_paint_add_border(em, bx, by, bw, bh, 1.0f, 1.0f, 1.0f, 1.0f, bd) != 0) {
 				return -1;
 			}
 		}

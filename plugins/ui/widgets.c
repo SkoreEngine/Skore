@@ -4777,6 +4777,40 @@ sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32
 	return n;
 }
 
+sk_ui_node_t ui_widget_image_rect_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, f32 width, f32 height, f32 uv0x, f32 uv0y, f32 uv1x, f32 uv1y,
+									   const sk_ui_color_t* tint, const sk_ui_color_t* border, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n;
+	sk_ui_style_props_t p;
+
+	n = ui_widget_image_impl(ctx, parent, texture_id, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_f32(ctx, n, "uv0_x", uv0x);
+	(void)ui->node_set_prop_f32(ctx, n, "uv0_y", uv0y);
+	(void)ui->node_set_prop_f32(ctx, n, "uv1_x", uv1x);
+	(void)ui->node_set_prop_f32(ctx, n, "uv1_y", uv1y);
+	if (tint != NULL) {
+		(void)ui->node_set_prop_f32(ctx, n, "tint_r", tint->r);
+		(void)ui->node_set_prop_f32(ctx, n, "tint_g", tint->g);
+		(void)ui->node_set_prop_f32(ctx, n, "tint_b", tint->b);
+		(void)ui->node_set_prop_f32(ctx, n, "tint_a", tint->a);
+	}
+	if (border != NULL) {
+		(void)ui->node_set_prop_f32(ctx, n, "border_r", border->r);
+		(void)ui->node_set_prop_f32(ctx, n, "border_g", border->g);
+		(void)ui->node_set_prop_f32(ctx, n, "border_b", border->b);
+		(void)ui->node_set_prop_f32(ctx, n, "border_a", border->a);
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(width);
+	p.layout.height = sk_ui_pt(height);
+	(void)ui->node_merge_inline_style(ctx, n, &p);
+	return n;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Menu surfaces (APX-234 / APX-346 editor BeginMenu / MenuItem)              */
 /* -------------------------------------------------------------------------- */
@@ -11368,6 +11402,56 @@ SK_TEST(ui_widget_image_texture_prop) {
 	TEST_ASSERT_EQUAL_INT(0, ui->image_set_texture(ctx, img, 99));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "texture_id", &pv));
 	TEST_ASSERT_EQUAL_INT(99, pv.data.i32_value);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_image_rect_props_and_size) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t img;
+	sk_ui_prop_value_t pv;
+	sk_ui_style_props_t inline_style;
+	sk_ui_layout_style_t ls;
+
+	/* Editor ImGui::Image form: size + sub-rect UV (flipped V) + tint + border. */
+	img = ui->widget_image_rect(ctx, root, 5, 64.0f, 48.0f, 0.25f, 0.75f, 0.75f, 0.25f, &(sk_ui_color_t){0.2f, 0.4f, 0.8f, 1.0f}, &(sk_ui_color_t){1.0f, 0.0f, 0.0f, 1.0f}, "imgr");
+	TEST_ASSERT_TRUE_MESSAGE(sk_ui_node_is_valid(img), "widget_image_rect failed");
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "texture_id", &pv));
+	TEST_ASSERT_EQUAL_INT(5, pv.data.i32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "uv0_x", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "uv0_y", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.75f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "uv1_x", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.75f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "uv1_y", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "tint_r", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.2f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "tint_a", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "border_g", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, pv.data.f32_value);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "border_a", &pv));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, pv.data.f32_value);
+
+	/* Explicit size lands in the inline style and the resolved layout box. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_inline_style(ctx, img, &inline_style));
+	TEST_ASSERT_EQUAL_INT(SK_UI_LENGTH_POINT, inline_style.layout.width.unit);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 64.0f, inline_style.layout.width.value);
+	TEST_ASSERT_EQUAL_INT(SK_UI_LENGTH_POINT, inline_style.layout.height.unit);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 48.0f, inline_style.layout.height.value);
+	wtest_layout(ui, ctx, 200.0f, 120.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, img, &ls));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 64.0f, ls.width.value);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 48.0f, ls.height.value);
+
+	/* NULL tint/border → defaults: white tint, no border props written. */
+	img = ui->widget_image_rect(ctx, root, 6, 16.0f, 16.0f, 0.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, "imgr2");
+	TEST_ASSERT_TRUE_MESSAGE(sk_ui_node_is_valid(img), "widget_image_rect(NULL tint) failed");
+	TEST_ASSERT_NOT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "tint_r", &pv));
+	TEST_ASSERT_NOT_EQUAL_INT(0, ui->node_get_prop(ctx, img, "border_r", &pv));
 	ui->context_destroy(ctx);
 }
 

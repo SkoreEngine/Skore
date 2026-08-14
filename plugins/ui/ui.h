@@ -2716,6 +2716,18 @@ typedef struct sk_ui_api_t {
 	sk_ui_node_t (*widget_image)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
 
 	/**
+	 * Editor textured-quad image (ImGui::Image): explicit size, sub-rect UV
+	 * (@p uv0..@p uv1), tint and border colours. UV defaults are the full
+	 * texture (0,0)-(1,1); @p tint NULL = opaque white; @p border NULL = none.
+	 * Axis flips are allowed (uv1 < uv0 mirrors, e.g. flipped V). Sets the
+	 * same props as widget_image plus uv0_x/uv0_y/uv1_x/uv1_y and
+	 * tint_r/g/b/a, border_r/g/b/a; paint emits one IMAGE textured quad (and
+	 * a 1px border + 1px image inset when the border alpha is > 0).
+	 */
+	sk_ui_node_t (*widget_image_rect)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, f32 width, f32 height, f32 uv0x, f32 uv0y, f32 uv1x, f32 uv1y,
+									  const sk_ui_color_t* tint, const sk_ui_color_t* border, const_chr_t id);
+
+	/**
 	 * Horizontal menu bar container (row flex, widget=menu_bar). Hosts menu /
 	 * menu_item children. Stable Clay id for hover across frames.
 	 */

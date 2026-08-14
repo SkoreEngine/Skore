@@ -275,6 +275,7 @@ static void sandbox_shutdown(sandbox_t* s) {
 		s->ctx = NULL;
 	}
 	if (s->rd != NULL && sk_render_device_t_is_valid(s->device)) {
+		sandbox_widget_image_tex_release();
 		s->rd->destroy(s->device);
 		s->device = sk_render_device_t_zero();
 	}
@@ -458,6 +459,8 @@ int main(int argc, char* argv[]) {
 		host.fonts = s.fonts;
 		host.font = s.font;
 		host.capture = s.capture;
+		host.rd = s.rd;
+		host.device = s.device;
 		host.width = width;
 		host.height = height;
 		rc = sandbox_widget_run(&host, widget_arg, state_arg, out_path);

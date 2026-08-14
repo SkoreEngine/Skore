@@ -29,6 +29,10 @@ typedef enum sandbox_widget_state_t {
 	SANDBOX_WS_TEXT_ENTRY,
 	SANDBOX_WS_SELECTED,
 	SANDBOX_WS_OPEN,
+	SANDBOX_WS_FULLUV,
+	SANDBOX_WS_SUBRECT,
+	SANDBOX_WS_TINTED,
+	SANDBOX_WS_BORDERED,
 	SANDBOX_WS_COUNT
 } sandbox_widget_state_t;
 
@@ -49,6 +53,11 @@ typedef enum sandbox_widget_state_t {
 #define SANDBOX_WS_BIT_TEXT_ENTRY (1u << SANDBOX_WS_TEXT_ENTRY)
 #define SANDBOX_WS_BIT_SELECTED (1u << SANDBOX_WS_SELECTED)
 #define SANDBOX_WS_BIT_OPEN (1u << SANDBOX_WS_OPEN)
+#define SANDBOX_WS_BIT_FULLUV (1u << SANDBOX_WS_FULLUV)
+#define SANDBOX_WS_BIT_SUBRECT (1u << SANDBOX_WS_SUBRECT)
+#define SANDBOX_WS_BIT_TINTED (1u << SANDBOX_WS_TINTED)
+#define SANDBOX_WS_BIT_BORDERED (1u << SANDBOX_WS_BORDERED)
+#define SANDBOX_WS_BITS_IMAGE (SANDBOX_WS_BIT_FULLUV | SANDBOX_WS_BIT_SUBRECT | SANDBOX_WS_BIT_TINTED | SANDBOX_WS_BIT_BORDERED)
 #define SANDBOX_WS_BITS_SLIDER (SANDBOX_WS_BIT_MIN | SANDBOX_WS_BIT_MID | SANDBOX_WS_BIT_MAX | SANDBOX_WS_BIT_DRAGGING | SANDBOX_WS_BIT_TEXT_ENTRY | SANDBOX_WS_BIT_DISABLED)
 #define SANDBOX_WS_BITS_SELECTABLE (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_SELECTED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_PRESSED)
 #define SANDBOX_WS_BITS_COLOR (SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED | SANDBOX_WS_BIT_OPEN)
@@ -95,6 +104,14 @@ static const_chr_t sandbox_ws_name(sandbox_widget_state_t st) {
 		return "selected";
 	case SANDBOX_WS_OPEN:
 		return "open";
+	case SANDBOX_WS_FULLUV:
+		return "fulluv";
+	case SANDBOX_WS_SUBRECT:
+		return "subrect";
+	case SANDBOX_WS_TINTED:
+		return "tinted";
+	case SANDBOX_WS_BORDERED:
+		return "bordered";
 	case SANDBOX_WS_COUNT:
 	default:
 		return "unknown";
@@ -136,6 +153,214 @@ static i32 sandbox_name_eq(const_chr_t a, const_chr_t b) {
 			return 1;
 		}
 	}
+}
+
+/* -------------------------------------------------------------------------- */
+/* §16 image scene host texture                                               */
+/* -------------------------------------------------------------------------- */
+
+/* The image scene binds a real RGBA8 checkerboard so the sub-rect UV and the
+ * tint are actually visible in the lavapipe PNGs (viewport-case texture id 7
+ * indexes views[7]; out-of-range ids fall back to white in the renderer). */
+#define SANDBOX_IMG_TEX_ID 7u
+#define SANDBOX_IMG_TEX_VIEWS 8u
+#define SANDBOX_IMG_TEX_SIZE 8u
+
+static const sk_render_device_api_t* s_review_rd;
+static sk_render_device_t s_review_dev;
+static sk_texture_t s_review_img_tex;
+static sk_texture_view_t s_review_img_view;
+static sk_texture_view_t s_review_img_views[SANDBOX_IMG_TEX_VIEWS];
+static sk_buffer_t s_review_img_staging;
+static sk_queue_t s_review_img_queue;
+static sk_command_buffer_t s_review_img_cmd;
+static sk_fence_t s_review_img_fence;
+static i32 s_review_img_ready;
+
+void sandbox_widget_image_tex_release(void) {
+	if (s_review_rd == NULL) {
+		return;
+	}
+	if (sk_fence_t_is_valid(s_review_img_fence)) {
+		s_review_rd->destroy_fence(s_review_dev, s_review_img_fence);
+		s_review_img_fence = sk_fence_t_zero();
+	}
+	if (sk_command_buffer_t_is_valid(s_review_img_cmd)) {
+		s_review_rd->destroy_command_buffer(s_review_dev, s_review_img_cmd);
+		s_review_img_cmd = sk_command_buffer_t_zero();
+	}
+	if (sk_queue_t_is_valid(s_review_img_queue)) {
+		s_review_rd->destroy_queue(s_review_dev, s_review_img_queue);
+		s_review_img_queue = sk_queue_t_zero();
+	}
+	if (sk_buffer_t_is_valid(s_review_img_staging)) {
+		s_review_rd->destroy_buffer(s_review_dev, s_review_img_staging);
+		s_review_img_staging = sk_buffer_t_zero();
+	}
+	if (sk_texture_view_t_is_valid(s_review_img_view)) {
+		s_review_rd->destroy_texture_view(s_review_dev, s_review_img_view);
+		s_review_img_view = sk_texture_view_t_zero();
+	}
+	if (sk_texture_t_is_valid(s_review_img_tex)) {
+		s_review_rd->destroy_texture(s_review_dev, s_review_img_tex);
+		s_review_img_tex = sk_texture_t_zero();
+	}
+	s_review_img_ready = 0;
+}
+
+static i32 sandbox_image_tex_init(const sandbox_widget_host_t* host) {
+	const sk_render_device_api_t* rd;
+	sk_render_device_t dev;
+	sk_texture_desc_t tdesc;
+	sk_texture_view_desc_t vdesc;
+	sk_buffer_desc_t bdesc;
+	sk_queue_desc_t qdesc;
+	sk_command_buffer_desc_t cbdesc;
+	sk_fence_desc_t fdesc;
+	sk_command_buffer_begin_info_t begin_info;
+	sk_buffer_texture_copy_t copy;
+	sk_submit_info_t submit;
+	u8 px[SANDBOX_IMG_TEX_SIZE * SANDBOX_IMG_TEX_SIZE * 4u];
+	void* mapped;
+	u32 y;
+	u32 x;
+
+	if (host == NULL || host->rd == NULL || !sk_render_device_t_is_valid(host->device)) {
+		return -1;
+	}
+	if (s_review_img_ready != 0) {
+		return 0;
+	}
+	rd = host->rd;
+	dev = host->device;
+	/* Set the release anchor first so partial failure cleans up. */
+	s_review_rd = rd;
+	s_review_dev = dev;
+
+	/* 4x4 checkerboard of bright/dark teal cells (visible through a sub-rect UV). */
+	for (y = 0u; y < SANDBOX_IMG_TEX_SIZE; ++y) {
+		for (x = 0u; x < SANDBOX_IMG_TEX_SIZE; ++x) {
+			u8* p = &px[(y * SANDBOX_IMG_TEX_SIZE + x) * 4u];
+			u32 on = ((x / 2u) + (y / 2u)) % 2u;
+			if (on != 0u) {
+				p[0] = 255u;
+				p[1] = 214u;
+				p[2] = 120u;
+			} else {
+				p[0] = 24u;
+				p[1] = 92u;
+				p[2] = 120u;
+			}
+			p[3] = 255u;
+		}
+	}
+
+	memset(&tdesc, 0, sizeof(tdesc));
+	tdesc.extent.width = SANDBOX_IMG_TEX_SIZE;
+	tdesc.extent.height = SANDBOX_IMG_TEX_SIZE;
+	tdesc.extent.depth = 1u;
+	tdesc.mip_levels = 1u;
+	tdesc.array_layers = 1u;
+	tdesc.sample_count = 1u;
+	tdesc.format = SK_PIXEL_FORMAT_RGBA8_UNORM;
+	tdesc.usage_flags = (u32)SK_RESOURCE_USAGE_SHADER_RESOURCE | (u32)SK_RESOURCE_USAGE_COPY_DEST;
+	tdesc.debug_name = "review-image-checker";
+	s_review_img_tex = rd->create_texture(dev, &tdesc);
+	if (!sk_texture_t_is_valid(s_review_img_tex)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+
+	memset(&vdesc, 0, sizeof(vdesc));
+	vdesc.texture = s_review_img_tex;
+	vdesc.type = SK_TEXTURE_VIEW_TYPE_2D;
+	vdesc.mip_level_count = 1u;
+	vdesc.array_layer_count = 1u;
+	vdesc.debug_name = "review-image-checker-view";
+	s_review_img_view = rd->create_texture_view(dev, &vdesc);
+	if (!sk_texture_view_t_is_valid(s_review_img_view)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+
+	memset(&bdesc, 0, sizeof(bdesc));
+	bdesc.size = sizeof(px);
+	bdesc.usage_flags = (u32)SK_RESOURCE_USAGE_COPY_SOURCE;
+	bdesc.host_visible = true;
+	bdesc.debug_name = "review-image-checker-staging";
+	s_review_img_staging = rd->create_buffer(dev, &bdesc);
+	if (!sk_buffer_t_is_valid(s_review_img_staging)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	mapped = rd->buffer_map(dev, s_review_img_staging);
+	if (mapped == NULL) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	memcpy(mapped, px, sizeof(px));
+	rd->buffer_unmap(dev, s_review_img_staging);
+
+	memset(&qdesc, 0, sizeof(qdesc));
+	qdesc.queue_type = (u32)SK_QUEUE_TYPE_GRAPHICS;
+	s_review_img_queue = rd->create_queue(dev, &qdesc);
+	if (!sk_queue_t_is_valid(s_review_img_queue)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	memset(&cbdesc, 0, sizeof(cbdesc));
+	cbdesc.level = SK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cbdesc.queue_type = (u32)SK_QUEUE_TYPE_GRAPHICS;
+	cbdesc.debug_name = "review-image-checker-copy";
+	s_review_img_cmd = rd->create_command_buffer(dev, &cbdesc);
+	if (!sk_command_buffer_t_is_valid(s_review_img_cmd)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	memset(&fdesc, 0, sizeof(fdesc));
+	fdesc.debug_name = "review-image-checker-fence";
+	s_review_img_fence = rd->create_fence(dev, &fdesc);
+	if (!sk_fence_t_is_valid(s_review_img_fence)) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+
+	memset(&begin_info, 0, sizeof(begin_info));
+	begin_info.usage_flags = (u32)SK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT;
+	if (rd->begin_command_buffer(dev, s_review_img_cmd, &begin_info) != 0) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	rd->resource_barrier_texture(dev, s_review_img_cmd, s_review_img_tex, SK_RESOURCE_STATE_UNDEFINED, SK_RESOURCE_STATE_COPY_DEST, 0u, 1u, 0u, 1u, (u32)SK_BARRIER_SYNC_AUTOMATIC,
+								 (u32)SK_BARRIER_SYNC_TRANSFER);
+	memset(&copy, 0, sizeof(copy));
+	copy.buffer = s_review_img_staging;
+	copy.buffer_offset = 0u;
+	copy.texture = s_review_img_tex;
+	copy.mip_level = 0u;
+	copy.array_layer = 0u;
+	copy.texture_extent.width = SANDBOX_IMG_TEX_SIZE;
+	copy.texture_extent.height = SANDBOX_IMG_TEX_SIZE;
+	copy.texture_extent.depth = 1u;
+	rd->copy_buffer_to_texture(dev, s_review_img_cmd, &copy);
+	rd->resource_barrier_texture(dev, s_review_img_cmd, s_review_img_tex, SK_RESOURCE_STATE_COPY_DEST, SK_RESOURCE_STATE_SHADER_READ, 0u, 1u, 0u, 1u, (u32)SK_BARRIER_SYNC_TRANSFER,
+								 (u32)SK_BARRIER_SYNC_GRAPHICS);
+	rd->end_command_buffer(dev, s_review_img_cmd);
+
+	memset(&submit, 0, sizeof(submit));
+	submit.command_buffers = &s_review_img_cmd;
+	submit.command_buffer_count = 1u;
+	submit.signal_fence = s_review_img_fence;
+	if (rd->submit(dev, s_review_img_queue, &submit) != 0 || rd->wait_fences(dev, &s_review_img_fence, 1u, true, UINT64_MAX) != 0) {
+		sandbox_widget_image_tex_release();
+		return -1;
+	}
+	rd->reset_fences(dev, &s_review_img_fence, 1u);
+
+	memset(s_review_img_views, 0, sizeof(s_review_img_views));
+	s_review_img_views[SANDBOX_IMG_TEX_ID] = s_review_img_view;
+	s_review_img_ready = 1;
+	return 0;
 }
 
 static void sandbox_widget_style_stage(const sandbox_widget_host_t* host) {
@@ -2095,6 +2320,75 @@ static i32 sandbox_widget_build_color_swatch(const sandbox_widget_host_t* host, 
 	return 0;
 }
 
+/* State → image quad configuration (mutated on the target before paint). */
+static i32 sandbox_image_configure(const sandbox_widget_host_t* host, sk_ui_node_t node, const sk_ui_color_t* tint, const sk_ui_color_t* border, f32 u0, f32 v0, f32 u1, f32 v1) {
+	const sk_ui_api_t* ui = host->ui;
+	(void)ui->node_set_prop_f32(host->ctx, node, "uv0_x", u0);
+	(void)ui->node_set_prop_f32(host->ctx, node, "uv0_y", v0);
+	(void)ui->node_set_prop_f32(host->ctx, node, "uv1_x", u1);
+	(void)ui->node_set_prop_f32(host->ctx, node, "uv1_y", v1);
+	if (tint != NULL) {
+		(void)ui->node_set_prop_f32(host->ctx, node, "tint_r", tint->r);
+		(void)ui->node_set_prop_f32(host->ctx, node, "tint_g", tint->g);
+		(void)ui->node_set_prop_f32(host->ctx, node, "tint_b", tint->b);
+		(void)ui->node_set_prop_f32(host->ctx, node, "tint_a", tint->a);
+	}
+	if (border != NULL) {
+		(void)ui->node_set_prop_f32(host->ctx, node, "border_r", border->r);
+		(void)ui->node_set_prop_f32(host->ctx, node, "border_g", border->g);
+		(void)ui->node_set_prop_f32(host->ctx, node, "border_b", border->b);
+		(void)ui->node_set_prop_f32(host->ctx, node, "border_a", border->a);
+	}
+	return 0;
+}
+
+static i32 sandbox_widget_build_image(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t img;
+	sk_ui_node_t hint;
+	sk_ui_style_props_t p;
+	sk_ui_color_t white = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+
+	if (sandbox_image_tex_init(host) != 0) {
+		fprintf(stderr, "sk-sandbox: image scene host texture init failed\n");
+		return -1;
+	}
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-img-col");
+	if (!sk_ui_node_is_valid(col)) {
+		fprintf(stderr, "sk-sandbox: image column failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP;
+	p.layout.width = sk_ui_pt((f32)host->width - 32.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.align_items = SK_UI_ALIGN_CENTER;
+	p.layout.row_gap = 12.0f;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	(void)ui->widget_text(host->ctx, col, "Image / textured quad  (§16, ImGui::Image)", "review-img-lbl");
+	img = ui->widget_image_rect(host->ctx, col, (i32)SANDBOX_IMG_TEX_ID, 168.0f, 120.0f, 0.0f, 0.0f, 1.0f, 1.0f, &white, NULL, "review-img");
+	if (!sk_ui_node_is_valid(img)) {
+		fprintf(stderr, "sk-sandbox: widget_image_rect failed\n");
+		return -1;
+	}
+	/* Second quad: the exact same texture, sub-rect + tint, so the baseline
+	 * (full UV) and the crop/tint sit side by side in every state PNG. */
+	(void)ui->widget_text(host->ctx, col, "same texture, sub-rect UV + tint", "review-img-hint-lbl");
+	hint = ui->widget_image_rect(host->ctx, col, (i32)SANDBOX_IMG_TEX_ID, 120.0f, 84.0f, 0.25f, 0.25f, 0.75f, 0.75f, &(sk_ui_color_t){1.0f, 0.55f, 0.20f, 1.0f}, NULL,
+								 "review-img-hint");
+	if (!sk_ui_node_is_valid(hint)) {
+		fprintf(stderr, "sk-sandbox: widget_image_rect hint failed\n");
+		return -1;
+	}
+
+	*out_target = img;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -2157,7 +2451,7 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"color_picker", "picker", "§15 ColorPicker4 open (alpha bar + half preview)", SANDBOX_WS_BIT_DEFAULT, 640u, 420u, sandbox_widget_build_color_picker},
 	{"color_edit3", "edit3", "§15 ColorEdit3 compact float[3]", SANDBOX_WS_BIT_DEFAULT, 420u, 96u, sandbox_widget_build_color_edit3},
 	{"color_swatch", "swatch", "§15 14x14 read-only swatch", SANDBOX_WS_BIT_DEFAULT, 192u, 96u, sandbox_widget_build_color_swatch},
-	{"image", NULL, "§16 Image / textured quad", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
+	{"image", NULL, "§16 Image / textured quad", SANDBOX_WS_BITS_IMAGE, 256u, 192u, sandbox_widget_build_image},
 	{"content_item", "contentgrid", "§16 content-item thumbnail grid", SANDBOX_WS_BIT_DEFAULT, 720u, 520u, sandbox_widget_build_content_item},
 	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_SELECTABLE, 360u, 128u, sandbox_widget_build_selectable},
 	{"selectable_list", "selectable_rows", "§18 Selectable list of rows", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_selectable_list},
@@ -2296,6 +2590,30 @@ static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_n
 		return ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_FOCUSED);
 	case SANDBOX_WS_OPEN:
 		return ui->color_set_open(host->ctx, node, 1);
+	case SANDBOX_WS_FULLUV:
+	case SANDBOX_WS_SUBRECT:
+	case SANDBOX_WS_TINTED:
+	case SANDBOX_WS_BORDERED: {
+		sk_ui_color_t white = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+		sk_ui_color_t orange = sk_ui_rgba(1.0f, 0.55f, 0.20f, 1.0f);
+		sk_ui_color_t teal = sk_ui_rgba(0.10f, 0.75f, 0.65f, 1.0f);
+		sk_ui_color_t gold = sk_ui_rgba(1.0f, 0.85f, 0.30f, 1.0f);
+		sk_ui_node_t img = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-img");
+		sk_ui_node_t lbl = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-img-lbl");
+		if (sk_ui_node_is_valid(lbl)) {
+			(void)ui->node_set_prop_str(host->ctx, lbl, "text", sandbox_ws_name(st));
+		}
+		if (st == SANDBOX_WS_FULLUV) {
+			return sandbox_image_configure(host, img, &white, NULL, 0.0f, 0.0f, 1.0f, 1.0f);
+		}
+		if (st == SANDBOX_WS_SUBRECT) {
+			return sandbox_image_configure(host, img, &white, NULL, 0.25f, 0.25f, 0.75f, 0.75f);
+		}
+		if (st == SANDBOX_WS_TINTED) {
+			return sandbox_image_configure(host, img, &orange, NULL, 0.0f, 0.0f, 1.0f, 1.0f);
+		}
+		return sandbox_image_configure(host, img, &teal, &gold, 0.25f, 0.25f, 0.75f, 0.75f);
+	}
 	case SANDBOX_WS_CHECKED:
 		(void)ui->checkbox_set_mixed(host->ctx, node, 0);
 		(void)ui->checkbox_set_checked(host->ctx, node, 1);
@@ -2373,6 +2691,10 @@ static i32 sandbox_widget_write_png(const sandbox_widget_host_t* host, const_chr
 	}
 	finfo.font_system = host->fonts;
 	finfo.font = host->font;
+	if (s_review_img_ready != 0) {
+		finfo.images.views = s_review_img_views;
+		finfo.images.count = SANDBOX_IMG_TEX_VIEWS;
+	}
 	memset(&img, 0, sizeof(img));
 	if (ui->capture_frame(host->capture, &finfo, &img) != 0) {
 		fprintf(stderr, "sk-sandbox: capture_frame failed\n");

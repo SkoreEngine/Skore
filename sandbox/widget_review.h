@@ -23,9 +23,14 @@ typedef struct sandbox_widget_host_t {
 	sk_ui_font_system_t* fonts;
 	sk_ui_font_t* font;
 	sk_ui_capture_t* capture;
+	const sk_render_device_api_t* rd; /**< Optional RHI table for host textures (§16 image scene). */
+	sk_render_device_t device;
 	u32 width;
 	u32 height;
 } sandbox_widget_host_t;
+
+/** Release the §16 image scene host texture (safe when never created). */
+void sandbox_widget_image_tex_release(void);
 
 /**
  * Print the manifest-backed widget catalog (names, states, scene ready?).
