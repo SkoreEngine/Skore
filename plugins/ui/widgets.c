@@ -8,7 +8,8 @@
  * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234/APX-346),
  * popup / modal chrome (popup_menu, modal — APX-347), and
  * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
- * tab, editor_window, window_title_bar, window_content — APX-235). Child /
+ * tab / tab_item / tab_button, editor_window, window_title_bar, window_content
+ * — APX-235 / APX-348). Child /
  * window / layout family (APX-345): widget_window + close, fullscreen, child
  * (border / ResizeX / h-scroll), disabled stack, PushID, SetNextItemWidth,
  * Indent, group, horizontal/vertical + Spring-as-flex-grow. Item-array
@@ -53,6 +54,7 @@ enum {
 	UI_WD_WINDOW = 16,
 	UI_WD_CHILD_RESIZE = 17,
 	UI_WD_MODAL = 18,
+	UI_WD_TAB_BAR = 19,
 };
 
 enum {
@@ -1028,42 +1030,128 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SPLITTER, SK_UI_STATE_HOVER, &var);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SPLITTER, SK_UI_STATE_ACTIVE, &var);
 
-	/* Tab bar strip */
+	/* Tab bar strip (workspace switcher / debugger pages). */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH;
-	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_BORDER_COLOR;
+	base.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
 	base.layout.flex_direction = SK_UI_FLEX_ROW;
 	base.layout.align_items = SK_UI_ALIGN_STRETCH;
 	base.layout.min_height = sk_ui_pt(26.0f);
 	base.layout.width = sk_ui_percent(100.0f);
+	base.border_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
+	base.layout.border.bottom = 1.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB_BAR, &base) != 0) {
 		return -1;
 	}
 
-	/* Tab select target */
+	/* Tab select target: unselected is recessed; selected lifts to page chrome. */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS |
-				SK_UI_SP_BORDER_WIDTH | SK_UI_SP_BORDER_COLOR;
-	base.background_color = sk_ui_rgba(0.18f, 0.19f, 0.22f, 1.0f);
-	ui_style_fill_layout_pad(&base, 6.0f);
-	base.color = sk_ui_rgba(0.75f, 0.76f, 0.78f, 1.0f);
+				SK_UI_SP_BORDER_WIDTH | SK_UI_SP_BORDER_COLOR | SK_UI_SP_FLEX_DIRECTION;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.layout.padding.left = 10.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.bottom = 4.0f;
+	base.color = sk_ui_rgba(0.70f, 0.72f, 0.75f, 1.0f);
 	base.font_size = 13.0f;
 	base.layout.min_height = sk_ui_pt(26.0f);
 	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
 	base.layout.align_items = SK_UI_ALIGN_CENTER;
-	base.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
-	base.layout.border.bottom = 1.0f;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.border_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	base.layout.border.right = 1.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB, &base) != 0) {
 		return -1;
 	}
 	ui_style_props_clear(&var);
 	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
-	var.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
-	var.color = sk_ui_rgba(0.95f, 0.96f, 0.98f, 1.0f);
+	var.background_color = sk_ui_rgba(0.30f, 0.34f, 0.42f, 1.0f);
+	var.color = sk_ui_rgba(0.98f, 0.99f, 1.0f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB, SK_UI_STATE_HOVER, &var);
-	var.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	var.background_color = sk_ui_rgba(0.26f, 0.28f, 0.32f, 1.0f);
 	var.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+	var.border_color = sk_ui_rgba(0.38f, 0.62f, 0.92f, 1.0f);
+	var.layout.border.top = 2.0f;
+	var.layout.border.right = 1.0f;
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB, SK_UI_STATE_ACTIVE, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	var.border_color = sk_ui_rgba(0.72f, 0.80f, 0.94f, 1.0f);
+	var.layout.border.left = 1.0f;
+	var.layout.border.top = 1.0f;
+	var.layout.border.right = 1.0f;
+	var.layout.border.bottom = 1.0f;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB, SK_UI_STATE_FOCUSED, &var);
+
+	/* Trailing TabItemButton ('+') — same chrome, never selected-page fill. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_JUSTIFY_CONTENT |
+				SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_BORDER_COLOR;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.layout.padding.left = 10.0f;
+	base.layout.padding.right = 10.0f;
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.bottom = 4.0f;
+	base.color = sk_ui_rgba(0.78f, 0.80f, 0.84f, 1.0f);
+	base.font_size = 15.0f;
+	base.layout.min_height = sk_ui_pt(26.0f);
+	base.layout.min_width = sk_ui_pt(22.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.border_color = sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f);
+	base.layout.border.right = 1.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB_BUTTON, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
+	var.background_color = sk_ui_rgba(0.32f, 0.38f, 0.48f, 1.0f);
+	var.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB_BUTTON, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB_BUTTON, SK_UI_STATE_ACTIVE, &var);
+
+	/* Per-tab close (shown only when p_open is bound). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLOR |
+				SK_UI_SP_FONT_SIZE | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS;
+	base.layout.width = sk_ui_pt(16.0f);
+	base.layout.height = sk_ui_pt(16.0f);
+	base.layout.min_width = sk_ui_pt(16.0f);
+	base.layout.min_height = sk_ui_pt(16.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.color = sk_ui_rgba(0.88f, 0.90f, 0.93f, 1.0f);
+	base.font_size = 12.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.corner_radius = 2.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB_CLOSE, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
+	var.background_color = sk_ui_rgba(0.72f, 0.22f, 0.22f, 1.0f);
+	var.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB_CLOSE, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.55f, 0.14f, 0.14f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB_CLOSE, SK_UI_STATE_ACTIVE, &var);
+
+	/* Selected tab page body (hidden on unselected tabs). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.background_color = sk_ui_rgba(0.26f, 0.28f, 0.32f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.flex_grow = 1.0f;
+	base.layout.width = sk_ui_percent(100.0f);
+	ui_style_fill_layout_pad(&base, 8.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB_BODY, &base) != 0) {
+		return -1;
+	}
 
 	/* Editor window chrome shell */
 	ui_style_props_clear(&base);
@@ -4433,12 +4521,71 @@ static void ui_splitter_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	event->consumed = 1;
 }
 
+static sk_ui_node_t ui_find_child_widget(const sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t widget);
+static void ui_tab_close_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user);
+static void ui_tab_close_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user);
+
+static i32 ui_tab_is_page(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t w;
+	i32 flags = 0;
+	i32 hidden = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	w = ui_prop_str_const(slot, "widget");
+	if (w == NULL || strcmp(w, "tab") != 0) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "tab_flags", &flags);
+	if ((flags & (i32)SK_UI_TAB_ITEM_FLAG_BUTTON) != 0) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "hidden", &hidden);
+	if (hidden != 0) {
+		return 0;
+	}
+	return 1;
+}
+
+static i32 ui_tab_bar_has_set_selected(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar) {
+	const ui_node_slot_t* bar_slot = ui_slot(ctx, tab_bar);
+	u32 i;
+	if (bar_slot == NULL) {
+		return 0;
+	}
+	for (i = 0u; i < bar_slot->children.count; ++i) {
+		const ui_node_slot_t* cs = ui_slot(ctx, bar_slot->children.items[i]);
+		i32 flags = 0;
+		if (cs == NULL) {
+			continue;
+		}
+		(void)ui_prop_i32_const(cs, "tab_flags", &flags);
+		if ((flags & (i32)SK_UI_TAB_ITEM_FLAG_SET_SELECTED) != 0 && ui_tab_is_page(ctx, bar_slot->children.items[i]) != 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void ui_tab_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t bar;
 	(void)user;
-	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
-	(void)ui_tab_bar_set_active_impl(ctx, SK_UI_NODE_INVALID, node);
+	if (ui_tab_is_page(ctx, node) == 0) {
+		return;
+	}
+	bar = ui->node_parent(ctx, node);
+	if (sk_ui_node_is_valid(bar) && ui_tab_bar_has_set_selected(ctx, bar) != 0) {
+		if (event != NULL) {
+			event->consumed = 1;
+		}
+		return;
+	}
+	(void)ui_tab_bar_set_active_impl(ctx, bar, node);
 	if (event != NULL) {
 		event->consumed = 1;
 	}
@@ -4599,28 +4746,22 @@ sk_ui_node_t ui_widget_splitter_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, 
 }
 
 sk_ui_node_t ui_widget_tab_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
-	return ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_TAB_BAR, "tab_bar", "ui-tab-bar", id);
-}
-
-sk_ui_node_t ui_widget_tab_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
 	const sk_ui_api_t* ui = ui_wapi();
-	sk_ui_node_callbacks_t cbs;
-	ui_widget_data_t* wd;
-	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_TAB, "tab", "ui-tab", id);
+	sk_ui_layout_style_t ls;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_TAB_BAR, "tab_bar", "ui-tab-bar", id);
 	if (!sk_ui_node_is_valid(n)) {
 		return n;
 	}
-	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
-	(void)ui->node_set_prop_i32(ctx, n, "active", 0);
-	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
-	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
-	(void)ui->node_set_focusable(ctx, n, 1);
-	wd = ui_widget_data_ensure(ctx, n, UI_WD_TAB);
-	memset(&cbs, 0, sizeof(cbs));
-	cbs.on_click = ui_tab_on_click;
-	cbs.user = wd;
-	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	(void)ui_widget_data_ensure(ctx, n, UI_WD_TAB_BAR);
+	if (ui->node_get_layout_style(ctx, n, &ls) == 0) {
+		ls.column_gap = 1.0f;
+		(void)ui->node_set_layout_style(ctx, n, &ls);
+	}
 	return n;
+}
+
+sk_ui_node_t ui_widget_tab_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	return ui_widget_tab_item_impl(ctx, parent, label, id, NULL, SK_UI_TAB_ITEM_FLAG_NONE);
 }
 
 sk_ui_node_t ui_widget_editor_window_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id) {
@@ -4713,22 +4854,91 @@ i32 ui_tab_get_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab) {
 	return 0;
 }
 
+static void ui_tab_sync_body(sk_ui_context_t* ctx, sk_ui_node_t tab, i32 active) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = ui_widget_data(ctx, tab);
+	sk_ui_node_t body = SK_UI_NODE_INVALID;
+	if (wd != NULL && sk_ui_node_is_valid(wd->content)) {
+		body = wd->content;
+	}
+	if (!sk_ui_node_is_valid(body)) {
+		body = ui_find_child_widget(ctx, tab, "tab_body");
+	}
+	if (sk_ui_node_is_valid(body)) {
+		(void)ui->node_set_prop_i32(ctx, body, "hidden", active != 0 ? 0 : 1);
+		ui_mark_dirty_up(ctx, body, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+	}
+}
+
+static i32 ui_tab_page_index(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui_node_t tab) {
+	const ui_node_slot_t* bar_slot = ui_slot(ctx, tab_bar);
+	u32 i;
+	i32 idx = 0;
+	if (bar_slot == NULL) {
+		return -1;
+	}
+	for (i = 0u; i < bar_slot->children.count; ++i) {
+		sk_ui_node_t ch = bar_slot->children.items[i];
+		if (ui_tab_is_page(ctx, ch) == 0) {
+			continue;
+		}
+		if (sk_ui_node_eq(ch, tab)) {
+			return idx;
+		}
+		idx += 1;
+	}
+	return -1;
+}
+
+static sk_ui_node_t ui_tab_page_at(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index) {
+	const ui_node_slot_t* bar_slot = ui_slot(ctx, tab_bar);
+	u32 i;
+	i32 idx = 0;
+	if (bar_slot == NULL || index < 0) {
+		return SK_UI_NODE_INVALID;
+	}
+	for (i = 0u; i < bar_slot->children.count; ++i) {
+		sk_ui_node_t ch = bar_slot->children.items[i];
+		if (ui_tab_is_page(ctx, ch) == 0) {
+			continue;
+		}
+		if (idx == index) {
+			return ch;
+		}
+		idx += 1;
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static void ui_tab_bar_write_selected(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, tab_bar);
+	if (wd != NULL && wd->bound_i32 != NULL) {
+		*wd->bound_i32 = index;
+	}
+}
+
 i32 ui_tab_bar_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui_node_t tab) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* bar_slot;
 	u32 i;
+	i32 selected = -1;
 	if (!sk_ui_node_is_valid(tab)) {
 		return -1;
 	}
 	if (!sk_ui_node_is_valid(tab_bar)) {
 		tab_bar = ui->node_parent(ctx, tab);
 	}
+	if (ui_tab_is_page(ctx, tab) == 0) {
+		return -1;
+	}
 	bar_slot = ui_slot(ctx, tab_bar);
 	if (bar_slot != NULL) {
+		(void)ui_widget_data_ensure(ctx, tab_bar, UI_WD_TAB_BAR);
 		for (i = 0u; i < bar_slot->children.count; ++i) {
 			sk_ui_node_t ch = bar_slot->children.items[i];
 			const ui_node_slot_t* cs = ui_slot(ctx, ch);
 			const_chr_t w;
+			i32 flags = 0;
 			if (cs == NULL) {
 				continue;
 			}
@@ -4736,12 +4946,343 @@ i32 ui_tab_bar_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui
 			if (w == NULL || strcmp(w, "tab") != 0) {
 				continue;
 			}
+			(void)ui_prop_i32_const(cs, "tab_flags", &flags);
+			if ((flags & (i32)SK_UI_TAB_ITEM_FLAG_BUTTON) != 0) {
+				continue;
+			}
 			(void)ui_tab_set_active_impl(ctx, ch, sk_ui_node_eq(ch, tab) ? 1 : 0);
+			ui_tab_sync_body(ctx, ch, sk_ui_node_eq(ch, tab) ? 1 : 0);
 		}
+		selected = ui_tab_page_index(ctx, tab_bar, tab);
+		ui_tab_bar_write_selected(ctx, tab_bar, selected);
 	} else {
 		(void)ui_tab_set_active_impl(ctx, tab, 1);
+		ui_tab_sync_body(ctx, tab, 1);
 	}
 	return 0;
+}
+
+static sk_ui_node_t ui_tab_ensure_close(sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t close;
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	char close_id[96];
+	const_chr_t tid;
+	sk_ui_layout_style_t ls;
+
+	close = ui_find_child_widget(ctx, tab, "tab_close");
+	if (sk_ui_node_is_valid(close)) {
+		return close;
+	}
+	tid = ui->node_get_id(ctx, tab);
+	if (tid != NULL && tid[0] != '\0') {
+		(void)snprintf(close_id, sizeof(close_id), "%s-close", tid);
+	} else {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(close_id, sizeof(close_id), "ui-tab-close-%u", ctx->widget_id_seq);
+	}
+	close = ui_button_make(ctx, tab, "x", close_id, SK_UI_CLASS_TAB_CLOSE, "tab_close", 16.0f, 16.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+	if (!sk_ui_node_is_valid(close)) {
+		return SK_UI_NODE_INVALID;
+	}
+	(void)ui->node_set_prop_str(ctx, close, "widget", "tab_close");
+	if (ui->node_get_layout_style(ctx, close, &ls) == 0) {
+		ls.flex_grow = 0.0f;
+		ls.flex_shrink = 0.0f;
+		(void)ui->node_set_layout_style(ctx, close, &ls);
+	}
+	wd = ui_widget_data_ensure(ctx, close, UI_WD_BUTTON);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_tab_close_on_click;
+	cbs.on_event = ui_tab_close_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, close, &cbs);
+	return close;
+}
+
+static void ui_tab_do_close(sk_ui_context_t* ctx, sk_ui_node_t close_btn) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t tab = ui->node_parent(ctx, close_btn);
+	sk_ui_node_t bar;
+	ui_widget_data_t* wd;
+	i32 was_active;
+	if (!sk_ui_node_is_valid(tab)) {
+		return;
+	}
+	wd = ui_widget_data(ctx, tab);
+	if (wd != NULL && wd->p_open != NULL) {
+		*wd->p_open = 0;
+	}
+	(void)ui->node_set_prop_i32(ctx, tab, "hidden", 1);
+	ui_tab_sync_body(ctx, tab, 0);
+	was_active = ui_tab_get_active_impl(ctx, tab);
+	(void)ui_tab_set_active_impl(ctx, tab, 0);
+	bar = ui->node_parent(ctx, tab);
+	if (was_active != 0 && sk_ui_node_is_valid(bar)) {
+		sk_ui_node_t next = SK_UI_NODE_INVALID;
+		const ui_node_slot_t* bar_slot = ui_slot(ctx, bar);
+		u32 i;
+		if (bar_slot != NULL) {
+			for (i = 0u; i < bar_slot->children.count; ++i) {
+				if (ui_tab_is_page(ctx, bar_slot->children.items[i]) != 0) {
+					next = bar_slot->children.items[i];
+					break;
+				}
+			}
+		}
+		if (sk_ui_node_is_valid(next)) {
+			(void)ui_tab_bar_set_active_impl(ctx, bar, next);
+		} else {
+			ui_tab_bar_write_selected(ctx, bar, -1);
+		}
+	}
+	ui_mark_dirty_up(ctx, tab, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+}
+
+static void ui_tab_close_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	ui_button_on_event(ctx, node, event, user);
+	if (wd != NULL && event != NULL && (wd->edge_clicked != 0 || (event->type == SK_UI_EVENT_POINTER_DOWN && wd->edge_pressed != 0))) {
+		ui_tab_do_close(ctx, node);
+		event->consumed = 1;
+	}
+}
+
+static void ui_tab_close_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)user;
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+	ui_tab_do_close(ctx, node);
+}
+
+sk_ui_node_t ui_widget_tab_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, i32* p_open, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	const_chr_t wtype = "tab";
+	const_chr_t class_name = SK_UI_CLASS_TAB;
+	sk_ui_node_t n;
+
+	if ((flags & SK_UI_TAB_ITEM_FLAG_BUTTON) != 0u) {
+		wtype = "tab_button";
+		class_name = SK_UI_CLASS_TAB_BUTTON;
+	}
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, class_name, wtype, "ui-tab", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "active", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "tab_flags", (i32)flags);
+	(void)ui->node_set_prop_i32(ctx, n, "has_close", 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_TAB);
+	if (wd != NULL) {
+		wd->button_flags = SK_UI_BUTTON_FLAG_MOUSE_LEFT;
+		wd->content = SK_UI_NODE_INVALID;
+	}
+	memset(&cbs, 0, sizeof(cbs));
+	if ((flags & SK_UI_TAB_ITEM_FLAG_BUTTON) != 0u) {
+		cbs.on_event = ui_button_on_event;
+	} else {
+		cbs.on_click = ui_tab_on_click;
+	}
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	if (p_open != NULL) {
+		(void)ui_tab_bind_open_impl(ctx, n, p_open);
+	}
+	if ((flags & SK_UI_TAB_ITEM_FLAG_SET_SELECTED) != 0u && (flags & SK_UI_TAB_ITEM_FLAG_BUTTON) == 0u) {
+		(void)ui_tab_bar_set_active_impl(ctx, parent, n);
+	}
+	return n;
+}
+
+sk_ui_node_t ui_widget_tab_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	return ui_widget_tab_item_impl(ctx, parent, label, id, NULL, SK_UI_TAB_ITEM_FLAG_BUTTON);
+}
+
+sk_ui_node_t ui_tab_body_impl(sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd;
+	sk_ui_node_t body;
+	sk_ui_node_t host;
+	char body_id[96];
+	const_chr_t tid;
+	i32 active;
+
+	if (ctx == NULL || !sk_ui_node_is_valid(tab)) {
+		return SK_UI_NODE_INVALID;
+	}
+	wd = ui_widget_data_ensure(ctx, tab, UI_WD_TAB);
+	if (wd != NULL && sk_ui_node_is_valid(wd->content)) {
+		return wd->content;
+	}
+	body = ui_find_child_widget(ctx, tab, "tab_body");
+	if (sk_ui_node_is_valid(body)) {
+		if (wd != NULL) {
+			wd->content = body;
+		}
+		return body;
+	}
+	host = ui->node_parent(ctx, tab);
+	if (sk_ui_node_is_valid(host)) {
+		sk_ui_node_t bar_parent = ui->node_parent(ctx, host);
+		const ui_node_slot_t* hs = ui_slot(ctx, host);
+		const_chr_t hw = hs != NULL ? ui_prop_str_const(hs, "widget") : NULL;
+		if (hw != NULL && strcmp(hw, "tab_bar") == 0 && sk_ui_node_is_valid(bar_parent)) {
+			host = bar_parent;
+		}
+	}
+	tid = ui->node_get_id(ctx, tab);
+	if (tid != NULL && tid[0] != '\0') {
+		(void)snprintf(body_id, sizeof(body_id), "%s-body", tid);
+	} else {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(body_id, sizeof(body_id), "ui-tab-body-%u", ctx->widget_id_seq);
+	}
+	body = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, host, SK_UI_CLASS_TAB_BODY, "tab_body", "ui-tab-body", body_id);
+	if (!sk_ui_node_is_valid(body)) {
+		return body;
+	}
+	active = ui_tab_get_active_impl(ctx, tab);
+	(void)ui->node_set_prop_i32(ctx, body, "hidden", active != 0 ? 0 : 1);
+	if (wd != NULL) {
+		wd->content = body;
+	}
+	return body;
+}
+
+sk_ui_node_t ui_tab_close_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	return ui_find_child_widget(ctx, tab, "tab_close");
+}
+
+i32 ui_tab_bind_open_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, i32* p_open) {
+	ui_widget_data_t* wd;
+	sk_ui_node_t close;
+	if (ctx == NULL || !sk_ui_node_is_valid(tab)) {
+		return -1;
+	}
+	wd = ui_widget_data_ensure(ctx, tab, UI_WD_TAB);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->p_open = p_open;
+	close = ui_tab_ensure_close(ctx, tab);
+	if (p_open == NULL) {
+		if (sk_ui_node_is_valid(close)) {
+			(void)ui_wapi()->node_set_prop_i32(ctx, close, "hidden", 1);
+		}
+		(void)ui_wapi()->node_set_prop_i32(ctx, tab, "has_close", 0);
+		return 0;
+	}
+	if (sk_ui_node_is_valid(close)) {
+		(void)ui_wapi()->node_set_prop_i32(ctx, close, "hidden", 0);
+	}
+	(void)ui_wapi()->node_set_prop_i32(ctx, tab, "has_close", 1);
+	(void)ui_wapi()->node_set_prop_i32(ctx, tab, "text_align", 0);
+	if (*p_open == 0) {
+		(void)ui_wapi()->node_set_prop_i32(ctx, tab, "hidden", 1);
+		ui_tab_sync_body(ctx, tab, 0);
+	} else {
+		(void)ui_wapi()->node_set_prop_i32(ctx, tab, "hidden", 0);
+	}
+	return 0;
+}
+
+i32 ui_tab_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, tab);
+	const ui_node_slot_t* slot;
+	i32 hidden = 0;
+	if (wd != NULL && wd->p_open != NULL) {
+		return *wd->p_open != 0 ? 1 : 0;
+	}
+	slot = ui_slot(ctx, tab);
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "hidden", &hidden);
+	return hidden != 0 ? 0 : 1;
+}
+
+i32 ui_tab_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(tab)) {
+		return -1;
+	}
+	if (ui->node_set_prop_i32(ctx, tab, "tab_flags", (i32)flags) != 0) {
+		return -1;
+	}
+	if ((flags & SK_UI_TAB_ITEM_FLAG_SET_SELECTED) != 0u && (flags & SK_UI_TAB_ITEM_FLAG_BUTTON) == 0u) {
+		(void)ui_tab_bar_set_active_impl(ctx, SK_UI_NODE_INVALID, tab);
+	}
+	return 0;
+}
+
+u32 ui_tab_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	const ui_node_slot_t* slot = ui_slot(ctx, tab);
+	i32 flags = 0;
+	if (slot == NULL) {
+		return 0u;
+	}
+	(void)ui_prop_i32_const(slot, "tab_flags", &flags);
+	return (u32)flags;
+}
+
+i32 ui_tab_bar_bind_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32* selected) {
+	ui_widget_data_t* wd;
+	if (ctx == NULL || !sk_ui_node_is_valid(tab_bar)) {
+		return -1;
+	}
+	wd = ui_widget_data_ensure(ctx, tab_bar, UI_WD_TAB_BAR);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->bound_i32 = selected;
+	if (selected == NULL) {
+		return 0;
+	}
+	if (*selected >= 0) {
+		return ui_tab_bar_set_selected_impl(ctx, tab_bar, *selected);
+	}
+	*selected = ui_tab_bar_get_selected_impl(ctx, tab_bar);
+	return 0;
+}
+
+i32 ui_tab_bar_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar) {
+	const ui_node_slot_t* bar_slot = ui_slot(ctx, tab_bar);
+	u32 i;
+	i32 idx = 0;
+	if (bar_slot == NULL) {
+		return -1;
+	}
+	for (i = 0u; i < bar_slot->children.count; ++i) {
+		sk_ui_node_t ch = bar_slot->children.items[i];
+		if (ui_tab_is_page(ctx, ch) == 0) {
+			continue;
+		}
+		if (ui_tab_get_active_impl(ctx, ch) != 0) {
+			return idx;
+		}
+		idx += 1;
+	}
+	return -1;
+}
+
+i32 ui_tab_bar_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index) {
+	sk_ui_node_t tab = ui_tab_page_at(ctx, tab_bar, index);
+	if (!sk_ui_node_is_valid(tab)) {
+		return -1;
+	}
+	return ui_tab_bar_set_active_impl(ctx, tab_bar, tab);
+}
+
+i32 ui_tab_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	return ui_button_clicked_impl(ctx, tab);
 }
 
 i32 ui_splitter_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, f32 ratio) {
@@ -9647,6 +10188,146 @@ SK_TEST(ui_widget_dock_splitter_tab_interaction) {
 	TEST_ASSERT_EQUAL_INT(0, ui->editor_window_set_title(ctx, win, "Panel*"));
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->editor_window_title_bar(ctx, win)));
 
+	ui->context_destroy(ctx);
+}
+
+static i32 wtest_hidden(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_prop_value_t pv;
+	if (ui->node_get_prop(ctx, node, "hidden", &pv) != 0 || pv.type != SK_UI_PROP_I32) {
+		return 0;
+	}
+	return pv.data.i32_value != 0 ? 1 : 0;
+}
+
+SK_TEST(ui_widget_tab_bar_family_select_body_close) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t host;
+	sk_ui_node_t bar;
+	sk_ui_node_t scene;
+	sk_ui_node_t game;
+	sk_ui_node_t plus;
+	sk_ui_node_t scene_body;
+	sk_ui_node_t game_body;
+	sk_ui_node_t xbtn;
+	i32 scene_open = 1;
+	i32 selected = 0;
+	sk_ui_style_props_t p;
+	sk_ui_rect_t r;
+
+	host = ui->widget_vertical(ctx, root, "tf-host");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(320.0f);
+	p.layout.height = sk_ui_pt(120.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, host, &p));
+
+	bar = ui->widget_tab_bar(ctx, host, "tf-bar");
+	scene = ui->widget_tab_item(ctx, bar, "Scene", "tf-scene", &scene_open, SK_UI_TAB_ITEM_FLAG_NONE);
+	game = ui->widget_tab_item(ctx, bar, "Game", "tf-game", NULL, SK_UI_TAB_ITEM_FLAG_NONE);
+	plus = ui->widget_tab_button(ctx, bar, "+", "tf-plus");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(scene));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(game));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(plus));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->tab_close_button(ctx, scene)));
+	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->tab_close_button(ctx, game)));
+	TEST_ASSERT_EQUAL_UINT(SK_UI_TAB_ITEM_FLAG_BUTTON, ui->tab_get_flags(ctx, plus));
+
+	scene_body = ui->tab_body(ctx, scene);
+	game_body = ui->tab_body(ctx, game);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(scene_body));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(game_body));
+	(void)ui->widget_text(ctx, scene_body, "Scene page", "tf-scene-txt");
+	(void)ui->widget_text(ctx, game_body, "Game page", "tf-game-txt");
+
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_bind_selected(ctx, bar, &selected));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_selected(ctx, bar, 0));
+	TEST_ASSERT_EQUAL_INT(0, selected);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, scene));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, game));
+	TEST_ASSERT_EQUAL_INT(0, wtest_hidden(ui, ctx, scene_body));
+	TEST_ASSERT_EQUAL_INT(1, wtest_hidden(ui, ctx, game_body));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_selected(ctx, bar, 1));
+	TEST_ASSERT_EQUAL_INT(1, selected);
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, scene));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, game));
+	TEST_ASSERT_EQUAL_INT(1, wtest_hidden(ui, ctx, scene_body));
+	TEST_ASSERT_EQUAL_INT(0, wtest_hidden(ui, ctx, game_body));
+
+	wtest_set_size(ui, ctx, bar, 300.0f, 28.0f);
+	wtest_set_size(ui, ctx, scene, 80.0f, 26.0f);
+	wtest_set_size(ui, ctx, game, 80.0f, 26.0f);
+	wtest_set_size(ui, ctx, plus, 24.0f, 26.0f);
+	wtest_layout(ui, ctx, 340.0f, 140.0f);
+
+	xbtn = ui->tab_close_button(ctx, scene);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, xbtn, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, scene_open);
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_open(ctx, scene));
+	TEST_ASSERT_EQUAL_INT(1, wtest_hidden(ui, ctx, scene));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_tab_bar_family_set_selected_plus) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t bar;
+	sk_ui_node_t t0;
+	sk_ui_node_t t1;
+	sk_ui_node_t plus;
+	i32 selected = 0;
+	sk_ui_rect_t r;
+
+	bar = ui->widget_tab_bar(ctx, root, "ts-bar");
+	t0 = ui->widget_tab_item(ctx, bar, "Types", "ts-types", NULL, SK_UI_TAB_ITEM_FLAG_NONE);
+	t1 = ui->widget_tab_item(ctx, bar, "Instance", "ts-inst", NULL, SK_UI_TAB_ITEM_FLAG_NONE);
+	plus = ui->widget_tab_button(ctx, bar, "+", "ts-plus");
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_bind_selected(ctx, bar, &selected));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_selected(ctx, bar, 0));
+	TEST_ASSERT_EQUAL_INT(0, selected);
+
+	wtest_set_size(ui, ctx, bar, 240.0f, 28.0f);
+	wtest_set_size(ui, ctx, t0, 72.0f, 26.0f);
+	wtest_set_size(ui, ctx, t1, 80.0f, 26.0f);
+	wtest_set_size(ui, ctx, plus, 24.0f, 26.0f);
+	wtest_layout(ui, ctx, 280.0f, 80.0f);
+
+	/* User click selects Instance. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t1, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t1));
+	TEST_ASSERT_EQUAL_INT(1, selected);
+
+	/* SetSelected on Types beats a same-frame user click on Instance. */
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_set_flags(ctx, t0, SK_UI_TAB_ITEM_FLAG_SET_SELECTED));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t1));
+	TEST_ASSERT_EQUAL_INT(0, selected);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t1, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t1));
+	TEST_ASSERT_EQUAL_INT(0, selected);
+
+	/* Trailing '+' clicks but does not become the selection. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, plus, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_clicked(ctx, plus));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, plus));
+	TEST_ASSERT_EQUAL_INT(0, selected);
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_get_selected(ctx, bar));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_set_flags(ctx, t0, SK_UI_TAB_ITEM_FLAG_NONE));
 	ui->context_destroy(ctx);
 }
 

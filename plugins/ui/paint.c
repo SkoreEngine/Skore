@@ -1791,10 +1791,10 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		if (kind == SK_UI_NODE_KIND_TEXT || kind == SK_UI_NODE_KIND_BUTTON) {
 			emit = 1;
 		}
-		if (wtype != NULL &&
-			(strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "menu") == 0 ||
-			 strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 || strcmp(wtype, "window_title_bar") == 0 ||
-			 strcmp(wtype, "modal_title") == 0 || strcmp(wtype, "separator_text") == 0 || strcmp(wtype, "slider") == 0 || strcmp(wtype, "drag") == 0)) {
+		if (wtype != NULL && (strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 ||
+							  strcmp(wtype, "menu") == 0 || strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 ||
+							  strcmp(wtype, "tab_button") == 0 || strcmp(wtype, "tab_close") == 0 || strcmp(wtype, "window_title_bar") == 0 || strcmp(wtype, "modal_title") == 0 ||
+							  strcmp(wtype, "separator_text") == 0 || strcmp(wtype, "slider") == 0 || strcmp(wtype, "drag") == 0)) {
 			emit = 1;
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
@@ -1808,6 +1808,17 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
 				text_x = cx + 12.0f * avg;
 				text_w = cw - 12.0f * avg;
+			}
+			if (wtype != NULL && strcmp(wtype, "tab") == 0) {
+				i32 has_close = 0;
+				(void)ui_paint_prop_i32(slot, "has_close", &has_close);
+				if (has_close != 0) {
+					f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+					text_w = cw - 20.0f * avg;
+					if (text_w < 8.0f * avg) {
+						text_w = 8.0f * avg;
+					}
+				}
 			}
 			if (wtype != NULL && (strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "submenu") == 0)) {
 				const_chr_t sc = ui_paint_prop_str(slot, "shortcut");

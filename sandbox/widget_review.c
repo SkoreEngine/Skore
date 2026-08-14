@@ -1116,6 +1116,79 @@ static i32 sandbox_widget_build_modal_save(const sandbox_widget_host_t* host, sk
 	return 0;
 }
 
+static i32 sandbox_widget_build_tab_bar(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t bar;
+	sk_ui_node_t scene;
+	sk_ui_node_t game;
+	sk_ui_node_t plus;
+	sk_ui_node_t body;
+	sk_ui_style_props_t p;
+	static i32 s_scene_open = 1;
+	static i32 s_selected = 0;
+
+	sandbox_widget_style_fill(host);
+	s_scene_open = 1;
+	s_selected = 0;
+	col = ui->widget_vertical(host->ctx, root, "review-tab-col");
+	if (!sk_ui_node_is_valid(col)) {
+		fprintf(stderr, "sk-sandbox: tab column failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
+	p.layout.width = sk_ui_pt((f32)host->width - 32.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	bar = ui->widget_tab_bar(host->ctx, col, "review-tab-bar");
+	if (!sk_ui_node_is_valid(bar)) {
+		fprintf(stderr, "sk-sandbox: widget_tab_bar failed\n");
+		return -1;
+	}
+	scene = ui->widget_tab_item(host->ctx, bar, "Scene", "review-tab-scene", &s_scene_open, SK_UI_TAB_ITEM_FLAG_NONE);
+	game = ui->widget_tab_item(host->ctx, bar, "Game", "review-tab-game", NULL, SK_UI_TAB_ITEM_FLAG_NONE);
+	plus = ui->widget_tab_button(host->ctx, bar, "+", "review-tab-plus");
+	if (!sk_ui_node_is_valid(scene) || !sk_ui_node_is_valid(game) || !sk_ui_node_is_valid(plus)) {
+		fprintf(stderr, "sk-sandbox: tab items failed\n");
+		return -1;
+	}
+	(void)ui->tab_bar_bind_selected(host->ctx, bar, &s_selected);
+	(void)ui->tab_bar_set_selected(host->ctx, bar, 0);
+	body = ui->tab_body(host->ctx, scene);
+	(void)ui->widget_text(host->ctx, body, "Scene workspace", "review-tab-body-txt");
+	(void)ui->tab_body(host->ctx, game);
+	*out_target = game;
+	return 0;
+}
+
+static i32 sandbox_widget_build_tab_plus(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t bar;
+	sk_ui_node_t plus;
+	sk_ui_node_t t0;
+
+	sandbox_widget_style_stage(host);
+	bar = ui->widget_tab_bar(host->ctx, root, "review-tab-plus-bar");
+	if (!sk_ui_node_is_valid(bar)) {
+		fprintf(stderr, "sk-sandbox: tab plus bar failed\n");
+		return -1;
+	}
+	t0 = ui->widget_tab(host->ctx, bar, "Scene", "review-plus-scene");
+	plus = ui->widget_tab_button(host->ctx, bar, "+", "review-plus-btn");
+	if (!sk_ui_node_is_valid(plus) || !sk_ui_node_is_valid(t0)) {
+		fprintf(stderr, "sk-sandbox: tab plus button failed\n");
+		return -1;
+	}
+	(void)ui->tab_bar_set_selected(host->ctx, bar, 0);
+	*out_target = plus;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1147,7 +1220,8 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
 	{"tree", NULL, "§8 TreeNode / CollapsingHeader", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u, NULL},
 	{"table", NULL, "§9 Table", SANDBOX_WS_BIT_DEFAULT, 480u, 256u, NULL},
-	{"tab_bar", "tab", "§10 TabBar", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 384u, 96u, NULL},
+	{"tab_bar", "tab", "§10 TabBar workspace + close + body", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 520u, 180u, sandbox_widget_build_tab_bar},
+	{"tab_bar_plus", "tabplus", "§10 TabItemButton +", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED, 320u, 96u, sandbox_widget_build_tab_plus},
 	{"menu", "menubar", "§11 MenuBar / Menu / MenuItem", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 640u, 280u,
 	 sandbox_widget_build_menu},
 	{"menu_open", "menuopen", "§11 open File menu + shortcut/check/sep", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED, 640u, 280u,
@@ -1212,7 +1286,7 @@ void sandbox_widget_list(void) {
 		}
 		printf("%-12s %-52s %-6s %s\n", catalog[i].name, states, catalog[i].build != NULL ? "ready" : "none", catalog[i].manifest);
 	}
-	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar menubar=menu modal=popup resizex=child_resize\n");
+	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar tabplus=tab_bar_plus menubar=menu modal=popup resizex=child_resize\n");
 	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");

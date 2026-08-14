@@ -608,6 +608,20 @@ i32 ui_popup_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_popup_close_current_impl(sk_ui_context_t* ctx);
 i32 ui_popup_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_set_item_default_focus_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+sk_ui_node_t ui_widget_tab_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, i32* p_open, u32 flags);
+sk_ui_node_t ui_widget_tab_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_tab_body_impl(sk_ui_context_t* ctx, sk_ui_node_t tab);
+sk_ui_node_t ui_tab_close_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+i32 ui_tab_bind_open_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, i32* p_open);
+i32 ui_tab_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+i32 ui_tab_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, u32 flags);
+u32 ui_tab_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+i32 ui_tab_bar_bind_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32* selected);
+i32 ui_tab_bar_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar);
+i32 ui_tab_bar_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index);
+i32 ui_tab_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t tab);
+
 sk_ui_node_t ui_popup_hit_redirect_impl(const sk_ui_context_t* ctx, sk_ui_node_t hit);
 void ui_popup_on_right_click_impl(sk_ui_context_t* ctx, sk_ui_node_t hit, f32 x, f32 y);
 i32 ui_popup_on_escape_impl(sk_ui_context_t* ctx);

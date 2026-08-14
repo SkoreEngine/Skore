@@ -729,11 +729,18 @@ editor-owned; bind selected index, do not rebuild the bar every frame.
 - Programmatic select.
 - Trailing button tab (`+`) that is not a selectable page.
 
-**sk-ui today:** `widget_tab_bar` / `widget_tab`.
+**sk-ui today:** `widget_tab_bar` / `widget_tab` / `widget_tab_item` /
+`widget_tab_button`. Selected index binds via `tab_bar_bind_selected`.
+Close chrome only when `p_open` is given. `SK_UI_TAB_ITEM_FLAG_SET_SELECTED`
+overrides a user click while set. Trailing `+` is `widget_tab_button`.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_tab_bar_family_select_body_close`,
+  `ui_widget_tab_bar_family_set_selected_plus`)
+- [x] Headless UI automation — `plugins/ui/tab_bar_family_tests.c`
+  (`ui_author_tab_bar_family_click_close_plus`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget tab_bar`,
+  `tab_bar_plus`; states default/hovered/focused)
 
 ---
 

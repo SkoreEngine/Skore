@@ -894,6 +894,19 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_SPLITTER "ui-splitter"
 #define SK_UI_CLASS_TAB_BAR "ui-tab-bar"
 #define SK_UI_CLASS_TAB "ui-tab"
+#define SK_UI_CLASS_TAB_BUTTON "ui-tab-button"
+#define SK_UI_CLASS_TAB_CLOSE "ui-tab-close"
+#define SK_UI_CLASS_TAB_BODY "ui-tab-body"
+
+/**
+ * BeginTabItem / TabItemButton flags. No tab-bar flags (editor never sets any).
+ * SET_SELECTED is ImGuiTabItemFlags_SetSelected: programmatic select wins over
+ * a user click on another tab while the flag is set.
+ * BUTTON is TabItemButton: clickable chrome that is not a selectable page.
+ */
+#define SK_UI_TAB_ITEM_FLAG_NONE 0u
+#define SK_UI_TAB_ITEM_FLAG_SET_SELECTED (1u << 0)
+#define SK_UI_TAB_ITEM_FLAG_BUTTON (1u << 1)
 #define SK_UI_CLASS_EDITOR_WINDOW "ui-editor-window"
 #define SK_UI_CLASS_WINDOW_TITLE_BAR "ui-window-title-bar"
 #define SK_UI_CLASS_WINDOW_CONTENT "ui-window-content"
@@ -2537,12 +2550,14 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Horizontal tab strip (widget=tab_bar). Hosts tab children; stable Clay id.
+	 * Bind the selected page index (tab_bar_bind_selected); do not rebuild.
 	 */
 	sk_ui_node_t (*widget_tab_bar)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 
 	/**
 	 * Selectable tab (widget=tab). Prop "active" (0/1); click activates and
-	 * clears active on sibling tabs under the same tab_bar.
+	 * clears active on sibling page tabs under the same tab_bar.
+	 * Equivalent to widget_tab_item(..., NULL, 0).
 	 */
 	sk_ui_node_t (*widget_tab)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
 
@@ -3947,6 +3962,44 @@ typedef struct sk_ui_api_t {
 	 * to @p node (typically the primary button).
 	 */
 	i32 (*set_item_default_focus)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- tab bar family (APX-348; manifest §10) ---- */
+
+	/**
+	 * BeginTabItem. Named page tab. Close chrome appears only when @p p_open
+	 * is non-NULL; clicking it writes 0. @p flags is SK_UI_TAB_ITEM_FLAG_*.
+	 * SET_SELECTED selects this tab and blocks user select while set.
+	 */
+	sk_ui_node_t (*widget_tab_item)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, i32* p_open, u32 flags);
+
+	/**
+	 * TabItemButton (workspace '+'). Clickable, not a selectable page.
+	 * tab_clicked / button_clicked is edge-triggered; selection is unchanged.
+	 */
+	sk_ui_node_t (*widget_tab_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/** Page body. Hidden unless this tab is the selected page. */
+	sk_ui_node_t (*tab_body)(sk_ui_context_t* ctx, sk_ui_node_t tab);
+	/** Close button child, or SK_UI_NODE_INVALID when no p_open. */
+	sk_ui_node_t (*tab_close_button)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close). */
+	i32 (*tab_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t tab, i32* p_open);
+	i32 (*tab_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	i32 (*tab_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t tab, u32 flags);
+	u32 (*tab_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/**
+	 * Bind the selected page index (0..n-1 of visible page tabs, -1 if none).
+	 * Workspace list is editor-owned; do not rebuild the bar each frame.
+	 */
+	i32 (*tab_bar_bind_selected)(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32* selected);
+	i32 (*tab_bar_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar);
+	i32 (*tab_bar_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index);
+
+	/** Edge-triggered click on a TabItemButton ('+'), then clears. */
+	i32 (*tab_clicked)(sk_ui_context_t* ctx, sk_ui_node_t tab);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

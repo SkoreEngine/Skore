@@ -1842,6 +1842,18 @@ static const sk_ui_api_t ui_api = {
 	ui_popup_close_current_impl,
 	ui_popup_get_open_impl,
 	ui_set_item_default_focus_impl,
+	ui_widget_tab_item_impl,
+	ui_widget_tab_button_impl,
+	ui_tab_body_impl,
+	ui_tab_close_button_impl,
+	ui_tab_bind_open_impl,
+	ui_tab_get_open_impl,
+	ui_tab_set_flags_impl,
+	ui_tab_get_flags_impl,
+	ui_tab_bar_bind_selected_impl,
+	ui_tab_bar_get_selected_impl,
+	ui_tab_bar_set_selected_impl,
+	ui_tab_clicked_impl,
 };
 
 /**
