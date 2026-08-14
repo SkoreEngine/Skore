@@ -1675,3 +1675,138 @@ add CTest cases and do not shell out to a vision / LLM CLI.
 
 This manifest is the queue. Later waves tick the boxes; they do not
 re-audit `main` unless a new editor panel appears there.
+
+### APX-360 close-out (2026-08-15)
+
+Independent verifier pass on `feature/review-necessary-widgets-for-skore-edito`
+(`b1ef4cb` plus the menu-popup inline-style fix below). Boxes were not
+trusted: every claimed path and `SK_TEST` / `SK_UI_TEST` name was grepped
+on disk, then the suite and lavapipe host were re-run from a clean
+`build/`.
+
+**In-scope families (§2–§13, §15–§20): all three boxes ticked and backed
+by real files.**
+
+| Family | Unit | Headless (`SK_UI_TEST` → `ui_author_*`) | lavapipe (`sk-sandbox --widget`) |
+| --- | --- | --- | --- |
+| §2 Button | `widgets.c` `ui_widget_button_family_labels_ids_size`, `_click_press_release` | `button_family_tests.c` `button_family_press_release_drag_off` | `button`, `small_button`, `invisible_button`, `selection_button`, `bordered_button`, `arrow_button` — default/hover/press/disabled/focus readable |
+| §3 Text | `widgets.c` measure/wrap/utf8/special | `text_family_tests.c` `text_family_layout_extent_and_content_updates` | `text`, `text_colored`, `text_disabled`, `text_wrapped`, `bullet_text`, `separator_text` — FPS line, green Created, dim hint, wrap, labelled rule |
+| §4 Checkbox | `widgets.c` toggle/flags/radio-group | `checkbox_radio_tests.c` `checkbox_radio_toggle_bind_group_and_external` | `checkbox` default/checked/mixed; `radio`/`radio_group` present as extra completeness, **not** an editor requirement |
+| §5 InputText | `widgets.c` edit/buffer/flags/numeric | `input_text_family_tests.c` `input_text_family_keystrokes_focus_commit_revert` | `text_input`, `_hint`, `_selection`, `_multiline`, `_readonly` — Entity_01, Search hint, HLSL block |
+| §6 Slider/Drag | `widgets.c` clamp + mapping | `slider_drag_family_tests.c` `slider_drag_family_drag_clamp_changed_text_entry` | `slider`/`slider_int`/`slider_float3`/`drag_*` min/mid/max/drag/text/disabled |
+| §7 Combo/ListBox | `combo.c` parse/bind/range/height | `combo_family_tests.c` `combo_family_open_pick_keyboard_listbox` | `combo`, `combo_open`, `listbox` — closed preview, Default Lit/Unlit popup, History rows |
+| §8 Tree/Header | `item_bind.c` + `widgets.c` open/select/leaf/once/dblclick/header | `tree_family_tests.c` `tree_family_expand_select_double_click` | `tree`, `collapsing_header`, `tree_deep` — Entity Tree indent, Transform `…`, selected Gold |
+| §9 Table | `table.c` width/nav/border/scroll/bg/bind | `table_family_tests.c` `table_family_resize_scroll_cell_queries` | `table`, `properties_grid`, `table_scroll` — packages headers, 2-col props, frozen profiler |
+| §10 TabBar | `widgets.c` select/body/close + SetSelected/+ | `tab_bar_family_tests.c` `tab_bar_family_click_close_plus` | `tab_bar`, `tab_bar_plus` — Scene/Game close + trailing `+` |
+| §11 Menu | `widgets.c` open/close/shortcut/check/sep | `menu_family_tests.c` `menu_family_bar_submenu_activate_disabled_outside` | `menu`, `menu_open`, `menu_submenu`, `menu_popup` — File popup hangs **below** File (not stacked on it) |
+| §12 Popup/Modal | `widgets.c` open/outside/size/focus | `popup_modal_family_tests.c` `popup_modal_family_open_block_escape` | `popup`, `popup_menu`, `modal_save` — dim+OK, 300px context, Save Content |
+| §13 Child/Window/Layout | `widgets.c` child/disabled/id/width/group/spring | `child_window_layout_family_tests.c` `child_window_layout_family_scroll_disabled_resizex` | `window`, `fullscreen`, `child`, `child_resize`, `layout`, `disabled` |
+| §15 Color | `color.c` HSV + bind/changed/clamp/swatch | `color_family_tests.c` `color_family_open_drag_type_close` | `color`, `color_picker`, `color_edit3`, `color_swatch` — SV square, hue+alpha, compact RGB, 14×14 |
+| §16 Image / content | `widgets.c` `ui_widget_image_rect_props_and_size`; `image_family_tests.c` size/uv/tint/flip/zero | same file for automation | `image` fulluv/subrect/tinted/bordered (checkerboard); `content_item` zoom grid + selected/error/rename |
+| §17 DragDrop | `drag_drop.c` type/lifetime/self/cancel/custom-rect | `drag_drop_family_tests.c` `drag_drop_family_tree_row_and_property_field` | `drag_drop` default/hovered/dragging — “1 entity” preview |
+| §18 Selectable | `widgets.c` click/selected/disabled + dblclick/span | `selectable_family_tests.c` `selectable_family_click_double_hover` | `selectable`, `selectable_list` |
+| §19 Separator/SameLine | `widgets.c` `ui_widget_separator_family_orientation_and_extents` | `separator_layout_family_tests.c` `separator_layout_family_toolbar_and_matrix_packing` | `separator` — menu vertical rule, Console toolbar, collision matrix |
+| §20 Tooltip | boxes were ticked **without names**; files exist: `tooltip.c` `ui_widget_tooltip_hover_delay_and_passthrough`, `ui_widget_tooltip_clamps_to_viewport_edges` | `tooltip_family_tests.c` `tooltip_family_hover_delay_clamp_passthrough` | `tooltip`, `tooltip_card`, `tooltip_edge` — Save hover, asset card, edge clamp |
+
+**Intentional unticked (not a gap)**
+
+- §14 ProgressBar — 0 live call sites; all three boxes remain empty.
+- Radio / ImageButton / Columns — no editor call sites (§1 / §22.3). They have
+  no family section to tick. Radio tests/scenes under §4 and ImageButton’s
+  absence under §16 stay as documented extras, not editor acceptance.
+
+**§23 editor surfaces → families**
+
+Every family listed for a live panel has a factory on `sk_ui_api_t`
+(`widget_window`/`fullscreen`/`child`/`dock_*`, `widget_menu_*`,
+`widget_tab_*`, `widget_popup_menu`/`widget_modal`, `widget_table`,
+`widget_button`/`small`/`selection`/`bordered`, `widget_text*`,
+`widget_checkbox`, `widget_text_input*`/`widget_input_float3`,
+`widget_tree`/`widget_collapsing_header`, `widget_combo`/`widget_list_box`,
+`widget_slider*`/`drag*`, `widget_color_*`, `widget_image_rect`/
+`widget_content_grid`, `drag_drop_*`, `widget_selectable`,
+`widget_separator`/`spacing`/`dummy`/`same_line`, `widget_tooltip`). Graph /
+Material / Animator **canvas** remains out of scope. No listed surface is
+left without a widget.
+
+**Test suite (clean Debug `build/`, lavapipe ICD not required)**
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DSK_ENABLE_CLANG_TIDY=OFF
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+First run: `sk-tests` failed 1/947 (`ui_author_ix_menu_open_select_dismiss`).
+Cause: `style_resolve` copies `computed.layout` over `layout_style`, so the
+menu popup’s `top=28` POINT (set only via `node_set_layout_style`) was
+wiped to AUTO. The 240×160 popup stacked on the File trigger; the second
+click hit the popup and did not toggle closed. Fix: persist
+position/left/top/min size as inline style in `ui_menu_make_popup`.
+
+Second run (after the fix):
+
+```
+1/3 msdf-atlas-c-smoke ........ Passed    0.30 sec
+2/3 sk-no-statics-guard ....... Passed    0.89 sec
+3/3 sk-tests .................. Passed   11.73 sec
+100% tests passed, 0 tests failed out of 3
+```
+
+`sk-tests` from `build/bin`:
+
+```
+host: ran=400 failed=0
+plugin sk-ui.so: ran=255 failed=0
+======== TOTAL: ran=947 failed=0 ========
+```
+
+(Other plugins: render-device 8, vulkan 13, test-render-device 11,
+profiler 43, jolt 43, entities 92, platform-window 13, render-graph 60,
+dxc 9 — all failed=0.)
+
+**lavapipe PNG review (not a CTest case; no vision/LLM CLI)**
+
+```
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
+(cd build/bin && ./sk-sandbox --list)
+# then --widget <name> --out ../widget-review-apx360 for every catalog name
+```
+
+`--list`: 63 scenes, all `ready`. Capture: **ok=63 fail=0**, 165 PNGs
+written under `build/widget-review-apx360/` (build tree, not committed).
+Each in-scope family’s default (and key state) frames were opened in
+session; chrome, labels, and state contrast look like the editor
+overloads, not a generic sample.
+
+**Merge into `v2`**
+
+`origin/v2` (`9da221e`) is an ancestor of this branch. `git merge-tree`
+of HEAD + `origin/v2` is a clean fast-forward (no add/add). Known CI
+merge-side breakages are already present on this branch, not reintroduced:
+
+- Darwin `-exported_symbol,_sk_plugin_entry_point` (+ `_sk_plugin_run_tests`
+  non-Release) in `cmake/cmake_functions.cmake`.
+- Release `-Werror` unused-function: vulkan `vulkan_command_buffer.c`
+  `-Wno-unused-function`; widget test TUs / helpers stay under `#ifdef SK_TESTS`.
+- Windows clang-tidy: `#undef noreturn` before UCRT; `S_ISDIR`/`S_ISREG`
+  from `_S_IF*` in `ui_test.c` / `font_msdf.c` / `image_write.c` /
+  `image_compare.c`.
+- Path prefix: `ui_test_artifact_png_path_in_subdir` compares with
+  `sk_path_is_sep`, not byte-exact `strncmp`.
+
+Windows ABI tidy on the edited `plugins/ui/widgets.c`: passed.
+
+**Not done / not claimed**
+
+- Did not run GitHub Actions (Windows MSVC, macOS AppleClang, Linux
+  Release `-Werror`, cppcheck job). Local Linux Debug + merge-tree +
+  static review of the known flags is what this machine can prove.
+- Did not run `skore-test-suite` GPU/UI-capture integration (lives in
+  the other repo; CI’s default `ctest` here is unit + in-process
+  headless `SK_UI_TEST` only).
+- Did not tick §14 / Radio / ImageButton / Columns.
+- Did not commit the lavapipe PNG directory (sandbox host output).
+- C++ editor on `main` is still ImGui; this goal is sk-ui factories +
+  the three checks, not a live editor port.

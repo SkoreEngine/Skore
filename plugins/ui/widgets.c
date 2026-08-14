@@ -4943,6 +4943,20 @@ static sk_ui_node_t ui_menu_make_popup(sk_ui_context_t* ctx, sk_ui_node_t parent
 		ls.top = sk_ui_pt(28.0f);
 	}
 	(void)ui->node_set_layout_style(ctx, n, &ls);
+	{
+		/* style_resolve copies computed.layout over layout_style. Left/top
+		 * must live on the inline mask or the popup stacks on the trigger. */
+		sk_ui_style_props_t p;
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
+		p.layout.position = ls.position;
+		p.layout.left = ls.left;
+		p.layout.top = ls.top;
+		p.layout.min_width = ls.min_width;
+		p.layout.min_height = ls.min_height;
+		p.layout.flex_direction = ls.flex_direction;
+		(void)ui->node_merge_inline_style(ctx, n, &p);
+	}
 	return n;
 }
 
