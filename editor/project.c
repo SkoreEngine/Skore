@@ -128,6 +128,7 @@ void sk_editor_project_open_asset(sk_editor_project_t* project, sk_rid_t rid) {
 
 #ifdef SK_TESTS
 
+#include "editor_api.h"
 #include "test.h"
 #include "unity.h"
 
@@ -192,17 +193,23 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
 
-	sk_editor_project_t* project = sk_editor_project_open(app, boot.api, "Game", root);
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (same path hosts use). */
+	sk_editor_bind_tables(app, boot.api);
+	const sk_editor_api_t* editor = (const sk_editor_api_t*)boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
+	sk_editor_project_t* project = editor->project_open(app, boot.api, "Game", root);
 	TEST_ASSERT_NOT_NULL(project);
-	TEST_ASSERT_NOT_NULL(sk_editor_project_assets(project));
-	TEST_ASSERT_NOT_NULL(sk_editor_project_repository(project));
-	TEST_ASSERT_TRUE(sk_editor_project_root_directory(project).id != 0u);
+	TEST_ASSERT_NOT_NULL(editor->project_assets(project));
+	TEST_ASSERT_NOT_NULL(editor->project_repository(project));
+	TEST_ASSERT_TRUE(editor->project_root_directory(project).id != 0u);
 
 	/* Physics component payload types appear in the project type listing
 	 * the same way built-in asset types do (reflection / inspector). */
 	{
 		const sk_repository_api_t* repo = sk_test_repository_table();
-		sk_repository_t* listing = sk_editor_project_repository(project);
+		sk_repository_t* listing = editor->project_repository(project);
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "RigidBodyConfigResource"));
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "RigidBodyStateResource"));
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "BoxColliderResource"));
@@ -214,34 +221,34 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	}
 
 	/* Seeded mesh discovered by core scan (not by an editor-side registry). */
-	sk_rid_t seed = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "seed", ".mesh");
+	sk_rid_t seed = ed_find_asset(editor->project_repository(project), boot.api->repository_api(app), editor->project_root_directory(project), "seed", ".mesh");
 	TEST_ASSERT_TRUE(seed.id != 0u);
 
 	ed_path(samples, "tone.wav", path, (u32)sizeof(path));
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_project_import(project, path));
+	TEST_ASSERT_EQUAL_INT(0, editor->project_import(project, path));
 	ed_path(samples, "wood.png", path, (u32)sizeof(path));
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_project_import(project, path));
+	TEST_ASSERT_EQUAL_INT(0, editor->project_import(project, path));
 	ed_path(samples, "hero.fbx", path, (u32)sizeof(path));
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_project_import(project, path));
+	TEST_ASSERT_EQUAL_INT(0, editor->project_import(project, path));
 
-	sk_rid_t audio = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "tone", ".audio");
-	sk_rid_t texture = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "wood", ".texture");
-	sk_rid_t dcc = ed_find_asset(sk_editor_project_repository(project), boot.api->repository_api(app), sk_editor_project_root_directory(project), "hero", ".dcc_asset");
+	sk_rid_t audio = ed_find_asset(editor->project_repository(project), boot.api->repository_api(app), editor->project_root_directory(project), "tone", ".audio");
+	sk_rid_t texture = ed_find_asset(editor->project_repository(project), boot.api->repository_api(app), editor->project_root_directory(project), "wood", ".texture");
+	sk_rid_t dcc = ed_find_asset(editor->project_repository(project), boot.api->repository_api(app), editor->project_root_directory(project), "hero", ".dcc_asset");
 	TEST_ASSERT_TRUE(audio.id != 0u);
 	TEST_ASSERT_TRUE(texture.id != 0u);
 	TEST_ASSERT_TRUE(dcc.id != 0u);
 
 	/* open_asset is routed to core (builtins are no-ops; must not crash). */
-	sk_editor_project_open_asset(project, audio);
+	editor->project_open_asset(project, audio);
 
 	/* Importers are resolved only through core engine maps. */
 	const sk_resource_assets_api_t* assets_api = boot.api->resource_assets_api(app);
-	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".wav"));
-	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".png"));
-	TEST_ASSERT_NOT_NULL(assets_api->get_importer(sk_editor_project_assets(project), ".fbx"));
-	TEST_ASSERT_NOT_NULL(assets_api->get_asset_handler_for_extension(sk_editor_project_assets(project), ".mesh"));
+	TEST_ASSERT_NOT_NULL(assets_api->get_importer(editor->project_assets(project), ".wav"));
+	TEST_ASSERT_NOT_NULL(assets_api->get_importer(editor->project_assets(project), ".png"));
+	TEST_ASSERT_NOT_NULL(assets_api->get_importer(editor->project_assets(project), ".fbx"));
+	TEST_ASSERT_NOT_NULL(assets_api->get_asset_handler_for_extension(editor->project_assets(project), ".mesh"));
 
-	sk_editor_project_close(project);
+	editor->project_close(project);
 	sk_app_shutdown(app);
 
 	ed_path(samples, "tone.wav", path, (u32)sizeof(path));
@@ -269,7 +276,13 @@ SK_TEST(editor_project_rejects_missing_assets_dir) {
 
 	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
-	TEST_ASSERT_NULL(sk_editor_project_open(app, boot.api, "Game", root));
+
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (same path hosts use). */
+	sk_editor_bind_tables(app, boot.api);
+	const sk_editor_api_t* editor = (const sk_editor_api_t*)boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+	TEST_ASSERT_NULL(editor->project_open(app, boot.api, "Game", root));
 	sk_app_shutdown(app);
 	(void)fs->remove(root);
 }

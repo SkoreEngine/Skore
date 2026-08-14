@@ -14,6 +14,10 @@
  *   4. sk-ui: style_resolve → layout → apply_scale → paint
  *   5. imgui shell: begin → draw → end (immediate rebuild)
  *   6. render order: ImGui-path draw list first, sk-ui draw list second (on top)
+ *
+ * Host-facing surface (APX-328): the functions below are the internal wiring
+ * behind sk_editor_api_t. Hosts and tests resolve the editor only via
+ * app_api->get_api(ctx, SK_EDITOR_API_TYPE_ID) (see editor_api.h).
  */
 
 #include "common.h"

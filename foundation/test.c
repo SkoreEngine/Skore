@@ -276,16 +276,7 @@ i32 sk_test_locate(char* out, u32 cap, const_chr_t rel, const_chr_t from_file) {
 	char dir[1024];
 	u32 climb;
 	static const char* bases[] = {
-		".",
-		"..",
-		"../..",
-		"../../..",
-		"skore",
-		"../skore",
-		"../../skore",
-		"thirdparty/skore",
-		"../thirdparty/skore",
-		"../../thirdparty/skore",
+		".", "..", "../..", "../../..", "skore", "../skore", "../../skore", "thirdparty/skore", "../thirdparty/skore", "../../thirdparty/skore",
 	};
 	u32 i;
 

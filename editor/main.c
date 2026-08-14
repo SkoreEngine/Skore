@@ -14,8 +14,10 @@
  */
 
 #include "app.h"
+#include "editor_api.h"
 #include "editor_ui_host.h"
 #include "logger.h"
+#include "main_windows.h"
 #include "platform_window.h"
 #include "project.h"
 #include "repository.h"
@@ -41,9 +43,9 @@ static void print_usage(const_chr_t argv0) {
 			argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor");
 }
 
-static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* app, const sk_app_api_t* app_api) {
-	sk_repository_t* repository = sk_editor_project_repository(project);
-	sk_rid_t root = sk_editor_project_root_directory(project);
+static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor) {
+	sk_repository_t* repository = editor->project_repository(project);
+	sk_rid_t root = editor->project_root_directory(project);
 	if (repository == NULL || root.id == 0u) {
 		return -1;
 	}
@@ -54,7 +56,7 @@ static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* a
 	return (i32)count;
 }
 
-static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log) {
+static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor, sk_logger_t* log) {
 	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	const sk_platform_window_api_t* win_api;
 	const sk_ui_api_t* ui;
@@ -84,7 +86,7 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		return 1;
 	}
 
-	host = sk_editor_ui_host_create(ui, logger_api, app_api->logger_context(app));
+	host = editor->ui_host_create(ui, logger_api, app_api->logger_context(app));
 	if (host == NULL) {
 		sk_log_error(logger_api, log, "editor UI host create failed");
 		return 1;
@@ -109,14 +111,14 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		 * mouse state (see the player host), but the dual editor host is not
 		 * wired to them yet. It accepts synthetic input from tests; windowed
 		 * mode still runs style/layout/paint for both stacks each frame. */
-		(void)sk_editor_ui_host_frame(host, (f32)logical.width, (f32)logical.height, sx, sy);
+		(void)editor->ui_host_frame(host, (f32)logical.width, (f32)logical.height, sx, sy);
 
 		if ((frames++ % 120u) == 0u) {
-			const sk_ui_draw_list_t* dl = sk_editor_ui_host_sk_ui_draw_list(host);
+			const sk_ui_draw_list_t* dl = editor->ui_host_sk_ui_draw_list(host);
 			u32 imgui_n = 0u;
-			(void)sk_editor_ui_host_imgui_draw_items(host, &imgui_n);
+			(void)editor->ui_host_imgui_draw_items(host, &imgui_n);
 			sk_log_info(logger_api, log, "frame %u: sk-ui verts=%u cmds=%u; imgui items=%u; want_mouse=%d", frames, dl != NULL ? dl->vertex_count : 0u,
-						dl != NULL ? dl->command_count : 0u, imgui_n, sk_editor_ui_host_want_capture_mouse(host));
+						dl != NULL ? dl->command_count : 0u, imgui_n, editor->ui_host_want_capture_mouse(host));
 		}
 
 		if (win_api->window_should_close(window)) {
@@ -124,14 +126,14 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		}
 	}
 
-	sk_editor_ui_host_destroy(host);
+	editor->ui_host_destroy(host);
 	return 0;
 }
 
-static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name, const_chr_t* import_paths,
-							u32 import_count) {
+static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name,
+							const_chr_t* import_paths, u32 import_count) {
 	const sk_logger_api_t* logger_api = app_api->logger_api(app);
-	sk_editor_project_t* project = sk_editor_project_open(app, app_api, package_name, package_path);
+	sk_editor_project_t* project = editor->project_open(app, app_api, package_name, package_path);
 	i32 child_count;
 	u32 i;
 
@@ -144,19 +146,19 @@ static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, 
 	sk_log_info(logger_api, log, "handlers/importers registered through sk_resource_asset_builtins_register_impls");
 
 	for (i = 0u; i < import_count; ++i) {
-		i32 rc = sk_editor_project_import(project, import_paths[i]);
+		i32 rc = editor->project_import(project, import_paths[i]);
 		if (rc != 0) {
 			sk_log_error(logger_api, log, "import failed (%d): %s", rc, import_paths[i]);
-			sk_editor_project_close(project);
+			editor->project_close(project);
 			return 1;
 		}
 		sk_log_info(logger_api, log, "imported via core: %s", import_paths[i]);
 	}
 
-	child_count = count_root_children(project, app, app_api);
+	child_count = count_root_children(project, app, app_api, editor);
 	sk_log_info(logger_api, log, "package root has %d child asset node(s); thumbnails not generated (dropped)", child_count);
 
-	sk_editor_project_close(project);
+	editor->project_close(project);
 	return 0;
 }
 
@@ -168,6 +170,7 @@ int main(int argc, char* argv[]) {
 	i32 ui_migration = 0;
 	sk_app_context_t* app;
 	const sk_app_api_t* app_api;
+	const sk_editor_api_t* editor;
 	const sk_logger_api_t* logger_api;
 	sk_logger_t* log;
 	i32 rc;
@@ -229,13 +232,23 @@ int main(int argc, char* argv[]) {
 	}
 
 	app_api = boot.api;
+
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (hosts never call the underlying free functions). */
+	sk_editor_bind_tables(app, app_api);
+	/* APX-329: register the four built-in workspace types (Scene/Graph/Animator/Material). */
+	sk_editor_workspace_register_impls(app, app_api);
+	/* APX-330: register the 14 main editor windows (titles + dock metadata, empty Draw). */
+	sk_editor_windows_register_impls(app, app_api);
+	editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
+
 	logger_api = app_api->logger_api(app);
 	log = logger_api->create_logger(app_api->logger_context(app), "editor");
 
 	if (ui_migration) {
-		rc = run_ui_migration(app, app_api, log);
+		rc = run_ui_migration(app, app_api, editor, log);
 	} else {
-		rc = run_package_mode(app, app_api, log, package_path, package_name, import_paths, import_count);
+		rc = run_package_mode(app, app_api, editor, log, package_path, package_name, import_paths, import_count);
 	}
 
 	logger_api->destroy_logger(app_api->logger_context(app), log);

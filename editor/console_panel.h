@@ -11,6 +11,10 @@
  *
  * Retained vs ImGui: the panel tree is built once; log lines and filter state
  * are updated in place when the sink version or UI controls change.
+ *
+ * Host-facing surface (APX-328): the functions below are the internal wiring
+ * behind sk_editor_api_t. Hosts and tests resolve the editor only via
+ * app_api->get_api(ctx, SK_EDITOR_API_TYPE_ID) (see editor_api.h).
  */
 
 #include "common.h"

@@ -1341,8 +1341,7 @@ int main(int argc, char* argv[]) {
 		if (ui_state.log != NULL) {
 			sk_extent_t logical = win_api->get_window_size(window);
 			sk_extent_t physical = win_api->get_framebuffer_size(window);
-			sk_log_info(logger_api, ui_state.log,
-						dock_demo != 0 ? "docking demo ready (1280x720 logical, no persist)" : "widget playground ready (mouse/keyboard/wheel → sk-ui)");
+			sk_log_info(logger_api, ui_state.log, dock_demo != 0 ? "docking demo ready (1280x720 logical, no persist)" : "widget playground ready (mouse/keyboard/wheel → sk-ui)");
 			/* create_window args are logical; physical must be logical × scale. */
 			sk_log_info(logger_api, ui_state.log, "window: logical=%ux%u physical=%ux%u scale=%.2fx%.2f", logical.width, logical.height, physical.width, physical.height,
 						(double)ui_state.last_scale_x, (double)ui_state.last_scale_y);

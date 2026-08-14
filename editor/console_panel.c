@@ -571,6 +571,7 @@ i32 sk_editor_console_panel_abs_rect(const sk_editor_console_panel_t* panel, sk_
 
 #ifdef SK_TESTS
 #include "app.h"
+#include "editor_api.h"
 #include "filesystem.h"
 #include "path.h"
 #include "test.h"
@@ -613,6 +614,7 @@ static const sk_ui_api_t* editor_test_load_ui(sk_app_context_t* app_ctx, const s
 SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	sk_app_boot_t boot = sk_app_init(0, NULL);
 	sk_app_context_t* app_ctx = boot.context;
+	const sk_editor_api_t* editor;
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* ctx = NULL;
 	sk_editor_console_panel_t* panel = NULL;
@@ -620,6 +622,13 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	sk_ui_node_t clear_btn;
 
 	TEST_ASSERT_NOT_NULL(app_ctx);
+
+	/* Editor boot: register the single editor API table, then resolve it via
+	 * the app registry (same path hosts use). */
+	sk_editor_bind_tables(app_ctx, boot.api);
+	editor = (const sk_editor_api_t*)boot.api->get_api(app_ctx, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
 	ui = editor_test_load_ui(app_ctx, boot.api);
 	if (ui == NULL) {
 		/* Plugin not built/copied next to tests — skip rather than fail CI config. */
@@ -631,23 +640,23 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	ctx = ui->context_create(NULL);
 	TEST_ASSERT_NOT_NULL(ctx);
 
-	panel = sk_editor_console_panel_create(ui, ctx, SK_UI_NODE_INVALID, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
+	panel = editor->console_create(ui, ctx, SK_UI_NODE_INVALID, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(panel);
-	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sk_editor_console_panel_root(panel)));
-	TEST_ASSERT_TRUE(sk_editor_console_panel_line_count(panel) >= 1u);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(editor->console_root(panel)));
+	TEST_ASSERT_TRUE(editor->console_line_count(panel) >= 1u);
 
-	sk_editor_console_panel_push(panel, SK_LOGGER_TYPE_INFO, "test", "hello console");
-	sk_editor_console_panel_push(panel, SK_LOGGER_TYPE_ERROR, "test", "boom");
-	sk_editor_console_panel_push(panel, SK_LOGGER_TYPE_TRACE, "test", "hidden-by-default");
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_console_panel_sync(panel));
+	editor->console_push(panel, SK_LOGGER_TYPE_INFO, "test", "hello console");
+	editor->console_push(panel, SK_LOGGER_TYPE_ERROR, "test", "boom");
+	editor->console_push(panel, SK_LOGGER_TYPE_TRACE, "test", "hidden-by-default");
+	TEST_ASSERT_EQUAL_INT(0, editor->console_sync(panel));
 	/* Trace off by default → not visible; info + error + welcome are. */
-	TEST_ASSERT_TRUE(sk_editor_console_panel_visible_count(panel) >= 2u);
+	TEST_ASSERT_TRUE(editor->console_visible_count(panel) >= 2u);
 
 	filter = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-filter");
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(filter));
 	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, filter, "boom"));
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_console_panel_sync(panel));
-	TEST_ASSERT_EQUAL_UINT(1u, sk_editor_console_panel_visible_count(panel));
+	TEST_ASSERT_EQUAL_INT(0, editor->console_sync(panel));
+	TEST_ASSERT_EQUAL_UINT(1u, editor->console_visible_count(panel));
 
 	clear_btn = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-clear");
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(clear_btn));
@@ -655,12 +664,12 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	 * the button callback) — hit-test depends on flex chrome sizing. */
 	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
 	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 480.0f, 360.0f));
-	sk_editor_console_panel_clear(panel);
-	TEST_ASSERT_EQUAL_INT(0, sk_editor_console_panel_sync(panel));
-	TEST_ASSERT_EQUAL_UINT(0u, sk_editor_console_panel_line_count(panel));
-	TEST_ASSERT_EQUAL_UINT(0u, sk_editor_console_panel_visible_count(panel));
+	editor->console_clear(panel);
+	TEST_ASSERT_EQUAL_INT(0, editor->console_sync(panel));
+	TEST_ASSERT_EQUAL_UINT(0u, editor->console_line_count(panel));
+	TEST_ASSERT_EQUAL_UINT(0u, editor->console_visible_count(panel));
 
-	sk_editor_console_panel_destroy(panel);
+	editor->console_destroy(panel);
 	ui->context_destroy(ctx);
 	ui->shutdown();
 	sk_app_shutdown(app_ctx);
