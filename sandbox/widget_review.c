@@ -212,6 +212,112 @@ static i32 sandbox_widget_build_arrow_button(const sandbox_widget_host_t* host, 
 	return 0;
 }
 
+/* ---- text family (APX-340) ---- */
+
+static i32 sandbox_widget_build_text(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* ConsoleWindow status line: Text("%.2f ms (%.2f FPS)", …). */
+	n = ui->widget_text(host->ctx, root, "16.67 ms (60.00 FPS)", "review-text");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_colored(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* Editor.cpp save table: TextColored green "Created" / red "Deleted". */
+	n = ui->widget_text_colored(host->ctx, root, "Created", sk_ui_rgba(0.10f, 0.80f, 0.10f, 1.0f), "review-text-colored");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_colored failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_disabled(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* PackagesWindow: TextDisabled hint. */
+	n = ui->widget_text_disabled(host->ctx, root, "No packages installed", "review-text-disabled");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_disabled failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_text_wrapped(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_stage(host);
+	/* TypeActions.cpp: TextWrapped animator-validation warning. */
+	n = ui->widget_text_wrapped(host->ctx, root, "! Parent must be an AnimationControllerResource. Preview Entity on the controller must be provided.", "review-text-wrapped");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_text_wrapped failed\n");
+		return -1;
+	}
+	/* Narrow column so the wrap is visible (editor wraps at the pane width). */
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH;
+	p.layout.width = sk_ui_pt(220.0f);
+	p.layout.min_width = sk_ui_pt(220.0f);
+	p.layout.max_width = sk_ui_pt(220.0f);
+	(void)ui->node_merge_inline_style(host->ctx, n, &p);
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_bullet_text(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* BulletText (completeness; editor never calls it, manifest §22.3). */
+	n = ui->widget_bullet_text(host->ctx, root, "A bulleted line of text", "review-bullet-text");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_bullet_text failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
+static i32 sandbox_widget_build_separator_text(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t n;
+
+	sandbox_widget_style_stage(host);
+	/* ResourceDebuggerWindow: SeparatorText("Resource Info"). */
+	n = ui->widget_separator_text(host->ctx, root, "Resource Info", "review-separator-text");
+	if (!sk_ui_node_is_valid(n)) {
+		fprintf(stderr, "sk-sandbox: widget_separator_text failed\n");
+		return -1;
+	}
+	*out_target = n;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -219,7 +325,12 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"selection_button", "selectionbutton", "§2 ImGuiSelectionButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_selection_button},
 	{"bordered_button", "borderedbutton", "§2 ImGuiBorderedButton", SANDBOX_WS_BITS_INTERACTIVE, 360u, 96u, sandbox_widget_build_bordered_button},
 	{"arrow_button", "arrowbutton", "§2 ArrowButton", SANDBOX_WS_BITS_INTERACTIVE, 192u, 96u, sandbox_widget_build_arrow_button},
-	{"text", "label", "§3 Text", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 320u, 96u, NULL},
+	{"text", "label", "§3 Text", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 320u, 96u, sandbox_widget_build_text},
+	{"text_colored", "colored", "§3 TextColored", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, sandbox_widget_build_text_colored},
+	{"text_disabled", "textdisabled", "§3 TextDisabled", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, sandbox_widget_build_text_disabled},
+	{"text_wrapped", "wrapped", "§3 TextWrapped", SANDBOX_WS_BIT_DEFAULT, 320u, 160u, sandbox_widget_build_text_wrapped},
+	{"bullet_text", "bullet", "§3 BulletText", SANDBOX_WS_BIT_DEFAULT, 320u, 96u, sandbox_widget_build_bullet_text},
+	{"separator_text", "separatortext", "§3 SeparatorText", SANDBOX_WS_BIT_DEFAULT, 360u, 96u, sandbox_widget_build_separator_text},
 	{"checkbox", NULL, "§4 Checkbox", SANDBOX_WS_BITS_INTERACTIVE, 256u, 128u, NULL},
 	{"text_input", "input", "§5 InputText", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
 	{"slider", NULL, "§6 Slider / Drag", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
@@ -282,6 +393,8 @@ void sandbox_widget_list(void) {
 	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar menubar=menu modal=popup layout=window\n");
 	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
+	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");
+	printf("         separatortext=separator_text\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

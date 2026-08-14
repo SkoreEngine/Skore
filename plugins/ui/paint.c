@@ -1456,6 +1456,61 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
+	/* Text family marks (APX-340): bullet disc, separator rule. */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+		if (wtype != NULL && strcmp(wtype, "bullet_text") == 0) {
+			/* Small filled disc centered in the left padding (class pad 18).
+			 * 8px diameter keeps a solid core after edge anti-aliasing. */
+			f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+			f32 d = 8.0f * avg;
+			f32 ddx;
+			f32 ddy;
+			u32 dot_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			if (ch > 0.0f && d > ch * 0.7f) {
+				d = ch * 0.7f;
+			}
+			if (d < 3.0f * avg) {
+				d = 3.0f * avg;
+			}
+			ddx = cx - pad_l * 0.5f - d * 0.5f;
+			ddy = cy + (ch - d) * 0.5f;
+			if (ui_paint_add_rounded_rect_filled(em, ddx, ddy, d, d, d * 0.5f, dot_col) != 0) {
+				return -1;
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "separator_text") == 0) {
+			/* Full-width rule with a gap that holds the label (ImGui SeparatorText). */
+			const_chr_t txt = ui_paint_prop_str(slot, "text");
+			const sk_ui_paint_params_t* params = em->params;
+			f32 px = slot->computed.font_size * avg;
+			f32 label_w = 0.0f;
+			f32 gap = 12.0f * avg;
+			f32 mid = cy + ch * 0.5f;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.42f, 0.45f, 0.50f, 1.0f), opacity));
+			if (px < 1.0f) {
+				px = 1.0f;
+			}
+			if (params != NULL && params->font_system != NULL && params->font != NULL && txt != NULL && txt[0] != '\0') {
+				label_w = ui_paint_measure_advance(params->font_system, params->font, px, (const u8*)txt, (const u8*)txt + strlen(txt));
+			}
+			if (txt == NULL || txt[0] == '\0') {
+				if (ui_paint_add_thick_line(em, cx, mid, cx + cw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			} else {
+				if (ui_paint_add_thick_line(em, cx, mid, cx + gap, mid, t, rule_col) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, cx + gap * 2.0f + label_w, mid, cx + cw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			}
+		}
+	}
+
 	/* Scrollbars for scroll_view when content overflows. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
@@ -1526,13 +1581,21 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		if (kind == SK_UI_NODE_KIND_TEXT || kind == SK_UI_NODE_KIND_BUTTON) {
 			emit = 1;
 		}
-		if (wtype != NULL &&
-			(strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "menu") == 0 ||
-			 strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 || strcmp(wtype, "window_title_bar") == 0)) {
+		if (wtype != NULL && (strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 ||
+							  strcmp(wtype, "menu") == 0 || strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 ||
+							  strcmp(wtype, "window_title_bar") == 0 || strcmp(wtype, "separator_text") == 0)) {
 			emit = 1;
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
-			if (ui_paint_emit_text(em, slot, cx, cy, cw, ch, opacity) != 0) {
+			f32 text_x = cx;
+			f32 text_w = cw;
+			if (wtype != NULL && strcmp(wtype, "separator_text") == 0) {
+				/* Label starts after the rule gap (vertical_align=1 centers it). */
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				text_x = cx + 12.0f * avg;
+				text_w = cw - 12.0f * avg;
+			}
+			if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity) != 0) {
 				return -1;
 			}
 		}

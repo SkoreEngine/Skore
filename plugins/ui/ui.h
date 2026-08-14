@@ -806,6 +806,10 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_PANEL "ui-panel"
 #define SK_UI_CLASS_VIEW "ui-view"
 #define SK_UI_CLASS_LABEL "ui-label"
+#define SK_UI_CLASS_TEXT "ui-text"
+#define SK_UI_CLASS_TEXT_WRAPPED "ui-text-wrapped"
+#define SK_UI_CLASS_SEPARATOR_TEXT "ui-separator-text"
+#define SK_UI_CLASS_BULLET_TEXT "ui-bullet-text"
 #define SK_UI_CLASS_BUTTON "ui-button"
 #define SK_UI_CLASS_BUTTON_SMALL "ui-button-small"
 #define SK_UI_CLASS_BUTTON_INVISIBLE "ui-button-invisible"
@@ -3388,6 +3392,75 @@ typedef struct sk_ui_api_t {
 	/** Allowed mouse buttons (SK_UI_BUTTON_FLAG_MOUSE_*). 0 treated as LEFT. */
 	i32 (*button_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
 	u32 (*button_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- text family (APX-340; editor Text / TextUnformatted / TextDisabled /
+	 * TextColored / TextWrapped / SeparatorText + ImGui wrappers) ---- */
+
+	/**
+	 * Plain text (ImGui Text / TextUnformatted). No soft wrap: text clips at
+	 * the box width (ImGui Text behaviour). Embedded '\n' still breaks lines.
+	 * UTF-8. @p id optional stable test id.
+	 */
+	sk_ui_node_t (*widget_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Wrapped text (ImGui TextWrapped): soft-wraps at the box width. */
+	sk_ui_node_t (*widget_text_wrapped)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Dimmed text (ImGui TextDisabled); Text + SK_UI_STATE_DISABLED dim. */
+	sk_ui_node_t (*widget_text_disabled)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Text with an explicit linear RGBA colour (ImGui TextColored). */
+	sk_ui_node_t (*widget_text_colored)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, sk_ui_color_t color, const_chr_t id);
+
+	/**
+	 * Labelled section rule (ImGui SeparatorText): full-width horizontal rule
+	 * with the label set into a gap in the rule.
+	 */
+	sk_ui_node_t (*widget_separator_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/**
+	 * Bullet + text (ImGui BulletText): small disc in the left padding, then
+	 * the text. Editor never calls BulletText (manifest §22.3); factory here
+	 * for completeness.
+	 */
+	sk_ui_node_t (*widget_bullet_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/**
+	 * "label: value" pair on one row (ImGui LabelText): dimmed label then
+	 * value. Editor never calls LabelText (manifest §22.3); factory here for
+	 * completeness. Returns the row; children via text_with_label_parts.
+	 */
+	sk_ui_node_t (*widget_label_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+
+	/**
+	 * ImGuiTextWithLabel wrapper: dimmed @p label then @p value on one row
+	 * (same shape as widget_label_text, editor-facing name).
+	 */
+	sk_ui_node_t (*widget_text_with_label)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+
+	/**
+	 * ImGuiCentralizedText wrapper: @p text centered in the parent region
+	 * (EntityTree / Properties empty states). Returns the host; text child
+	 * via text_centered_text.
+	 */
+	sk_ui_node_t (*widget_text_centered)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Replace text with a non-null-terminated range [begin, end) (TextUnformatted). */
+	i32 (*text_set_text_range)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t begin, const_chr_t end);
+
+	/** Set/get text colour (style COLOR prop; linear RGBA 0..1). */
+	i32 (*text_set_color)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t color);
+	/** Computed text colour; requires style_resolve to have run. */
+	i32 (*text_get_color)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* out_color);
+
+	/** Set/get disabled (SK_UI_STATE_DISABLED → class disabled variant dims). */
+	i32 (*text_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	i32 (*text_get_disabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Children of a text_with_label / label_text row (out_label, out_value). */
+	i32 (*text_with_label_parts)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_label, sk_ui_node_t* out_value);
+	/** Text child of a widget_text_centered host. */
+	i32 (*text_centered_text)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_text);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

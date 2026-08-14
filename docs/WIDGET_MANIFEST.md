@@ -201,11 +201,24 @@ tree.
 - Centred empty-state string.
 - `SeparatorText` as a labelled section rule.
 
-**sk-ui today:** `widget_label` + per-node colour. No `SeparatorText` factory.
+**sk-ui today:** `widget_text` (no soft wrap), `widget_text_wrapped`,
+`widget_text_disabled` (dim + disabled state), `widget_text_colored` (per-node
+RGBA), `widget_separator_text` (rule + label gap), `widget_bullet_text` and
+`widget_label_text` (completeness; the editor never calls them, §22.3),
+`widget_text_with_label` / `widget_text_centered` wrappers. `label_set_text` /
+`text_set_text_range` update content live and relayout on the next frame.
+`text_set_disabled` maps to the class disabled variant (ImGui `TextDisabled`
+colour); `text_set_color` / `text_get_color` cover `TextColored`.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_text_family_measure_wrap_variants`,
+  `ui_widget_text_family_utf8_newlines_range`,
+  `ui_widget_text_family_special_nodes`)
+- [x] Headless UI automation — `plugins/ui/text_family_tests.c`
+  (`ui_author_text_family_layout_extent_and_content_updates`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget text`,
+  `text_colored`, `text_disabled`, `text_wrapped`, `bullet_text`,
+  `separator_text`)
 
 ---
 

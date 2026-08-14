@@ -691,7 +691,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	}
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
 				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "tab") == 0 ||
-									   strcmp(widget, "window_title_bar") == 0));
+									   strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "separator_text") == 0));
 	wrap = ui_clay_prop_i32(slot, "wrap", 0);
 	(void)is_dock_drag;
 

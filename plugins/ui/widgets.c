@@ -20,6 +20,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ImGui TextDisabled default text color (dim gray on the dark editor). */
+#define UI_TEXT_DISABLED_COLOR sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f)
+
 /* -------------------------------------------------------------------------- */
 /* Widget private state                                                       */
 /* -------------------------------------------------------------------------- */
@@ -277,6 +280,49 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
 	base.font_size = 14.0f;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_LABEL, &base) != 0) {
+		return -1;
+	}
+
+	/* Text family (APX-340): same face as Label; the DISABLED variant is the
+	 * ImGui TextDisabled dim so text_set_disabled / BeginDisabled dim text. */
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_COLOR;
+	var.color = UI_TEXT_DISABLED_COLOR;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_LABEL, SK_UI_STATE_DISABLED, &var);
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 14.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TEXT, &base) != 0) {
+		return -1;
+	}
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT, SK_UI_STATE_DISABLED, &var);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TEXT_WRAPPED, &base) != 0) {
+		return -1;
+	}
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_WRAPPED, SK_UI_STATE_DISABLED, &var);
+
+	/* BulletText: left padding hosts the painted disc (ImGui bullet indent). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_PADDING;
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 14.0f;
+	base.layout.padding.left = 18.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BULLET_TEXT, &base) != 0) {
+		return -1;
+	}
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BULLET_TEXT, SK_UI_STATE_DISABLED, &var);
+
+	/* SeparatorText: full-width rule with the label set into the gap. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_MIN_HEIGHT;
+	base.color = sk_ui_rgba(0.70f, 0.72f, 0.77f, 1.0f);
+	base.font_size = 13.0f;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.bottom = 4.0f;
+	base.layout.min_height = sk_ui_pt(20.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SEPARATOR_TEXT, &base) != 0) {
 		return -1;
 	}
 
@@ -1273,6 +1319,146 @@ sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, con
 	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
 	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 0);
 	return n;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Text family (APX-340)                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Shared text-node setup; @p cls is the style class, @p wrap 0/1. */
+static sk_ui_node_t ui_text_base(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t cls, const_chr_t widget_type, const_chr_t id_prefix, const_chr_t text, const_chr_t id,
+								 i32 wrap) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_TEXT, parent, cls, widget_type, id_prefix, id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", text != NULL ? text : "");
+	(void)ui->node_set_prop_i32(ctx, n, "wrap", wrap != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 0);
+	return n;
+}
+
+sk_ui_node_t ui_widget_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	return ui_text_base(ctx, parent, SK_UI_CLASS_TEXT, "text", "ui-text", text, id, 0);
+}
+
+sk_ui_node_t ui_widget_text_wrapped_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	return ui_text_base(ctx, parent, SK_UI_CLASS_TEXT_WRAPPED, "text_wrapped", "ui-text-wrapped", text, id, 1);
+}
+
+sk_ui_node_t ui_widget_text_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	sk_ui_node_t n = ui_text_base(ctx, parent, SK_UI_CLASS_TEXT, "text_disabled", "ui-text-disabled", text, id, 0);
+	if (sk_ui_node_is_valid(n)) {
+		/* ImGui TextDisabled pushes the disabled style colour; keep the state
+		 * bit too so node_is_enabled() reads false. The inline colour survives
+		 * host-side state resets (sandbox default frames, BeginDisabled pop). */
+		(void)ui_text_set_disabled_impl(ctx, n, 1);
+		(void)ui_text_set_color_impl(ctx, n, UI_TEXT_DISABLED_COLOR);
+	}
+	return n;
+}
+
+sk_ui_node_t ui_widget_text_colored_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, sk_ui_color_t color, const_chr_t id) {
+	sk_ui_node_t n = ui_text_base(ctx, parent, SK_UI_CLASS_TEXT, "text_colored", "ui-text-colored", text, id, 0);
+	if (sk_ui_node_is_valid(n)) {
+		(void)ui_text_set_color_impl(ctx, n, color);
+	}
+	return n;
+}
+
+sk_ui_node_t ui_widget_separator_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_SEPARATOR_TEXT, "separator_text", "ui-separator-text", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", text != NULL ? text : "");
+	/* Paint centers the label vertically inside the rule. */
+	(void)ui->node_set_prop_i32(ctx, n, "wrap", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	return n;
+}
+
+sk_ui_node_t ui_widget_bullet_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_TEXT, parent, SK_UI_CLASS_BULLET_TEXT, "bullet_text", "ui-bullet-text", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", text != NULL ? text : "");
+	(void)ui->node_set_prop_i32(ctx, n, "wrap", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 0);
+	return n;
+}
+
+/** Row container for label/value pairs (LabelText / ImGuiTextWithLabel). */
+static sk_ui_node_t ui_text_row(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t row = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_VIEW, "label_text", "ui-label-text", id);
+	sk_ui_node_t lab;
+	sk_ui_node_t val;
+	char lab_id[64];
+	char val_id[64];
+	if (!sk_ui_node_is_valid(row)) {
+		return row;
+	}
+	{
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP;
+		p.layout.flex_direction = SK_UI_FLEX_ROW;
+		p.layout.align_items = SK_UI_ALIGN_CENTER;
+		p.layout.column_gap = 8.0f;
+		(void)ui->node_merge_inline_style(ctx, row, &p);
+	}
+	lab = ui_text_base(ctx, row, SK_UI_CLASS_TEXT, "text_disabled", "ui-label-text-label", label, NULL, 0);
+	(void)ui_text_set_disabled_impl(ctx, lab, 1);
+	val = ui_text_base(ctx, row, SK_UI_CLASS_TEXT, "text", "ui-label-text-value", value, NULL, 0);
+	/* Child ids: {row}/{label|value} so find_by_id resolves them. */
+	(void)snprintf(lab_id, sizeof(lab_id), "%s.label", ui->node_get_id(ctx, row) != NULL ? ui->node_get_id(ctx, row) : "");
+	(void)snprintf(val_id, sizeof(val_id), "%s.value", ui->node_get_id(ctx, row) != NULL ? ui->node_get_id(ctx, row) : "");
+	(void)ui->node_set_id(ctx, lab, lab_id);
+	(void)ui->node_set_id(ctx, val, val_id);
+	return row;
+}
+
+sk_ui_node_t ui_widget_label_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id) {
+	return ui_text_row(ctx, parent, label, value, id);
+}
+
+sk_ui_node_t ui_widget_text_with_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id) {
+	return ui_text_row(ctx, parent, label, value, id);
+}
+
+sk_ui_node_t ui_widget_text_centered_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t host = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_VIEW, "text_centered", "ui-text-centered", id);
+	sk_ui_node_t txt;
+	char txt_id[64];
+	if (!sk_ui_node_is_valid(host)) {
+		return host;
+	}
+	{
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH;
+		p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+		p.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+		p.layout.align_items = SK_UI_ALIGN_CENTER;
+		p.layout.flex_grow = 1.0f;
+		p.layout.width = sk_ui_percent(100.0f);
+		(void)ui->node_merge_inline_style(ctx, host, &p);
+	}
+	txt = ui_text_base(ctx, host, SK_UI_CLASS_TEXT, "text", "ui-text-centered-text", text, NULL, 0);
+	(void)ui->node_set_prop_i32(ctx, txt, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, txt, "vertical_align", 1);
+	(void)snprintf(txt_id, sizeof(txt_id), "%s.text", ui->node_get_id(ctx, host) != NULL ? ui->node_get_id(ctx, host) : "");
+	(void)ui->node_set_id(ctx, txt, txt_id);
+	return host;
 }
 
 /**
@@ -2522,6 +2708,94 @@ i32 ui_label_set_align_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 text_al
 		return -1;
 	}
 	return ui->node_set_prop_i32(ctx, node, "vertical_align", vertical_align);
+}
+
+i32 ui_text_set_text_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t begin, const_chr_t end) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const sk_allocator_t* a;
+	char* buf;
+	size_t n;
+	i32 rc;
+	if (ctx == NULL || begin == NULL || end == NULL || end < begin) {
+		return -1;
+	}
+	a = ctx->allocator;
+	n = (size_t)(end - begin);
+	buf = (char*)a->alloc(a->instance, n + 1u);
+	if (buf == NULL) {
+		return -1;
+	}
+	if (n > 0u) {
+		memcpy(buf, begin, n);
+	}
+	buf[n] = '\0';
+	rc = ui->node_set_prop_str(ctx, node, "text", buf);
+	a->free(a->instance, buf);
+	return rc;
+}
+
+i32 ui_text_set_color_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t color) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_COLOR;
+	p.color = color;
+	return ui->node_merge_inline_style(ctx, node, &p);
+}
+
+i32 ui_text_get_color_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* out_color) {
+	sk_ui_computed_style_t cs;
+	if (ui_wapi()->node_get_computed_style(ctx, node, &cs) != 0) {
+		return -1;
+	}
+	if (out_color != NULL) {
+		*out_color = cs.color;
+	}
+	return 0;
+}
+
+i32 ui_text_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 st = ui->node_get_state(ctx, node);
+	if (disabled) {
+		st |= (u32)SK_UI_STATE_DISABLED;
+	} else {
+		st &= ~(u32)SK_UI_STATE_DISABLED;
+	}
+	return ui->node_set_state(ctx, node, st);
+}
+
+i32 ui_text_get_disabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+}
+
+i32 ui_text_with_label_parts_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_label, sk_ui_node_t* out_value) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	if (out_label != NULL) {
+		*out_label = SK_UI_NODE_INVALID;
+	}
+	if (out_value != NULL) {
+		*out_value = SK_UI_NODE_INVALID;
+	}
+	a = ui->node_child_at(ctx, node, 0u);
+	b = ui->node_child_at(ctx, node, 1u);
+	if (out_label != NULL) {
+		*out_label = a;
+	}
+	if (out_value != NULL) {
+		*out_value = b;
+	}
+	return sk_ui_node_is_valid(a) && sk_ui_node_is_valid(b) ? 0 : -1;
+}
+
+i32 ui_text_centered_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_text) {
+	sk_ui_node_t t = ui_wapi()->node_child_at(ctx, node, 0u);
+	if (out_text != NULL) {
+		*out_text = t;
+	}
+	return sk_ui_node_is_valid(t) ? 0 : -1;
 }
 
 i32 ui_button_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label) {
@@ -3777,6 +4051,225 @@ SK_TEST(ui_widget_button_family_click_press_release) {
 	TEST_ASSERT_EQUAL_INT(0, ui->button_set_selected(ctx, sel, 0));
 	TEST_ASSERT_EQUAL_INT(0, ui->button_get_selected(ctx, sel));
 	TEST_ASSERT_FALSE(ui->node_has_class(ctx, sel, SK_UI_CLASS_BUTTON_SELECTED));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_family_measure_wrap_variants) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	{ /* Keep auto widths: no cross-axis stretch. */
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_ALIGN_ITEMS;
+		p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, root, &p));
+	}
+	sk_ui_node_t t_short;
+	sk_ui_node_t t_long;
+	sk_ui_node_t t_empty;
+	sk_ui_node_t t_wrap;
+	sk_ui_node_t t_col;
+	sk_ui_node_t t_dis;
+	sk_ui_rect_t r;
+	sk_ui_computed_style_t cs;
+	sk_ui_color_t col;
+	f32 single_h;
+	f32 short_w;
+	f32 long_w;
+
+	/* Factories + classes + widget props. */
+	t_short = ui->widget_text(ctx, root, "Hi", "tf-short");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(t_short));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, t_short, SK_UI_CLASS_TEXT));
+	TEST_ASSERT_EQUAL_STRING("Hi", ui->label_get_text(ctx, t_short));
+	t_long = ui->widget_text(ctx, root, "Hello World", "tf-long");
+	t_empty = ui->widget_text(ctx, root, "", "tf-empty");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(t_empty));
+	TEST_ASSERT_EQUAL_STRING("", ui->label_get_text(ctx, t_empty));
+	/* NULL text treated as empty. */
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->widget_text(ctx, root, NULL, "tf-null")));
+	t_wrap = ui->widget_text_wrapped(ctx, root, "Hello World Wrapped Text", "tf-wrap");
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, t_wrap, SK_UI_CLASS_TEXT_WRAPPED));
+	t_col = ui->widget_text_colored(ctx, root, "Red", sk_ui_rgba(1.0f, 0.2f, 0.2f, 1.0f), "tf-col");
+	t_dis = ui->widget_text_disabled(ctx, root, "Dim", "tf-dis");
+
+	/* Measured size: longer text measures wider; height is one text line. */
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t_short, &r, NULL));
+	short_w = r.width;
+	TEST_ASSERT_TRUE(short_w > 0.0f);
+	TEST_ASSERT_TRUE(r.height > 0.0f);
+	single_h = r.height;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t_long, &r, NULL));
+	long_w = r.width;
+	TEST_ASSERT_TRUE(long_w > short_w);
+	/* Plain Text does not soft-wrap: auto box stays single line. */
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, single_h, r.height);
+	/* Empty text is legal: valid (possibly zero-extent) box, no crash. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t_empty, &r, NULL));
+	TEST_ASSERT_TRUE(r.width >= 0.0f);
+	TEST_ASSERT_TRUE(r.height >= 0.0f);
+
+	/* Wrap at a given width: fixed 60px column, height grows to 3+ lines. */
+	wtest_set_size(ui, ctx, t_wrap, 60.0f, 0.0f);
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t_wrap, &r, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 60.0f, r.width);
+	TEST_ASSERT_TRUE(r.height >= single_h * 3.0f);
+
+	/* Colour: computed color matches the caller RGBA. */
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, t_col, &cs));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, cs.color.r);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.2f, cs.color.g);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_get_color(ctx, t_col, &col));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, col.r);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.2f, col.g);
+	/* text_set_color on an existing node (TextColored live update). */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_set_color(ctx, t_short, sk_ui_rgba(0.1f, 0.9f, 0.3f, 1.0f)));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, t_short, &cs));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.9f, cs.color.g);
+
+	/* Disabled: state bit + class disabled variant dims the colour. */
+	TEST_ASSERT_EQUAL_INT(1, ui->text_get_disabled(ctx, t_dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_set_disabled(ctx, t_short, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->text_get_disabled(ctx, t_short));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, t_short, &cs));
+	TEST_ASSERT_TRUE(cs.color.r < 0.70f);
+	TEST_ASSERT_EQUAL_INT(0, ui->text_set_disabled(ctx, t_short, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_get_disabled(ctx, t_short));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, t_short, &cs));
+	/* Back to the earlier inline green (0.1, 0.9, 0.3), not the dim variant. */
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.9f, cs.color.g);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_family_utf8_newlines_range) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t t;
+	sk_ui_node_t nl;
+	sk_ui_node_t huge;
+	sk_ui_rect_t r;
+	f32 one_h;
+	f32 nl_h;
+	f32 huge_h;
+	char big[1024];
+	u32 i;
+	const_chr_t buf = "range-ignored";
+
+	/* Multi-byte UTF-8 round-trips byte-exact and measures non-zero. */
+	t = ui->widget_text(ctx, root, "h\xc3\xa9llo w\xc3\xb6rld \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", "tf-utf8");
+	TEST_ASSERT_EQUAL_STRING("h\xc3\xa9llo w\xc3\xb6rld \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", ui->label_get_text(ctx, t));
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, t, &r, NULL));
+	TEST_ASSERT_TRUE(r.width > 0.0f);
+	TEST_ASSERT_TRUE(r.height > 0.0f);
+	one_h = r.height;
+
+	/* Embedded newlines (wrapped label) break into lines: height grows. */
+	nl = ui->widget_text_wrapped(ctx, root, "line1\nline2\nline3\nline4", "tf-nl");
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, nl, &r, NULL));
+	nl_h = r.height;
+	TEST_ASSERT_TRUE(nl_h >= one_h * 3.5f);
+
+	/* Very long string wrapped at a narrow width: many lines, no crash. */
+	memset(big, 'x', sizeof(big) - 1u);
+	big[sizeof(big) - 1u] = '\0';
+	for (i = 8u; i < sizeof(big) - 1u; i += 9u) {
+		big[i] = ' ';
+	}
+	huge = ui->widget_text_wrapped(ctx, root, big, "tf-huge");
+	wtest_set_size(ui, ctx, huge, 80.0f, 0.0f);
+	wtest_layout(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, huge, &r, NULL));
+	huge_h = r.height;
+	TEST_ASSERT_TRUE(huge_h > nl_h);
+
+	/* TextUnformatted range: non-null-terminated [begin,end) replaces text. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_set_text_range(ctx, t, buf + 1, buf + 4));
+	TEST_ASSERT_EQUAL_STRING("ang", ui->label_get_text(ctx, t));
+	/* Range of zero length → empty. */
+	TEST_ASSERT_EQUAL_INT(0, ui->text_set_text_range(ctx, t, buf, buf));
+	TEST_ASSERT_EQUAL_STRING("", ui->label_get_text(ctx, t));
+	/* Invalid range rejected. */
+	TEST_ASSERT_TRUE(ui->text_set_text_range(ctx, t, buf + 3, buf + 1) != 0);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_text_family_special_nodes) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t sep;
+	sk_ui_node_t bullet;
+	sk_ui_node_t lt;
+	sk_ui_node_t lab;
+	sk_ui_node_t val;
+	sk_ui_node_t cen;
+	sk_ui_node_t cen_txt;
+	sk_ui_rect_t r;
+	sk_ui_computed_style_t cs;
+
+	/* SeparatorText: full-width labelled rule. */
+	sep = ui->widget_separator_text(ctx, root, "Resource Info", "tf-sep");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sep));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, sep, SK_UI_CLASS_SEPARATOR_TEXT));
+	TEST_ASSERT_EQUAL_STRING("Resource Info", ui->label_get_text(ctx, sep));
+	wtest_layout(ui, ctx, 300.0f, 200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sep, &r, NULL));
+	TEST_ASSERT_TRUE(r.width >= 280.0f);
+	TEST_ASSERT_TRUE(r.height >= 20.0f);
+	/* Empty label is legal. */
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->widget_separator_text(ctx, root, "", "tf-sep-empty")));
+
+	/* BulletText: left padding hosts the disc; text still readable. */
+	bullet = ui->widget_bullet_text(ctx, root, "bullet line", "tf-bullet");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(bullet));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, bullet, SK_UI_CLASS_BULLET_TEXT));
+	TEST_ASSERT_EQUAL_STRING("bullet line", ui->label_get_text(ctx, bullet));
+	wtest_layout(ui, ctx, 300.0f, 200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, bullet, &r, NULL));
+	TEST_ASSERT_TRUE(r.width >= 18.0f + 30.0f);
+	TEST_ASSERT_TRUE(r.height > 0.0f);
+
+	/* LabelText / TextWithLabel: dimmed label + value row children. */
+	lt = ui->widget_text_with_label(ctx, root, "Name", "value", "tf-lt");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(lt));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_with_label_parts(ctx, lt, &lab, &val));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(lab));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(val));
+	TEST_ASSERT_EQUAL_STRING("Name", ui->label_get_text(ctx, lab));
+	TEST_ASSERT_EQUAL_STRING("value", ui->label_get_text(ctx, val));
+	wtest_layout(ui, ctx, 300.0f, 200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, lt, &r, NULL));
+	TEST_ASSERT_TRUE(r.width > 0.0f && r.height > 0.0f);
+	/* label_text factory is the same row shape. */
+	lt = ui->widget_label_text(ctx, root, "FPS", "120", "tf-lt2");
+	TEST_ASSERT_EQUAL_INT(0, ui->text_with_label_parts(ctx, lt, &lab, &val));
+	TEST_ASSERT_EQUAL_STRING("FPS", ui->label_get_text(ctx, lab));
+	/* The label is dimmed (disabled variant) while the value is not. */
+	wtest_layout(ui, ctx, 300.0f, 200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, lab, &cs));
+	TEST_ASSERT_TRUE(cs.color.r < 0.70f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_computed_style(ctx, val, &cs));
+	TEST_ASSERT_TRUE(cs.color.r > 0.80f);
+
+	/* Centered empty-state text: host + centered text child. */
+	cen = ui->widget_text_centered(ctx, root, "Open a scene...", "tf-cen");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(cen));
+	TEST_ASSERT_EQUAL_INT(0, ui->text_centered_text(ctx, cen, &cen_txt));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(cen_txt));
+	TEST_ASSERT_EQUAL_STRING("Open a scene...", ui->label_get_text(ctx, cen_txt));
 
 	ui->context_destroy(ctx);
 }

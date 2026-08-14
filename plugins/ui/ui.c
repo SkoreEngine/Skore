@@ -1700,6 +1700,22 @@ static const sk_ui_api_t ui_api = {
 	ui_button_get_selected_impl,
 	ui_button_set_flags_impl,
 	ui_button_get_flags_impl,
+	ui_widget_text_impl,
+	ui_widget_text_wrapped_impl,
+	ui_widget_text_disabled_impl,
+	ui_widget_text_colored_impl,
+	ui_widget_separator_text_impl,
+	ui_widget_bullet_text_impl,
+	ui_widget_label_text_impl,
+	ui_widget_text_with_label_impl,
+	ui_widget_text_centered_impl,
+	ui_text_set_text_range_impl,
+	ui_text_set_color_impl,
+	ui_text_get_color_impl,
+	ui_text_set_disabled_impl,
+	ui_text_get_disabled_impl,
+	ui_text_with_label_parts_impl,
+	ui_text_centered_text_impl,
 };
 
 /**

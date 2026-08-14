@@ -564,6 +564,15 @@ Factories create nodes with a default style class, prop `"widget"` type string, 
 | `widget_panel` | BOX / `ui-panel` | `panel` | Styled container |
 | `widget_view` | BOX / `ui-view` | `view` | Lightweight container |
 | `widget_label` | TEXT / `ui-label` | `label` | Text + wrap/align |
+| `widget_text` | TEXT / `ui-text` | `text` | Plain text, no soft wrap (ImGui Text) |
+| `widget_text_wrapped` | TEXT / `ui-text-wrapped` | `text_wrapped` | Soft-wrap at box width |
+| `widget_text_disabled` | TEXT / `ui-text` | `text_disabled` | Dim (ImGui TextDisabled) |
+| `widget_text_colored` | TEXT / `ui-text` | `text_colored` | Explicit RGBA (ImGui TextColored) |
+| `widget_separator_text` | BOX / `ui-separator-text` | `separator_text` | Rule with label in the gap |
+| `widget_bullet_text` | TEXT / `ui-bullet-text` | `bullet_text` | Disc + text (completeness) |
+| `widget_label_text` | BOX / `ui-view` | `label_text` | Dimmed label + value row |
+| `widget_text_with_label` | BOX / `ui-view` | `label_text` | Same row (editor wrapper name) |
+| `widget_text_centered` | BOX / `ui-view` | `text_centered` | Centered empty-state text |
 | `widget_button` | BUTTON / `ui-button` | `button` | Focusable; `button_clicked` on release |
 | `widget_small_button` | BUTTON / `ui-button` + `ui-button-small` | `button` | Compact pad (ImGui SmallButton) |
 | `widget_invisible_button` | BUTTON / `ui-button` + `ui-button-invisible` | `button` | Hit target; mouse-button flags |
@@ -589,20 +598,49 @@ sk_ui_node_t row = ui->widget_view(ctx, panel, "toolbar");
 
 No widget-specific props beyond class styling and normal node APIs.
 
-### 7.2 Label
+### 7.2 Label / Text family
+
+Matches the editor ImGui overloads in `docs/WIDGET_MANIFEST.md` §3.
 
 | Prop / API | Meaning |
 | --- | --- |
-| prop `"text"` | Visible string |
-| prop `"wrap"` | `0` off, `1` on (default on) |
+| prop `"text"` | Visible string (UTF-8; `\n` breaks lines) |
+| prop `"wrap"` | `0` off, `1` on (default on for `widget_label`) |
 | prop `"text_align"` / `"vertical_align"` | `0` start, `1` center, `2` end |
-| `label_set_text` / `label_get_text` | Text accessors |
+| `label_set_text` / `label_get_text` | Text accessors (any text node) |
 | `label_set_wrap` / `label_set_align` | Wrap and alignment |
+| `text_set_text_range` | Non-null-terminated range (ImGui `TextUnformatted(begin, end)`) |
+| `text_set_color` / `text_get_color` | Explicit linear RGBA (ImGui `TextColored`) |
+| `text_set_disabled` / `text_get_disabled` | `SK_UI_STATE_DISABLED` dims via the class variant (ImGui `TextDisabled`) |
+| `text_with_label_parts` | `label` / `value` children of a LabelText row |
+| `text_centered_text` | Centered text child of a `widget_text_centered` host |
+
+Factories:
+
+| Factory | Class | widget prop | Notes |
+| --- | --- | --- | --- |
+| `widget_label` | `ui-label` | `label` | Text + wrap/align (legacy) |
+| `widget_text` | `ui-text` | `text` | Plain text, no soft wrap (ImGui `Text`) |
+| `widget_text_wrapped` | `ui-text-wrapped` | `text_wrapped` | Soft-wrap at box width (ImGui `TextWrapped`) |
+| `widget_text_disabled` | `ui-text` | `text_disabled` | Dim colour + disabled state (ImGui `TextDisabled`) |
+| `widget_text_colored` | `ui-text` | `text_colored` | Caller RGBA colour (ImGui `TextColored`) |
+| `widget_separator_text` | `ui-separator-text` | `separator_text` | Full-width rule with label in the gap |
+| `widget_bullet_text` | `ui-bullet-text` | `bullet_text` | Disc + text (completeness; editor never calls it) |
+| `widget_label_text` / `widget_text_with_label` | `ui-view` | `label_text` | Dimmed label + value row |
+| `widget_text_centered` | `ui-view` | `text_centered` | Centered empty-state text |
 
 ```c
 sk_ui_node_t lab = ui->widget_label(ctx, panel, "Volume", "lbl-volume");
 (void)ui->label_set_wrap(ctx, lab, 1);
 (void)ui->label_set_align(ctx, lab, 0, 1);
+
+sk_ui_node_t status = ui->widget_text(ctx, bar, "16.67 ms (60.00 FPS)", "lbl-status");
+(void)ui->label_set_text(ctx, status, "8.33 ms (120.00 FPS)"); /* relayouts next frame */
+
+sk_ui_node_t warn = ui->widget_text_wrapped(ctx, pane, "Parent must be an AnimationControllerResource.", "lbl-warn");
+sk_ui_node_t del = ui->widget_text_colored(ctx, table, "Deleted", sk_ui_rgba(0.8f, 0.1f, 0.1f, 1.0f), "lbl-del");
+sk_ui_node_t hint = ui->widget_text_disabled(ctx, pane, "No packages installed", "lbl-hint");
+(void)ui->widget_separator_text(ctx, pane, "Resource Info", "lbl-sep");
 ```
 
 Callbacks: none built-in; use `node_set_callbacks` if needed.

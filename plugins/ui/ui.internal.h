@@ -596,6 +596,23 @@ i32 ui_button_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_button_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
 u32 ui_button_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
+sk_ui_node_t ui_widget_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_text_wrapped_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_text_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_text_colored_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, sk_ui_color_t color, const_chr_t id);
+sk_ui_node_t ui_widget_separator_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_bullet_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_label_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+sk_ui_node_t ui_widget_text_with_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+sk_ui_node_t ui_widget_text_centered_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+i32 ui_text_set_text_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t begin, const_chr_t end);
+i32 ui_text_set_color_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t color);
+i32 ui_text_get_color_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* out_color);
+i32 ui_text_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_text_get_disabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_with_label_parts_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_label, sk_ui_node_t* out_value);
+i32 ui_text_centered_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_text);
+
 i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
