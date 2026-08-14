@@ -18,7 +18,8 @@
  * headers / scroll-freeze / CellBg) is APX-351 in table.c. Selectable
  * (history / combo / type-list / entity-picker rows) is APX-352. Combo /
  * ListBox (int* + zero-separated items, BeginCombo, list-box height) is
- * APX-353 in combo.c. Not full ImGui parity — no multi-viewport docking.
+ * APX-353 in combo.c. Tooltip (BeginTooltip hover card / profiler hover) is
+ * APX-354 in tooltip.c. Not full ImGui parity — no multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -134,6 +135,10 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 	}
 	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_COMBO_DATA_TYPE_ID)) {
 		ui_combo_release_user_data(ctx, slot);
+		return;
+	}
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_TOOLTIP_DATA_TYPE_ID)) {
+		ui_tooltip_release_user_data(ctx, slot);
 		return;
 	}
 	ui_item_bind_release_user_data(ctx, slot);
@@ -1668,6 +1673,31 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.mask = SK_UI_SP_BACKGROUND_COLOR;
 	var.background_color = sk_ui_rgba(0.32f, 0.38f, 0.48f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER_BUTTON, SK_UI_STATE_HOVER, &var);
+
+	/* Tooltip: compact floating card (asset hover / profiler segment). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
+				SK_UI_SP_POSITION | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.12f, 0.13f, 0.16f, 0.96f);
+	base.border_color = sk_ui_rgba(0.42f, 0.44f, 0.50f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	base.layout.padding.left = 8.0f;
+	base.layout.padding.top = 6.0f;
+	base.layout.padding.right = 8.0f;
+	base.layout.padding.bottom = 6.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	base.layout.min_width = sk_ui_pt(32.0f);
+	base.layout.min_height = sk_ui_pt(20.0f);
+	base.color = sk_ui_rgba(0.90f, 0.91f, 0.93f, 1.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TOOLTIP, &base) != 0) {
+		return -1;
+	}
 
 	ctx->widgets_defaults_registered = 1;
 	return 0;

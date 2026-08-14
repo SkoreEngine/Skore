@@ -979,6 +979,13 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_COLLAPSING_HEADER "ui-collapsing-header"
 #define SK_UI_CLASS_COLLAPSING_HEADER_BODY "ui-collapsing-header-body"
 #define SK_UI_CLASS_COLLAPSING_HEADER_BUTTON "ui-collapsing-header-button"
+/** Tooltip surface (APX-354; manifest §20). */
+#define SK_UI_CLASS_TOOLTIP "ui-tooltip"
+/** ImGui HoverDelayNormal / IsItemHovered(DelayNormal). Project Browser card. */
+#define SK_UI_TOOLTIP_DELAY_NORMAL 0.40f
+/** Cursor offset so the surface sits next to the pointer, not under it. */
+#define SK_UI_TOOLTIP_OFFSET_X 12.0f
+#define SK_UI_TOOLTIP_OFFSET_Y 16.0f
 
 /**
  * BeginTable flags the editor actually sets (ImGuiTableFlags analog).
@@ -4367,6 +4374,28 @@ typedef struct sk_ui_api_t {
 	 * the list-box chrome is not rebuilt.
 	 */
 	i32 (*list_box_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t list_box, sk_ui_item_array_t* items);
+
+	/* ---- tooltip family (APX-354; manifest §20) ---- */
+
+	/**
+	 * BeginTooltip / EndTooltip. Floating surface shown while the previous
+	 * sibling (or tooltip_set_anchor) is hovered. Default delay is
+	 * SK_UI_TOOLTIP_DELAY_NORMAL (Project Browser DelayNormal). Parent any
+	 * children (text, coloured duration, small table) into the returned node.
+	 * The surface follows the cursor, clamps to the viewport, and does not
+	 * capture hover or click.
+	 */
+	sk_ui_node_t (*widget_tooltip)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	/** Non-zero while the tooltip is open (after delay, or tooltip_set_visible). */
+	i32 (*tooltip_get_visible)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Force open / close (sandbox review). Forced-open skips hover tracking. */
+	i32 (*tooltip_set_visible)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 visible);
+	/** Hover seconds before show. 0 = next hover tick. Negative is treated as 0. */
+	i32 (*tooltip_set_delay)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 seconds);
+	f32 (*tooltip_get_delay)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Override the hover item. SK_UI_NODE_INVALID restores previous-sibling. */
+	i32 (*tooltip_set_anchor)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t item);
+	sk_ui_node_t (*tooltip_get_anchor)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

@@ -1940,6 +1940,13 @@ static const sk_ui_api_t ui_api = {
 	ui_list_box_get_height_in_items_impl,
 	ui_list_box_get_height_impl,
 	ui_list_box_bind_items_impl,
+	ui_widget_tooltip_impl,
+	ui_tooltip_get_visible_impl,
+	ui_tooltip_set_visible_impl,
+	ui_tooltip_set_delay_impl,
+	ui_tooltip_get_delay_impl,
+	ui_tooltip_set_anchor_impl,
+	ui_tooltip_get_anchor_impl,
 };
 
 /**

@@ -658,6 +658,8 @@ i32 ui_harness_step_impl(sk_ui_harness_t* harness, f32 delta_seconds) {
 	harness->last_delta = delta_seconds;
 	harness->frame_index += 1u;
 
+	ui_tooltip_tick_impl(harness->ctx, delta_seconds);
+
 	if (ui->style_resolve(harness->ctx) != 0) {
 		return -1;
 	}

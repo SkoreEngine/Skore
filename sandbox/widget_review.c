@@ -1693,6 +1693,108 @@ static i32 sandbox_widget_build_listbox(const sandbox_widget_host_t* host, sk_ui
 	return 0;
 }
 
+static void sandbox_tooltip_pointer(const sandbox_widget_host_t* host, f32 x, f32 y) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_input_event_t ev;
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	ev.x = x;
+	ev.y = y;
+	(void)ui->input_dispatch(host->ctx, &ev);
+}
+
+static i32 sandbox_widget_build_tooltip(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t item;
+	sk_ui_node_t tip;
+
+	sandbox_widget_style_fill(host);
+	item = ui->widget_button(host->ctx, root, "Save", "review-tt-item");
+	if (!sk_ui_node_is_valid(item)) {
+		fprintf(stderr, "sk-sandbox: tooltip host button failed\n");
+		return -1;
+	}
+	(void)ui->button_set_size(host->ctx, item, 80.0f, 0.0f);
+	tip = ui->widget_tooltip(host->ctx, root, "review-tooltip");
+	if (!sk_ui_node_is_valid(tip)) {
+		fprintf(stderr, "sk-sandbox: widget_tooltip failed\n");
+		return -1;
+	}
+	(void)ui->widget_text(host->ctx, tip, "Save", "review-tt-text");
+	(void)ui->tooltip_set_delay(host->ctx, tip, 0.0f);
+	(void)ui->tooltip_set_visible(host->ctx, tip, 1);
+	sandbox_tooltip_pointer(host, 56.0f, 40.0f);
+	*out_target = tip;
+	return 0;
+}
+
+static i32 sandbox_widget_build_tooltip_card(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t item;
+	sk_ui_node_t tip;
+
+	sandbox_widget_style_fill(host);
+	item = ui->widget_button(host->ctx, root, "hero.skmesh", "review-ttc-item");
+	if (!sk_ui_node_is_valid(item)) {
+		fprintf(stderr, "sk-sandbox: tooltip card host failed\n");
+		return -1;
+	}
+	(void)ui->button_set_size(host->ctx, item, 120.0f, 0.0f);
+	tip = ui->widget_tooltip(host->ctx, root, "review-tooltip-card");
+	if (!sk_ui_node_is_valid(tip)) {
+		fprintf(stderr, "sk-sandbox: widget_tooltip (card) failed\n");
+		return -1;
+	}
+	(void)ui->widget_text(host->ctx, tip, "hero.skmesh", "review-ttc-name");
+	(void)ui->widget_text(host->ctx, tip, "Type  Mesh", "review-ttc-type");
+	(void)ui->widget_text_disabled(host->ctx, tip, "Path  /Game/Characters/Hero", "review-ttc-path");
+	(void)ui->widget_text_colored(host->ctx, tip, "GPU.Pass  1.24 ms", sk_ui_rgba(0.45f, 0.85f, 0.40f, 1.0f), "review-ttc-ms");
+	(void)ui->tooltip_set_delay(host->ctx, tip, 0.0f);
+	(void)ui->tooltip_set_visible(host->ctx, tip, 1);
+	sandbox_tooltip_pointer(host, 72.0f, 44.0f);
+	*out_target = tip;
+	return 0;
+}
+
+static i32 sandbox_widget_build_tooltip_edge(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t item;
+	sk_ui_node_t tip;
+	sk_ui_style_props_t p;
+	f32 px;
+	f32 py;
+
+	sandbox_widget_style_fill(host);
+	item = ui->widget_button(host->ctx, root, "segment", "review-tte-item");
+	if (!sk_ui_node_is_valid(item)) {
+		fprintf(stderr, "sk-sandbox: tooltip edge host failed\n");
+		return -1;
+	}
+	(void)ui->button_set_size(host->ctx, item, 96.0f, 0.0f);
+	tip = ui->widget_tooltip(host->ctx, root, "review-tooltip-edge");
+	if (!sk_ui_node_is_valid(tip)) {
+		fprintf(stderr, "sk-sandbox: widget_tooltip (edge) failed\n");
+		return -1;
+	}
+	(void)ui->widget_text(host->ctx, tip, "Clamped to viewport", "review-tte-title");
+	(void)ui->widget_text_colored(host->ctx, tip, "GPU.Pass  4.80 ms", sk_ui_rgba(0.95f, 0.72f, 0.28f, 1.0f), "review-tte-ms");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	p.layout.min_width = sk_ui_pt(168.0f);
+	p.layout.min_height = sk_ui_pt(56.0f);
+	(void)ui->node_merge_inline_style(host->ctx, tip, &p);
+	(void)ui->tooltip_set_delay(host->ctx, tip, 0.0f);
+	(void)ui->tooltip_set_visible(host->ctx, tip, 1);
+	px = (f32)host->width - 8.0f;
+	py = (f32)host->height - 8.0f;
+	sandbox_tooltip_pointer(host, px, py);
+	*out_target = tip;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1755,7 +1857,9 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"image", NULL, "§16 Image / content item", SANDBOX_WS_BIT_DEFAULT, 256u, 192u, NULL},
 	{"selectable", NULL, "§18 Selectable", SANDBOX_WS_BITS_SELECTABLE, 360u, 128u, sandbox_widget_build_selectable},
 	{"selectable_list", "selectable_rows", "§18 Selectable list of rows", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_selectable_list},
-	{"tooltip", NULL, "§20 Tooltip", SANDBOX_WS_BIT_DEFAULT, 320u, 128u, NULL},
+	{"tooltip", NULL, "§20 Tooltip simple text", SANDBOX_WS_BIT_DEFAULT, 320u, 128u, sandbox_widget_build_tooltip},
+	{"tooltip_card", "tooltipcard", "§20 asset hover card", SANDBOX_WS_BIT_DEFAULT, 400u, 200u, sandbox_widget_build_tooltip_card},
+	{"tooltip_edge", "tooltipclamp", "§20 tooltip clamped at edge", SANDBOX_WS_BIT_DEFAULT, 280u, 160u, sandbox_widget_build_tooltip_edge},
 };
 
 static const sandbox_widget_desc_t* sandbox_widget_find(const_chr_t name) {
@@ -1812,6 +1916,7 @@ void sandbox_widget_list(void) {
 	printf("         menuopen=menu_open submenu=menu_submenu menupopup=menu_popup\n");
 	printf("         contextmenu=popup_menu savecontent=modal_save\n");
 	printf("         selectable_rows=selectable_list comboopen=combo_open\n");
+	printf("         tooltipcard=tooltip_card tooltipclamp=tooltip_edge\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

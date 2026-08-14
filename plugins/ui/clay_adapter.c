@@ -188,7 +188,8 @@ static i32 ui_clay_is_menu_popup(const_chr_t widget) {
 	if (widget == NULL) {
 		return 0;
 	}
-	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0) {
+	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0 ||
+		strcmp(widget, "tooltip") == 0) {
 		return 1;
 	}
 	return 0;
@@ -907,7 +908,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		i32 z_default = is_menu_popup != 0 ? 100 : (widget != NULL && strcmp(widget, "editor_window") == 0 ? 50 : 0);
 		i32 z = ui_clay_prop_i32(slot, "z_index", z_default);
 		/* context_menu and free-floating editor_window: root attach. */
-		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0)) {
+		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0 ||
+							   strcmp(widget, "tooltip") == 0)) {
 			decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
 		} else {
 			decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;
@@ -937,8 +939,13 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 			decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
 		}
-		/* Capture pointer on floating chrome so title-bar drags stay on target. */
-		decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
+		/* Capture pointer on floating chrome so title-bar drags stay on target.
+		 * Tooltips must not steal hover/click from the item beneath. */
+		if (widget != NULL && strcmp(widget, "tooltip") == 0) {
+			decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
+		} else {
+			decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
+		}
 		if (z != 0) {
 			decl.floating.zIndex = (int16_t)(z < -32768 ? -32768 : (z > 32767 ? 32767 : z));
 		}
@@ -1624,6 +1631,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	ui_dock_layout_end(ctx);
 	ui_selectable_apply_spans(ctx);
 	ui_combo_place_popups(ctx);
+	ui_tooltip_place(ctx);
 
 	(void)limitations;
 	return 0;

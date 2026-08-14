@@ -35,6 +35,20 @@ static sk_ui_rect_t ui_rect_intersect(const sk_ui_rect_t* a, const sk_ui_rect_t*
 	return out;
 }
 
+static const_chr_t ui_input_prop_str(const ui_node_slot_t* slot, const_chr_t key) {
+	u32 i;
+	if (slot == NULL || key == NULL) {
+		return NULL;
+	}
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_STR && e->key != NULL && strcmp(e->key, key) == 0) {
+			return e->data.str_value;
+		}
+	}
+	return NULL;
+}
+
 static i32 ui_input_prop_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fallback) {
 	u32 i;
 	if (slot == NULL || key == NULL) {
@@ -220,7 +234,13 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 			}
 			{
 				i32 hidden = ui_input_prop_i32(child_slot, "hidden", 0);
+				const_chr_t w;
 				if (hidden != 0) {
+					continue;
+				}
+				/* Tooltip surfaces never steal hover / click from the item. */
+				w = ui_input_prop_str(child_slot, "widget");
+				if (w != NULL && strcmp(w, "tooltip") == 0) {
 					continue;
 				}
 			}
@@ -941,15 +961,18 @@ i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* even
 	case SK_UI_INPUT_POINTER_MOVE:
 		ui_handle_pointer_move(ctx, event->x, event->y, event->mods);
 		ui_dock_drag_tick(ctx, event->x, event->y, 0);
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_POINTER_BUTTON:
 		ui_handle_pointer_button(ctx, event->x, event->y, event->button, event->down, event->mods);
 		if (event->button == SK_UI_POINTER_BUTTON_LEFT && event->down == 0) {
 			ui_dock_drag_tick(ctx, event->x, event->y, 1);
 		}
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_WHEEL:
 		ui_handle_wheel(ctx, event->x, event->y, event->scroll_x, event->scroll_y, event->mods);
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_KEY:
 		ui_handle_key(ctx, event->key, event->down, event->mods, event->repeat);

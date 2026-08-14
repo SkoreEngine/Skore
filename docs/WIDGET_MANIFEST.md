@@ -73,7 +73,8 @@ multiline, hint/search, read-only, InputScalar / InputFloat / InputFloat3),
 scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
 editor_window. Missing factories that this audit makes load-bearing:
-**drag-drop payload**, **color picker**, **tooltip**. Combo that binds an
+**drag-drop payload**, **color picker**. Tooltip (APX-354) now has a factory.
+Combo that binds an
 int + zero-separated items (APX-353) now has factories. Tree (APX-350) and
 table (APX-351) now have factories.
 
@@ -1362,12 +1363,13 @@ void EndTooltip();
 - Hover + optional delay opens a floating window that does not steal focus.
 - May contain a small table / coloured text (not text-only).
 
-**sk-ui today:** no tooltip factory (a vision PNG exists from an earlier
-composed popup; that is not this widget).
+**sk-ui today:** `widget_tooltip` (APX-354). Hover of the previous sibling /
+explicit anchor, DelayNormal (0.40s) default, arbitrary children, cursor
+follow + viewport clamp, no hover/click capture.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test
+- [x] Headless UI automation
+- [x] lavapipe PNG reviewed
 
 ---
 

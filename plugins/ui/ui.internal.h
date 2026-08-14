@@ -531,6 +531,8 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_TABLE_DATA_TYPE_ID SK_TYPE_ID("sk.ui_table_data", 0x7a1e9c2b4d6f80a1ULL, 0xb3c5d7e9f1023456ULL)
 /** Type id for combo / list-box user_data (combo.c). */
 #define SK_UI_COMBO_DATA_TYPE_ID SK_TYPE_ID("sk.ui_combo_data", 0x5e8a3c1d9b7f2460ULL, 0xc4d6e8f0a2143658ULL)
+/** Type id for tooltip user_data (tooltip.c). */
+#define SK_UI_TOOLTIP_DATA_TYPE_ID SK_TYPE_ID("sk.ui_tooltip_data", 0x9f2a6c8e1b4d5073ULL, 0xa7c5e913d8462b0fULL)
 
 /** Free widget user_data if present (called from slot release). */
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
@@ -540,6 +542,12 @@ void ui_item_bind_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 void ui_table_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 /** Free combo / list-box user_data if present (called from widget release). */
 void ui_combo_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Free tooltip user_data if present (called from widget release). */
+void ui_tooltip_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Hover-delay / visibility for every tooltip (input + harness_step). */
+void ui_tooltip_tick_impl(sk_ui_context_t* ctx, f32 dt);
+/** Clamp open tooltips to the viewport next to the cursor (after Clay). */
+void ui_tooltip_place(sk_ui_context_t* ctx);
 /** Pull bound combo int* before style/layout (style_resolve). */
 void ui_combo_sync_all(sk_ui_context_t* ctx);
 /** Flip open combo popups that would clip past the viewport (after Clay). */
@@ -743,6 +751,15 @@ i32 ui_list_box_set_height_in_items_impl(sk_ui_context_t* ctx, sk_ui_node_t list
 i32 ui_list_box_get_height_in_items_impl(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
 f32 ui_list_box_get_height_impl(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
 i32 ui_list_box_bind_items_impl(sk_ui_context_t* ctx, sk_ui_node_t list_box, sk_ui_item_array_t* items);
+
+/* Tooltip family (APX-354; manifest §20). */
+sk_ui_node_t ui_widget_tooltip_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+i32 ui_tooltip_get_visible_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_tooltip_set_visible_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 visible);
+i32 ui_tooltip_set_delay_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 seconds);
+f32 ui_tooltip_get_delay_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_tooltip_set_anchor_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t item);
+sk_ui_node_t ui_tooltip_get_anchor_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 sk_ui_node_t ui_widget_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_text_wrapped_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
