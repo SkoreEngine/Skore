@@ -13,8 +13,9 @@
  * window / layout family (APX-345): widget_window + close, fullscreen, child
  * (border / ResizeX / h-scroll), disabled stack, PushID, SetNextItemWidth,
  * Indent, group, horizontal/vertical + Spring-as-flex-grow. Item-array
- * binding for tree / list / combo / table is in item_bind.c (APX-338). Not
- * full ImGui parity — no multi-viewport docking.
+ * binding for tree / list / combo / table is in item_bind.c (APX-338). TreeNode
+ * / CollapsingHeader chrome is APX-350. Not full ImGui parity — no
+ * multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -55,6 +56,7 @@ enum {
 	UI_WD_CHILD_RESIZE = 17,
 	UI_WD_MODAL = 18,
 	UI_WD_TAB_BAR = 19,
+	UI_WD_COLLAPSING = 20,
 };
 
 enum {
@@ -1391,6 +1393,74 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	if (ui->style_class_register(ctx, SK_UI_CLASS_TREE_ARROW, &base) != 0) {
 		return -1;
 	}
+
+	/* CollapsingHeader: framed full-width bar (Properties / Settings). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR |
+				SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_CORNER_RADIUS;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.justify_content = SK_UI_JUSTIFY_FLEX_START;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.min_height = sk_ui_pt(22.0f);
+	ui_style_fill_layout_pad(&base, 4.0f);
+	base.layout.padding.left = 4.0f;
+	base.layout.padding.right = 6.0f;
+	base.background_color = sk_ui_rgba(0.22f, 0.27f, 0.34f, 1.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	base.corner_radius = 3.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLLAPSING_HEADER, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.28f, 0.34f, 0.44f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.20f, 0.32f, 0.48f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER, SK_UI_STATE_ACTIVE, &var);
+	var.background_color = sk_ui_rgba(0.24f, 0.36f, 0.52f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER, SK_UI_STATE_FOCUSED, &var);
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR | SK_UI_SP_OPACITY;
+	var.background_color = sk_ui_rgba(0.16f, 0.18f, 0.21f, 1.0f);
+	var.color = UI_TEXT_DISABLED_COLOR;
+	var.opacity = 0.55f;
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER, SK_UI_STATE_DISABLED, &var);
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_WIDTH | SK_UI_SP_PADDING;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.padding.left = 8.0f;
+	base.layout.padding.top = 4.0f;
+	base.layout.padding.right = 4.0f;
+	base.layout.padding.bottom = 6.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLLAPSING_HEADER_BODY, &base) != 0) {
+		return -1;
+	}
+
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLOR |
+				SK_UI_SP_FONT_SIZE | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS;
+	base.layout.width = sk_ui_pt(28.0f);
+	base.layout.height = sk_ui_pt(18.0f);
+	base.layout.min_width = sk_ui_pt(28.0f);
+	base.layout.min_height = sk_ui_pt(18.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.color = sk_ui_rgba(0.82f, 0.84f, 0.88f, 1.0f);
+	base.font_size = 13.0f;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.corner_radius = 2.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_COLLAPSING_HEADER_BUTTON, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.32f, 0.38f, 0.48f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COLLAPSING_HEADER_BUTTON, SK_UI_STATE_HOVER, &var);
 
 	ctx->widgets_defaults_registered = 1;
 	return 0;
@@ -5450,6 +5520,188 @@ i32 ui_tab_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t tab) {
 	return ui_button_clicked_impl(ctx, tab);
 }
 
+/* -------------------------------------------------------------------------- */
+/* CollapsingHeader (APX-350 / manifest §8)                                   */
+/* -------------------------------------------------------------------------- */
+
+static const_chr_t ui_ch_widget(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	return slot != NULL ? ui_prop_str_const(slot, "widget") : NULL;
+}
+
+static sk_ui_node_t ui_ch_find_child(const sk_ui_context_t* ctx, sk_ui_node_t header, const_chr_t widget) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 i;
+	u32 n;
+	if (ctx == NULL || !sk_ui_node_is_valid(header) || widget == NULL) {
+		return SK_UI_NODE_INVALID;
+	}
+	n = ui->node_child_count(ctx, header);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t c = ui->node_child_at(ctx, header, i);
+		const_chr_t w = ui_ch_widget(ctx, c);
+		if (w != NULL && strcmp(w, widget) == 0) {
+			return c;
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static void ui_ch_apply_open(sk_ui_context_t* ctx, sk_ui_node_t header, i32 open) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = ui_widget_data(ctx, header);
+	sk_ui_node_t arrow = ui_ch_find_child(ctx, header, "tree_arrow");
+	sk_ui_node_t body = wd != NULL ? wd->content : SK_UI_NODE_INVALID;
+	(void)ui->node_set_prop_i32(ctx, header, "open", open != 0 ? 1 : 0);
+	if (sk_ui_node_is_valid(arrow)) {
+		(void)ui->node_set_prop_i32(ctx, arrow, "open", open != 0 ? 1 : 0);
+	}
+	if (sk_ui_node_is_valid(body)) {
+		(void)ui->node_set_prop_i32(ctx, body, "hidden", open != 0 ? 0 : 1);
+	}
+}
+
+static void ui_ch_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	i32 open;
+	(void)user;
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	if (event != NULL && sk_ui_node_is_valid(event->target) && !sk_ui_node_eq(event->target, node)) {
+		const_chr_t tw = ui_ch_widget(ctx, event->target);
+		if (tw != NULL && (strcmp(tw, "collapsing_header_button") == 0 || strcmp(tw, "button") == 0)) {
+			return;
+		}
+	}
+	open = ui_collapsing_header_get_open_impl(ctx, node) != 0 ? 0 : 1;
+	ui_ch_apply_open(ctx, node, open);
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+}
+
+sk_ui_node_t ui_widget_collapsing_header_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, u32 flags) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t bar;
+	sk_ui_node_t arrow;
+	sk_ui_node_t text;
+	sk_ui_node_t body;
+	ui_widget_data_t* wd;
+	sk_ui_node_callbacks_t cbs;
+	i32 open = (flags & SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN) != 0u ? 1 : 0;
+	char idbuf[96];
+	const_chr_t use_id = (id != NULL && id[0] != '\0') ? id : "collapsing";
+
+	if ((flags & SK_UI_TREE_NODE_FLAG_FRAMED) == 0u) {
+		flags |= SK_UI_TREE_NODE_FLAG_FRAMED | SK_UI_TREE_NODE_FLAG_NO_TREE_PUSH_ON_OPEN | SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH;
+	}
+
+	bar = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_COLLAPSING_HEADER, "collapsing_header", "ui-collapsing-header", id);
+	if (!sk_ui_node_is_valid(bar)) {
+		return SK_UI_NODE_INVALID;
+	}
+	if (ctx->has_next_item_open != 0u) {
+		open = ctx->next_item_open != 0u ? 1 : 0;
+		ctx->has_next_item_open = 0u;
+	}
+	(void)ui->node_set_prop_i32(ctx, bar, "ch_flags", (i32)flags);
+	(void)ui->node_set_prop_str(ctx, bar, "text", label != NULL ? label : "");
+	(void)ui->node_set_focusable(ctx, bar, 1);
+	wd = ui_widget_data_ensure(ctx, bar, UI_WD_COLLAPSING);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_ch_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, bar, &cbs);
+
+	(void)snprintf(idbuf, sizeof(idbuf), "%s-arrow", use_id);
+	arrow = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, bar);
+	(void)ui->node_add_class(ctx, arrow, SK_UI_CLASS_TREE_ARROW);
+	(void)ui->node_set_prop_str(ctx, arrow, "widget", "tree_arrow");
+	(void)ui->node_set_id(ctx, arrow, idbuf);
+	(void)ui->node_set_pointer_events(ctx, arrow, SK_UI_POINTER_EVENTS_NONE);
+
+	text = ui->widget_label(ctx, bar, label != NULL ? label : "", NULL);
+	(void)ui->node_set_pointer_events(ctx, text, SK_UI_POINTER_EVENTS_NONE);
+	(void)ui->label_set_wrap(ctx, text, 0);
+	{
+		sk_ui_style_props_t lp;
+		ui_style_props_clear(&lp);
+		lp.mask = SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_GROW;
+		lp.layout.flex_shrink = 1.0f;
+		lp.layout.flex_grow = 1.0f;
+		(void)ui->node_merge_inline_style(ctx, text, &lp);
+	}
+
+	if ((flags & SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON) != 0u) {
+		sk_ui_node_t btn;
+		sk_ui_node_t spring;
+		(void)snprintf(idbuf, sizeof(idbuf), "%s-btn", use_id);
+		spring = ui->widget_spring(ctx, bar, 1.0f, NULL);
+		(void)ui->node_set_pointer_events(ctx, spring, SK_UI_POINTER_EVENTS_NONE);
+		btn = ui_button_make(ctx, bar, "...", idbuf, SK_UI_CLASS_COLLAPSING_HEADER_BUTTON, "collapsing_header_button", 28.0f, 18.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+		if (sk_ui_node_is_valid(btn)) {
+			(void)ui->node_set_prop_str(ctx, btn, "widget", "collapsing_header_button");
+		}
+	}
+
+	(void)snprintf(idbuf, sizeof(idbuf), "%s-body", use_id);
+	body = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_COLLAPSING_HEADER_BODY, "collapsing_header_body", "ui-collapsing-header-body", idbuf);
+	if (wd != NULL) {
+		wd->content = body;
+	}
+	ui_ch_apply_open(ctx, bar, open);
+	return bar;
+}
+
+i32 ui_collapsing_header_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t header) {
+	const ui_node_slot_t* slot = ui_slot(ctx, header);
+	i32 open = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "open", &open);
+	return open != 0 ? 1 : 0;
+}
+
+i32 ui_collapsing_header_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t header, i32 open) {
+	if (ctx == NULL || !sk_ui_node_is_valid(header)) {
+		return -1;
+	}
+	ui_ch_apply_open(ctx, header, open);
+	return 0;
+}
+
+sk_ui_node_t ui_collapsing_header_body_impl(sk_ui_context_t* ctx, sk_ui_node_t header) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, header);
+	if (wd != NULL && sk_ui_node_is_valid(wd->content)) {
+		return wd->content;
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+sk_ui_node_t ui_collapsing_header_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t header) {
+	return ui_ch_find_child(ctx, header, "collapsing_header_button");
+}
+
+i32 ui_collapsing_header_button_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t header) {
+	sk_ui_node_t btn = ui_collapsing_header_button_impl(ctx, header);
+	if (!sk_ui_node_is_valid(btn)) {
+		return 0;
+	}
+	return ui_button_clicked_impl(ctx, btn);
+}
+
+u32 ui_collapsing_header_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t header) {
+	const ui_node_slot_t* slot = ui_slot(ctx, header);
+	i32 flags = 0;
+	if (slot == NULL) {
+		return 0u;
+	}
+	(void)ui_prop_i32_const(slot, "ch_flags", &flags);
+	return (u32)flags;
+}
+
 i32 ui_splitter_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, f32 ratio) {
 	ui_splitter_apply_ratio(ctx, splitter, ratio, 1);
 	return 0;
@@ -7637,6 +7889,16 @@ i32 ui_set_next_item_width_impl(sk_ui_context_t* ctx, f32 width) {
 	}
 	ctx->has_next_item_width = 1u;
 	ctx->next_item_width = width;
+	return 0;
+}
+
+i32 ui_set_next_item_open_impl(sk_ui_context_t* ctx, i32 is_open, u32 cond) {
+	if (ctx == NULL) {
+		return -1;
+	}
+	ctx->has_next_item_open = 1u;
+	ctx->next_item_open = is_open != 0 ? 1u : 0u;
+	ctx->next_item_open_cond = (u8)cond;
 	return 0;
 }
 
@@ -11266,6 +11528,188 @@ SK_TEST(ui_widget_popup_modal_size_and_focus) {
 	TEST_ASSERT_EQUAL_INT(1, ui->modal_get_open(ctx, fixed_m));
 	TEST_ASSERT_EQUAL_INT(1, open_flag);
 
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_tree_family_open_select_leaf_depth) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[5];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t host;
+	sk_ui_node_t row0;
+	sk_ui_node_t row1;
+	sk_ui_node_t leaf;
+	sk_ui_layout_style_t ls0;
+	sk_ui_layout_style_t ls1;
+	sk_ui_rect_t hr;
+	sk_ui_rect_t rr;
+	sk_ui_style_props_t p;
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Scene", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Camera", 0u);
+	sk_ui_item_set(&items[2], 3ull, 2ull, "Lens", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&items[3], 4ull, 1ull, "Light", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 4u;
+	arr.revision = 0u;
+	host = ui->widget_tree(ctx, root, &arr, "tf-tree");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(280.0f);
+	p.layout.height = sk_ui_pt(160.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, host, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 2ull, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_selected(ctx, host, 3ull, 1));
+	wtest_layout(ui, ctx, 320.0f, 200.0f);
+
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_selected(ctx, host, 3ull));
+	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "tf-tree/a3")));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "tf-tree/a1")));
+	row0 = ui->item_bind_find(ctx, host, 1ull);
+	row1 = ui->item_bind_find(ctx, host, 2ull);
+	leaf = ui->item_bind_find(ctx, host, 3ull);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, row0, &ls0));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, row1, &ls1));
+	TEST_ASSERT_TRUE(ls1.padding.left > ls0.padding.left + 1.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, host, &hr, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, leaf, &rr, NULL));
+	TEST_ASSERT_TRUE(rr.width + 1.0f >= hr.width * 0.85f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 1ull, 0));
+	TEST_ASSERT_EQUAL_UINT(1u, ui->item_bind_row_count(ctx, host));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_selected(ctx, host, 3ull));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_tree_family_set_next_open_once) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[3];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t host;
+	sk_ui_node_t ch;
+	sk_ui_node_t body;
+
+	sk_ui_item_set(&items[0], 10ull, 0ull, "Settings", 0u);
+	sk_ui_item_set(&items[1], 11ull, 10ull, "Input", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 2u;
+	arr.revision = 0u;
+	host = ui->widget_tree(ctx, ui->context_root(ctx), &arr, "tf-set");
+	TEST_ASSERT_EQUAL_INT(0, ui->set_next_item_open(ctx, 1, SK_UI_COND_ONCE));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 10ull, 1));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 10ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 10ull, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->set_next_item_open(ctx, 1, SK_UI_COND_ONCE));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 10ull, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 10ull));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->set_next_item_open(ctx, 1, SK_UI_COND_ONCE));
+	ch = ui->widget_collapsing_header(ctx, ui->context_root(ctx), "Transform", "tf-ch", SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ch));
+	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_get_open(ctx, ch));
+	body = ui->collapsing_header_body(ctx, ch);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(body));
+	TEST_ASSERT_EQUAL_INT(0, wtest_hidden(ui, ctx, body));
+	TEST_ASSERT_EQUAL_INT(0, ui->collapsing_header_set_open(ctx, ch, 0));
+	TEST_ASSERT_EQUAL_INT(1, wtest_hidden(ui, ctx, body));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_tree_family_double_click_overlap) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[3];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t host;
+	sk_ui_node_t row;
+	sk_ui_node_t vis;
+	sk_ui_rect_t r;
+	sk_ui_style_props_t p;
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Entity", 0u);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Child", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 2u;
+	arr.revision = 0u;
+	host = ui->widget_tree(ctx, ui->context_root(ctx), &arr, "tf-dc");
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_flags(ctx, host, SK_UI_TREE_NODE_FLAGS_DEFAULT | SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK | SK_UI_TREE_NODE_FLAG_ALLOW_OVERLAP));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(280.0f);
+	p.layout.height = sk_ui_pt(80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, host, &p));
+	row = ui->item_bind_find(ctx, host, 1ull);
+	vis = ui->widget_small_button(ctx, row, "V", "tf-dc-vis");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(vis));
+	wtest_set_size(ui, ctx, vis, 16.0f, 16.0f);
+	wtest_layout(ui, ctx, 320.0f, 120.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, row, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.55f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.55f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_selected(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.55f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.55f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_last_was_arrow(ctx, host));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, vis, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_clicked(ctx, vis));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_selected(ctx, host, 1ull));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_collapsing_header_open_button) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t ch;
+	sk_ui_node_t body;
+	sk_ui_node_t btn;
+	sk_ui_rect_t r;
+	sk_ui_style_props_t p;
+
+	col = ui->widget_vertical(ctx, root, "ch-col");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(280.0f);
+	p.layout.height = sk_ui_pt(120.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, col, &p));
+	ch = ui->widget_collapsing_header(ctx, col, "Transform", "ch-xform", SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON | SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ch));
+	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_get_open(ctx, ch));
+	body = ui->collapsing_header_body(ctx, ch);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(body));
+	(void)ui->widget_text(ctx, body, "Position", "ch-pos");
+	btn = ui->collapsing_header_button(ctx, ch);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(btn));
+	TEST_ASSERT_TRUE((ui->collapsing_header_get_flags(ctx, ch) & SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON) != 0u);
+
+	wtest_set_size(ui, ctx, ch, 260.0f, 24.0f);
+	wtest_layout(ui, ctx, 320.0f, 160.0f);
+	TEST_ASSERT_EQUAL_INT(0, wtest_hidden(ui, ctx, body));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ch, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + 40.0f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + 40.0f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->collapsing_header_get_open(ctx, ch));
+	TEST_ASSERT_EQUAL_INT(1, wtest_hidden(ui, ctx, body));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->collapsing_header_set_open(ctx, ch, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, btn, &r, NULL));
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, r.x + r.width * 0.5f, r.y + r.height * 0.5f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_button_clicked(ctx, ch));
+	TEST_ASSERT_EQUAL_INT(1, ui->collapsing_header_get_open(ctx, ch));
 	ui->context_destroy(ctx);
 }
 

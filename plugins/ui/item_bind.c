@@ -3,8 +3,9 @@
  * @brief Retained caller-owned item-array binding (APX-338).
  *
  * Widget hosts store a pointer to a caller-owned sk_ui_item_array_t and
- * diff by stable item id. Used by tree / list / combo / table; not a full
- * TreeNode chrome pass.
+ * diff by stable item id. Used by tree / list / combo / table. TreeNode
+ * chrome (arrow, open-on-arrow / double-click, span, SetNextItemOpen) is
+ * APX-350 on this binding.
  */
 
 #include "ui.internal.h"
@@ -28,10 +29,12 @@ typedef SK_ARRAY(u64) ui_u64_array_t;
 typedef struct ui_item_bind_data_t {
 	sk_ui_item_array_t* array;
 	u32 kind;
+	u32 tree_flags;
 	u32 last_count;
 	u32 last_revision;
 	i32 last_was_arrow;
 	u64 last_activate;
+	u64 last_click_id;
 	sk_ui_node_t host;
 	sk_ui_item_id_fn on_activate;
 	sk_ui_item_id_fn on_toggle;
@@ -204,11 +207,15 @@ static void ib_seed_item(ui_item_bind_data_t* b, const sk_ui_item_t* it) {
 	if (sk_hash_set_contains(&b->seeded, it->id)) {
 		return;
 	}
-	(void)sk_hash_set_add(&b->seeded, it->id);
-	if ((it->flags & (u32)SK_UI_ITEM_FLAG_OPEN) != 0u) {
+	/* Seed only when the item carries explicit initial state. A visible
+	 * collapsed row stays unseeded so SetNextItemOpen(Once) can still open
+	 * ancestors of a selection (EntityTree). */
+	if ((it->flags & (u32)SK_UI_ITEM_FLAG_OPEN) != 0u || ((b->tree_flags & SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN) != 0u && (it->flags & (u32)SK_UI_ITEM_FLAG_LEAF) == 0u)) {
+		(void)sk_hash_set_add(&b->seeded, it->id);
 		(void)sk_hash_set_add(&b->open, it->id);
 	}
 	if ((it->flags & (u32)SK_UI_ITEM_FLAG_SELECTED) != 0u) {
+		(void)sk_hash_set_add(&b->seeded, it->id);
 		(void)sk_hash_set_add(&b->selected, it->id);
 	}
 }
@@ -387,12 +394,17 @@ static void ib_style_row(sk_ui_context_t* ctx, sk_ui_node_t row, u32 depth, i32 
 	sk_ui_style_props_t p;
 	ui_style_props_clear(&p);
 	p.mask = SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
-	p.layout.padding.left = 4.0f + (f32)depth * 14.0f;
+	p.layout.padding.left = SK_UI_TREE_ROW_PAD_X + (f32)depth * SK_UI_TREE_INDENT;
 	p.layout.padding.top = 2.0f;
 	p.layout.padding.right = 4.0f;
 	p.layout.padding.bottom = 2.0f;
 	if (selected != 0) {
-		p.background_color = sk_ui_rgba(0.24f, 0.36f, 0.58f, 1.0f);
+		u32 st = ui->node_get_state(ctx, row);
+		if ((st & (u32)SK_UI_STATE_HOVER) != 0u) {
+			p.background_color = sk_ui_rgba(0.30f, 0.44f, 0.68f, 1.0f);
+		} else {
+			p.background_color = sk_ui_rgba(0.24f, 0.36f, 0.58f, 1.0f);
+		}
 	} else {
 		p.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
 	}
@@ -444,6 +456,18 @@ static void ib_ensure_arrow(sk_ui_context_t* ctx, ui_item_bind_data_t* b, sk_ui_
 			(void)ui->node_destroy(ctx, arrow);
 		}
 		(void)sk_hash_map_remove(&b->arrows, it->id);
+		/* Reserve the arrow gutter so leaf labels line up with branch labels
+		 * at the same depth and children sit one indent further. */
+		{
+			sk_ui_style_props_t pad;
+			ui_style_props_clear(&pad);
+			pad.mask = SK_UI_SP_PADDING;
+			pad.layout.padding.left = SK_UI_TREE_ROW_PAD_X + (f32)ib_item_depth(b, it->id) * SK_UI_TREE_INDENT + 16.0f;
+			pad.layout.padding.top = 2.0f;
+			pad.layout.padding.right = 4.0f;
+			pad.layout.padding.bottom = 2.0f;
+			(void)ui->node_merge_inline_style(ctx, row, &pad);
+		}
 		return;
 	}
 	if (!sk_ui_node_is_valid(arrow)) {
@@ -473,7 +497,8 @@ static void ib_ensure_arrow(sk_ui_context_t* ctx, ui_item_bind_data_t* b, sk_ui_
 			(void)ui->node_merge_inline_style(ctx, arrow, &ap);
 		}
 	}
-	(void)ui->node_set_prop_str(ctx, arrow, "text", ib_is_open(b, it->id) ? "v" : ">");
+	(void)ui->node_set_prop_i32(ctx, arrow, "open", ib_is_open(b, it->id));
+	(void)ui->node_set_prop_str(ctx, arrow, "text", "");
 }
 
 static sk_ui_node_t ib_ensure_row(sk_ui_context_t* ctx, ui_item_bind_data_t* b, const sk_ui_item_t* it, const_chr_t host_id) {
@@ -507,11 +532,21 @@ static sk_ui_node_t ib_ensure_row(sk_ui_context_t* ctx, ui_item_bind_data_t* b, 
 
 	(void)ui->node_set_prop_str(ctx, row, "text", text);
 	(void)ui->node_set_prop_i32(ctx, row, "selected", selected);
+	(void)ui->node_set_prop_i32(ctx, row, "open", ib_is_open(b, it->id));
+	(void)ui->node_set_prop_i32(ctx, row, "depth", (i32)depth);
+	(void)ui->node_set_prop_i32(ctx, row, "span_full_width", (b->tree_flags & SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH) != 0u ? 1 : 0);
 	(void)ui->node_set_prop_i32(ctx, row, "icon", (i32)it->icon);
 	if ((it->flags & (u32)SK_UI_ITEM_FLAG_DISABLED) != 0u) {
 		(void)ui->node_set_state(ctx, row, ui->node_get_state(ctx, row) | (u32)SK_UI_STATE_DISABLED);
 	} else {
 		(void)ui->node_set_state(ctx, row, ui->node_get_state(ctx, row) & ~(u32)SK_UI_STATE_DISABLED);
+	}
+	if ((b->tree_flags & (SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH | SK_UI_TREE_NODE_FLAG_SPAN_AVAIL_WIDTH)) != 0u) {
+		sk_ui_style_props_t sp;
+		ui_style_props_clear(&sp);
+		sp.mask = SK_UI_SP_WIDTH;
+		sp.layout.width = sk_ui_percent(100.0f);
+		(void)ui->node_merge_inline_style(ctx, row, &sp);
 	}
 	ib_style_row(ctx, row, depth, selected, error);
 	ib_ensure_arrow(ctx, b, row, it, host_id);
@@ -523,12 +558,37 @@ static sk_ui_node_t ib_ensure_row(sk_ui_context_t* ctx, ui_item_bind_data_t* b, 
 	} else {
 		(void)ui->label_set_text(ctx, label, text);
 	}
+	(void)ui->label_set_wrap(ctx, label, 0);
+	{
+		sk_ui_style_props_t lp;
+		ui_style_props_clear(&lp);
+		lp.mask = SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_GROW;
+		lp.layout.flex_shrink = 0.0f;
+		lp.layout.flex_grow = 1.0f;
+		(void)ui->node_merge_inline_style(ctx, label, &lp);
+	}
 	if (error != 0) {
 		sk_ui_style_props_t p;
 		ui_style_props_clear(&p);
 		p.mask = SK_UI_SP_COLOR;
 		p.color = sk_ui_rgba(0.92f, 0.38f, 0.34f, 1.0f);
 		(void)ui->node_merge_inline_style(ctx, label, &p);
+	}
+	/* AllowOverlap: extra row chrome (vis/lock) keeps hits. Without it the
+	 * row owns the full-width hit so overlapping siblings do not steal. */
+	{
+		u32 ci;
+		u32 cn = ui->node_child_count(ctx, row);
+		sk_ui_node_t arrow = SK_UI_NODE_INVALID;
+		i32 allow = (b->tree_flags & SK_UI_TREE_NODE_FLAG_ALLOW_OVERLAP) != 0u ? 1 : 0;
+		(void)sk_hash_map_get(&b->arrows, it->id, &arrow);
+		for (ci = 0u; ci < cn; ++ci) {
+			sk_ui_node_t c = ui->node_child_at(ctx, row, ci);
+			if (sk_ui_node_eq(c, label) || sk_ui_node_eq(c, arrow)) {
+				continue;
+			}
+			(void)ui->node_set_pointer_events(ctx, c, allow != 0 ? SK_UI_POINTER_EVENTS_AUTO : SK_UI_POINTER_EVENTS_NONE);
+		}
 	}
 	return row;
 }
@@ -628,8 +688,10 @@ static ui_item_bind_data_t* ib_ensure(sk_ui_context_t* ctx, sk_ui_node_t host, u
 	}
 	memset(b, 0, sizeof(*b));
 	b->kind = kind;
+	b->tree_flags = SK_UI_TREE_NODE_FLAGS_DEFAULT;
 	b->host = host;
 	b->last_activate = SK_UI_ITEM_ID_NONE;
+	b->last_click_id = SK_UI_ITEM_ID_NONE;
 	sk_hash_map_init(&b->rows, a, NULL, NULL);
 	sk_hash_map_init(&b->arrows, a, NULL, NULL);
 	sk_hash_set_init(&b->open, a, NULL, NULL);
@@ -701,10 +763,12 @@ i32 ui_item_bind_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t host, u6
 	return (b != NULL && sk_hash_set_contains(&b->open, item_id)) ? 1 : 0;
 }
 
-i32 ui_item_bind_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open) {
-	ui_item_bind_data_t* b = ib_data(ctx, host);
+static i32 ib_apply_open(ui_item_bind_data_t* b, u64 item_id, i32 open, u32 cond) {
 	if (b == NULL || item_id == SK_UI_ITEM_ID_NONE) {
 		return -1;
+	}
+	if (cond == SK_UI_COND_ONCE && sk_hash_set_contains(&b->seeded, item_id)) {
+		return 0;
 	}
 	(void)sk_hash_set_add(&b->seeded, item_id);
 	if (open != 0) {
@@ -712,7 +776,71 @@ i32 ui_item_bind_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item
 	} else {
 		(void)sk_hash_set_remove(&b->open, item_id);
 	}
+	return 1;
+}
+
+i32 ui_item_bind_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open) {
+	ui_item_bind_data_t* b = ib_data(ctx, host);
+	u32 cond = SK_UI_COND_ALWAYS;
+	if (b == NULL || item_id == SK_UI_ITEM_ID_NONE) {
+		return -1;
+	}
+	if (ctx->has_next_item_open != 0u) {
+		open = ctx->next_item_open != 0u ? 1 : 0;
+		cond = ctx->next_item_open_cond;
+		if (cond == SK_UI_COND_NONE) {
+			cond = SK_UI_COND_ALWAYS;
+		}
+		ctx->has_next_item_open = 0u;
+	}
+	if (ib_apply_open(b, item_id, open, cond) < 0) {
+		return -1;
+	}
 	return ui_item_bind_sync_impl(ctx, host);
+}
+
+i32 ui_item_bind_set_open_cond_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open, u32 cond) {
+	ui_item_bind_data_t* b = ib_data(ctx, host);
+	if (ib_apply_open(b, item_id, open, cond) < 0) {
+		return -1;
+	}
+	return ui_item_bind_sync_impl(ctx, host);
+}
+
+i32 ui_item_bind_open_ancestors_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id) {
+	ui_item_bind_data_t* b = ib_data(ctx, host);
+	u32 guard = 0u;
+	if (b == NULL || item_id == SK_UI_ITEM_ID_NONE) {
+		return -1;
+	}
+	ib_rebuild_index(b);
+	while (item_id != SK_UI_ITEM_ID_NONE && guard < 64u) {
+		sk_ui_item_t* it = ib_find_item(b, item_id);
+		if (it == NULL) {
+			break;
+		}
+		if (it->parent_id == SK_UI_ITEM_ID_NONE) {
+			break;
+		}
+		(void)ib_apply_open(b, it->parent_id, 1, SK_UI_COND_ONCE);
+		item_id = it->parent_id;
+		guard += 1u;
+	}
+	return ui_item_bind_sync_impl(ctx, host);
+}
+
+i32 ui_item_bind_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u32 flags) {
+	ui_item_bind_data_t* b = ib_data(ctx, host);
+	if (b == NULL) {
+		return -1;
+	}
+	b->tree_flags = flags;
+	return ui_item_bind_sync_impl(ctx, host);
+}
+
+u32 ui_item_bind_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t host) {
+	ui_item_bind_data_t* b = ib_data_const(ctx, host);
+	return b != NULL ? b->tree_flags : 0u;
 }
 
 i32 ui_item_bind_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id) {
@@ -755,6 +883,7 @@ i32 ui_item_bind_clear_state_impl(sk_ui_context_t* ctx, sk_ui_node_t host) {
 	sk_hash_set_clear(&b->seeded);
 	b->last_activate = SK_UI_ITEM_ID_NONE;
 	b->last_was_arrow = 0;
+	b->last_click_id = SK_UI_ITEM_ID_NONE;
 	return ui_item_bind_sync_impl(ctx, host);
 }
 
@@ -800,6 +929,7 @@ static void ib_on_arrow_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_eve
 	}
 	(void)sk_hash_set_add(&b->seeded, id);
 	b->last_was_arrow = 1;
+	b->last_click_id = SK_UI_ITEM_ID_NONE;
 	(void)ui_item_bind_sync_impl(ctx, b->host);
 	if (b->on_toggle != NULL) {
 		b->on_toggle(ctx, b->host, id, b->cb_user);
@@ -821,12 +951,39 @@ static void ib_on_row_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event
 	if (id == SK_UI_ITEM_ID_NONE || ib_item_disabled(b, id)) {
 		return;
 	}
+	/* AllowOverlap: a child button (vis/lock / trailing chrome) is the target. */
+	if (event != NULL && sk_ui_node_is_valid(event->target) && !sk_ui_node_eq(event->target, node)) {
+		return;
+	}
 	/* Indent + arrow width: expand when the dedicated arrow node is missed. */
-	if (b->kind == (u32)SK_UI_ITEM_BIND_TREE && event != NULL && ui->node_get_abs_rect(ctx, node, &border, NULL) == 0) {
-		f32 gutter = 4.0f + (f32)ib_item_depth(b, id) * 14.0f + 16.0f;
-		if (event->x < border.x + gutter) {
-			ib_on_arrow_click(ctx, node, event, user);
-			return;
+	if (b->kind == (u32)SK_UI_ITEM_BIND_TREE && (b->tree_flags & SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW) != 0u && event != NULL &&
+		ui->node_get_abs_rect(ctx, node, &border, NULL) == 0) {
+		sk_ui_item_t* it = ib_find_item(b, id);
+		if (it == NULL || (it->flags & (u32)SK_UI_ITEM_FLAG_LEAF) == 0u) {
+			f32 gutter = SK_UI_TREE_ROW_PAD_X + (f32)ib_item_depth(b, id) * SK_UI_TREE_INDENT + 16.0f;
+			if (event->x < border.x + gutter) {
+				ib_on_arrow_click(ctx, node, event, user);
+				return;
+			}
+		}
+	}
+	{
+		i32 is_double = (b->last_click_id == id) ? 1 : 0;
+		sk_ui_item_t* it = ib_find_item(b, id);
+		i32 leaf = (it != NULL && (it->flags & (u32)SK_UI_ITEM_FLAG_LEAF) != 0u) ? 1 : 0;
+		b->last_click_id = is_double != 0 ? SK_UI_ITEM_ID_NONE : id;
+		if (b->kind == (u32)SK_UI_ITEM_BIND_TREE && leaf == 0) {
+			i32 toggle = 0;
+			if ((is_double != 0 && (b->tree_flags & SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK) != 0u) || (b->tree_flags & SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW) == 0u) {
+				toggle = 1;
+			}
+			if (toggle != 0) {
+				if (sk_hash_set_contains(&b->open, id)) {
+					(void)sk_hash_set_remove(&b->open, id);
+				} else {
+					(void)sk_hash_set_add(&b->open, id);
+				}
+			}
 		}
 	}
 	sk_hash_set_clear(&b->selected);
@@ -1153,6 +1310,121 @@ SK_TEST(ui_item_bind_list_combo_table_share_contract) {
 	TEST_ASSERT_EQUAL_INT((int)SK_UI_ITEM_BIND_TABLE, (int)ui->item_bind_get_kind(ctx, table));
 	TEST_ASSERT_TRUE(ui->item_bind_get_array(ctx, list) == &arr);
 	TEST_ASSERT_TRUE(ui->item_bind_get_array(ctx, table) == &arr);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_item_bind_depth_indent_leaf_vs_branch) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[4];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t host;
+	sk_ui_node_t root_row;
+	sk_ui_node_t child_row;
+	sk_ui_node_t leaf_row;
+	sk_ui_layout_style_t ls0;
+	sk_ui_layout_style_t ls1;
+	sk_ui_layout_style_t ls2;
+	sk_ui_prop_value_t pv;
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Root", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Folder", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&items[2], 3ull, 2ull, "Leaf", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&items[3], 4ull, 1ull, "Sibling", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 4u;
+	arr.revision = 0u;
+	host = ib_test_tree(ui, ctx, &arr, "dep");
+	TEST_ASSERT_EQUAL_UINT(SK_UI_TREE_NODE_FLAGS_DEFAULT, ui->item_bind_get_flags(ctx, host));
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	root_row = ui->item_bind_find(ctx, host, 1ull);
+	child_row = ui->item_bind_find(ctx, host, 2ull);
+	leaf_row = ui->item_bind_find(ctx, host, 3ull);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(root_row));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(child_row));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(leaf_row));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, root_row, &ls0));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, child_row, &ls1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, leaf_row, &ls2));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, SK_UI_TREE_ROW_PAD_X, ls0.padding.left);
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, SK_UI_TREE_ROW_PAD_X + SK_UI_TREE_INDENT, ls1.padding.left);
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, SK_UI_TREE_ROW_PAD_X + SK_UI_TREE_INDENT * 2.0f + 16.0f, ls2.padding.left);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, leaf_row, "depth", &pv));
+	TEST_ASSERT_EQUAL_INT(2, pv.data.i32_value);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "dep/a1")));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "dep/a2")));
+	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "dep/a3")));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_item_bind_set_next_open_once_ancestors) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[4];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t host;
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Scene", 0u);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Ent", 0u);
+	sk_ui_item_set(&items[2], 3ull, 2ull, "Leaf", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 3u;
+	arr.revision = 0u;
+	host = ib_test_tree(ui, ctx, &arr, "anc");
+	TEST_ASSERT_EQUAL_UINT(1u, ui->item_bind_row_count(ctx, host));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_open_ancestors(ctx, host, 3ull));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 2ull));
+	TEST_ASSERT_EQUAL_UINT(3u, ui->item_bind_row_count(ctx, host));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 1ull, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_open_ancestors(ctx, host, 3ull));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->set_next_item_open(ctx, 1, SK_UI_COND_ONCE));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open(ctx, host, 1ull, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_get_open(ctx, host, 1ull));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_open_cond(ctx, host, 1ull, 1, SK_UI_COND_ALWAYS));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_item_bind_default_open_and_mutation_state) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[4];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t host;
+	sk_ui_node_t row;
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Root", 0u);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Child", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.items = items;
+	arr.count = 2u;
+	arr.revision = 0u;
+	host = ib_test_tree(ui, ctx, &arr, "def");
+	TEST_ASSERT_EQUAL_UINT(1u, ui->item_bind_row_count(ctx, host));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_clear_state(ctx, host));
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_flags(ctx, host, SK_UI_TREE_NODE_FLAGS_DEFAULT | SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_UINT(2u, ui->item_bind_row_count(ctx, host));
+	row = ui->item_bind_find(ctx, host, 2ull);
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_set_selected(ctx, host, 2ull, 1));
+
+	sk_ui_item_set(&items[0], 1ull, 0ull, "World", 0u);
+	sk_ui_item_set(&items[1], 2ull, 1ull, "Hero", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&items[2], 5ull, 1ull, "New", (u32)SK_UI_ITEM_FLAG_LEAF);
+	arr.count = 3u;
+	arr.revision = 1u;
+	TEST_ASSERT_EQUAL_INT(0, ui->item_bind_sync(ctx, host));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_open(ctx, host, 1ull));
+	TEST_ASSERT_EQUAL_INT(1, ui->item_bind_get_selected(ctx, host, 2ull));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(row, ui->item_bind_find(ctx, host, 2ull)));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->item_bind_find(ctx, host, 5ull)));
 	ui->context_destroy(ctx);
 }
 

@@ -237,7 +237,10 @@ struct sk_ui_context_t {
 	u8 id_stack_depth;
 	u8 has_next_item_width;
 	u8 has_pending_same_line; /**< widget_same_line called, next widget consumes (APX-349). */
-	u8 same_line_pad[2];
+	u8 has_next_item_open;	  /**< SetNextItemOpen pending (APX-350). */
+	u8 next_item_open;		  /**< Pending open (0/1). */
+	u8 next_item_open_cond;	  /**< SK_UI_COND_*. */
+	u8 same_line_pad[1];
 	u8 disabled_stack[16];
 	u16 id_mark[16]; /**< id_prefix length at each push_id. */
 	char id_prefix[192];
@@ -550,6 +553,10 @@ i32 ui_item_bind_last_was_arrow_impl(const sk_ui_context_t* ctx, sk_ui_node_t ho
 i32 ui_item_bind_clear_state_impl(sk_ui_context_t* ctx, sk_ui_node_t host);
 i32 ui_item_bind_set_on_activate_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
 i32 ui_item_bind_set_on_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+i32 ui_item_bind_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u32 flags);
+u32 ui_item_bind_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t host);
+i32 ui_item_bind_set_open_cond_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open, u32 cond);
+i32 ui_item_bind_open_ancestors_impl(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
 
 i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx);
 void ui_set_clipboard_fns_impl(sk_ui_context_t* ctx, sk_ui_clipboard_get_fn get_fn, sk_ui_clipboard_set_fn set_fn, void_ptr_t user);
@@ -832,6 +839,14 @@ i32 ui_push_id_int_impl(sk_ui_context_t* ctx, i32 id);
 i32 ui_push_id_ptr_impl(sk_ui_context_t* ctx, const void* ptr);
 i32 ui_pop_id_impl(sk_ui_context_t* ctx);
 i32 ui_set_next_item_width_impl(sk_ui_context_t* ctx, f32 width);
+i32 ui_set_next_item_open_impl(sk_ui_context_t* ctx, i32 is_open, u32 cond);
+sk_ui_node_t ui_widget_collapsing_header_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, u32 flags);
+i32 ui_collapsing_header_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t header);
+i32 ui_collapsing_header_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t header, i32 open);
+sk_ui_node_t ui_collapsing_header_body_impl(sk_ui_context_t* ctx, sk_ui_node_t header);
+sk_ui_node_t ui_collapsing_header_button_impl(const sk_ui_context_t* ctx, sk_ui_node_t header);
+i32 ui_collapsing_header_button_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t header);
+u32 ui_collapsing_header_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t header);
 i32 ui_indent_impl(sk_ui_context_t* ctx, f32 width);
 i32 ui_unindent_impl(sk_ui_context_t* ctx, f32 width);
 sk_ui_node_t ui_widget_group_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);

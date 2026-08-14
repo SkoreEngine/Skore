@@ -1305,6 +1305,128 @@ static i32 sandbox_widget_build_separator(const sandbox_widget_host_t* host, sk_
 	return 0;
 }
 
+static sk_ui_item_t s_review_tree_items[8];
+static sk_ui_item_array_t s_review_tree_arr;
+static sk_ui_item_t s_review_deep_items[8];
+static sk_ui_item_array_t s_review_deep_arr;
+
+static void sandbox_tree_size(const sandbox_widget_host_t* host, sk_ui_node_t node, f32 w, f32 h) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_style_props_t p;
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(w);
+	p.layout.height = sk_ui_pt(h);
+	(void)ui->node_merge_inline_style(host->ctx, node, &p);
+}
+
+static i32 sandbox_widget_build_tree(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t host_tree;
+	sk_ui_node_t row;
+
+	sandbox_widget_style_fill(host);
+	sk_ui_item_set(&s_review_tree_items[0], 1ull, 0ull, "Scene", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_tree_items[1], 2ull, 1ull, "Camera", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_tree_items[2], 3ull, 2ull, "Lens", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_tree_items[3], 4ull, 1ull, "Player", (u32)SK_UI_ITEM_FLAG_OPEN | (u32)SK_UI_ITEM_FLAG_SELECTED);
+	sk_ui_item_set(&s_review_tree_items[4], 5ull, 4ull, "Mesh", (u32)SK_UI_ITEM_FLAG_LEAF);
+	sk_ui_item_set(&s_review_tree_items[5], 6ull, 1ull, "Light", (u32)SK_UI_ITEM_FLAG_LEAF | (u32)SK_UI_ITEM_FLAG_DISABLED);
+	s_review_tree_arr.items = s_review_tree_items;
+	s_review_tree_arr.count = 6u;
+	s_review_tree_arr.revision = 1u;
+
+	host_tree = ui->widget_tree(host->ctx, root, &s_review_tree_arr, "review-tree");
+	if (!sk_ui_node_is_valid(host_tree)) {
+		fprintf(stderr, "sk-sandbox: widget_tree failed\n");
+		return -1;
+	}
+	(void)ui->item_bind_set_flags(host->ctx, host_tree, SK_UI_TREE_NODE_FLAGS_DEFAULT | SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK);
+	(void)ui->item_bind_set_open(host->ctx, host_tree, 1ull, 1);
+	(void)ui->item_bind_set_open(host->ctx, host_tree, 4ull, 1);
+	(void)ui->item_bind_set_selected(host->ctx, host_tree, 4ull, 1);
+	sandbox_tree_size(host, host_tree, (f32)host->width - 32.0f, (f32)host->height - 32.0f);
+	row = ui->item_bind_find(host->ctx, host_tree, 4ull);
+	*out_target = sk_ui_node_is_valid(row) ? row : host_tree;
+	return 0;
+}
+
+static i32 sandbox_widget_build_collapsing_header(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t col;
+	sk_ui_node_t xform;
+	sk_ui_node_t mesh;
+	sk_ui_node_t body;
+	sk_ui_style_props_t p;
+
+	sandbox_widget_style_fill(host);
+	col = ui->widget_vertical(host->ctx, root, "review-ch-col");
+	if (!sk_ui_node_is_valid(col)) {
+		fprintf(stderr, "sk-sandbox: collapsing column failed\n");
+		return -1;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
+	p.layout.width = sk_ui_pt((f32)host->width - 32.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	(void)ui->node_merge_inline_style(host->ctx, col, &p);
+
+	(void)ui->set_next_item_open(host->ctx, 1, SK_UI_COND_ONCE);
+	xform = ui->widget_collapsing_header(host->ctx, col, "Transform", "review-ch-xform", SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON | SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN);
+	if (!sk_ui_node_is_valid(xform)) {
+		fprintf(stderr, "sk-sandbox: collapsing_header failed\n");
+		return -1;
+	}
+	body = ui->collapsing_header_body(host->ctx, xform);
+	(void)ui->widget_text(host->ctx, body, "Position    0.00  1.20  -3.40", "review-ch-pos");
+	(void)ui->widget_text(host->ctx, body, "Rotation    0.00  45.0   0.00", "review-ch-rot");
+	mesh = ui->widget_collapsing_header(host->ctx, col, "Mesh Renderer", "review-ch-mesh", SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON);
+	if (!sk_ui_node_is_valid(mesh)) {
+		fprintf(stderr, "sk-sandbox: mesh collapsing_header failed\n");
+		return -1;
+	}
+	(void)ui->widget_text(host->ctx, ui->collapsing_header_body(host->ctx, mesh), "mesh.skmesh", "review-ch-mesh-txt");
+	*out_target = xform;
+	return 0;
+}
+
+static i32 sandbox_widget_build_tree_deep(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t host_tree;
+	sk_ui_node_t leaf;
+	u32 i;
+
+	sandbox_widget_style_fill(host);
+	sk_ui_item_set(&s_review_deep_items[0], 1ull, 0ull, "World", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_deep_items[1], 2ull, 1ull, "Level", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_deep_items[2], 3ull, 2ull, "Room", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_deep_items[3], 4ull, 3ull, "Props", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_deep_items[4], 5ull, 4ull, "Chest", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_deep_items[5], 6ull, 5ull, "Gold", (u32)SK_UI_ITEM_FLAG_LEAF | (u32)SK_UI_ITEM_FLAG_SELECTED);
+	sk_ui_item_set(&s_review_deep_items[6], 7ull, 4ull, "Torch", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_deep_arr.items = s_review_deep_items;
+	s_review_deep_arr.count = 7u;
+	s_review_deep_arr.revision = 1u;
+
+	host_tree = ui->widget_tree(host->ctx, root, &s_review_deep_arr, "review-tree-deep");
+	if (!sk_ui_node_is_valid(host_tree)) {
+		fprintf(stderr, "sk-sandbox: deep widget_tree failed\n");
+		return -1;
+	}
+	for (i = 1u; i <= 5u; ++i) {
+		(void)ui->item_bind_set_open(host->ctx, host_tree, (u64)i, 1);
+	}
+	(void)ui->item_bind_set_selected(host->ctx, host_tree, 6ull, 1);
+	sandbox_tree_size(host, host_tree, (f32)host->width - 32.0f, (f32)host->height - 32.0f);
+	leaf = ui->item_bind_find(host->ctx, host_tree, 6ull);
+	*out_target = sk_ui_node_is_valid(leaf) ? leaf : host_tree;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1334,7 +1456,11 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"drag_int", "dragint", "§6 DragInt", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_drag_int},
 	{"drag_float3", "dragf3", "§6 DragFloat3", SANDBOX_WS_BITS_SLIDER, 480u, 96u, sandbox_widget_build_drag_float3},
 	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
-	{"tree", NULL, "§8 TreeNode / CollapsingHeader", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u, NULL},
+	{"tree", NULL, "§8 TreeNode Entity Tree", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u,
+	 sandbox_widget_build_tree},
+	{"collapsing_header", "collapsing", "§8 CollapsingHeader + trailing button", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 420u, 220u,
+	 sandbox_widget_build_collapsing_header},
+	{"tree_deep", "tree_selected", "§8 deep indent + selected", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED, 384u, 256u, sandbox_widget_build_tree_deep},
 	{"table", NULL, "§9 Table", SANDBOX_WS_BIT_DEFAULT, 480u, 256u, NULL},
 	{"tab_bar", "tab", "§10 TabBar workspace + close + body", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 520u, 180u, sandbox_widget_build_tab_bar},
 	{"tab_bar_plus", "tabplus", "§10 TabItemButton +", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED, 320u, 96u, sandbox_widget_build_tab_plus},

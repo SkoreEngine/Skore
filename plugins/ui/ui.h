@@ -950,6 +950,43 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_TABLE "ui-table"
 #define SK_UI_CLASS_ITEM_ROW "ui-item-row"
 #define SK_UI_CLASS_TREE_ARROW "ui-tree-arrow"
+#define SK_UI_CLASS_COLLAPSING_HEADER "ui-collapsing-header"
+#define SK_UI_CLASS_COLLAPSING_HEADER_BODY "ui-collapsing-header-body"
+#define SK_UI_CLASS_COLLAPSING_HEADER_BUTTON "ui-collapsing-header-button"
+
+/** Per-level indent for tree rows (ImGui-ish; Entity Tree / Project Browser). */
+#define SK_UI_TREE_INDENT 14.0f
+/** Leading pad before the first indent step. */
+#define SK_UI_TREE_ROW_PAD_X 4.0f
+
+/**
+ * TreeNodeEx / CollapsingHeader flags (editor wrappers OR these on).
+ * ImGuiTreeNode always ORs OPEN_ON_ARROW | SPAN_AVAIL_WIDTH | SPAN_FULL_WIDTH |
+ * FRAME_PADDING. ImGuiTreeLeaf additionally ORs LEAF | NO_TREE_PUSH_ON_OPEN.
+ */
+#define SK_UI_TREE_NODE_FLAG_NONE 0u
+#define SK_UI_TREE_NODE_FLAG_SELECTED (1u << 0)
+#define SK_UI_TREE_NODE_FLAG_FRAMED (1u << 1)
+#define SK_UI_TREE_NODE_FLAG_ALLOW_OVERLAP (1u << 2)
+#define SK_UI_TREE_NODE_FLAG_NO_TREE_PUSH_ON_OPEN (1u << 3)
+#define SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN (1u << 4)
+#define SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK (1u << 5)
+#define SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW (1u << 6)
+#define SK_UI_TREE_NODE_FLAG_LEAF (1u << 7)
+#define SK_UI_TREE_NODE_FLAG_SPAN_AVAIL_WIDTH (1u << 8)
+#define SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH (1u << 9)
+#define SK_UI_TREE_NODE_FLAG_FRAME_PADDING (1u << 10)
+/** ImGuiCollapsingHeaderProps: trailing '...' button on the header. */
+#define SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON (1u << 11)
+
+/** ImGuiTreeNode default OR-mask. */
+#define SK_UI_TREE_NODE_FLAGS_DEFAULT \
+	(SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW | SK_UI_TREE_NODE_FLAG_SPAN_AVAIL_WIDTH | SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH | SK_UI_TREE_NODE_FLAG_FRAME_PADDING)
+
+/** SetNextItemOpen / item_bind_set_open_cond. ONCE = first seed only. */
+#define SK_UI_COND_NONE 0u
+#define SK_UI_COND_ALWAYS 1u
+#define SK_UI_COND_ONCE 2u
 
 /* ------------------------------------------------------------------ */
 /*  Retained item-array binding (APX-338)                             */
@@ -2701,6 +2738,19 @@ typedef struct sk_ui_api_t {
 	i32 (*item_bind_clear_state)(sk_ui_context_t* ctx, sk_ui_node_t host);
 	i32 (*item_bind_set_on_activate)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
 	i32 (*item_bind_set_on_toggle)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+	/**
+	 * TreeNodeEx flags for this host (SK_UI_TREE_NODE_FLAG_*). Default is
+	 * SK_UI_TREE_NODE_FLAGS_DEFAULT (OpenOnArrow + full-row span + frame pad).
+	 */
+	i32 (*item_bind_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t host, u32 flags);
+	u32 (*item_bind_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/**
+	 * Set open with ImGuiCond. ONCE writes only if this id has not been
+	 * seeded yet (EntityTree SetNextItemOpen(true, Once) on ancestors).
+	 */
+	i32 (*item_bind_set_open_cond)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open, u32 cond);
+	/** Open every ancestor of @p item_id with SK_UI_COND_ONCE, then sync. */
+	i32 (*item_bind_open_ancestors)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
 
 	/* ---- automation / UI tester contract (query, accessors, actions) ---- */
 
@@ -4043,6 +4093,31 @@ typedef struct sk_ui_api_t {
 	 * cleared at the next layout. @return 0 on success.
 	 */
 	i32 (*widget_same_line)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 offset_from_start_x, f32 spacing);
+
+	/* ---- tree / collapsing header family (APX-350; manifest §8) ---- */
+
+	/**
+	 * SetNextItemOpen. Consumed by the next widget_collapsing_header or the
+	 * next item_bind_set_open. SK_UI_COND_ONCE applies only if that id has
+	 * not been seeded (ancestors of a selection, settings root).
+	 */
+	i32 (*set_next_item_open)(sk_ui_context_t* ctx, i32 is_open, u32 cond);
+
+	/**
+	 * CollapsingHeader (Properties / Settings sections). Framed full-width
+	 * header; no indent push. TRAILING_BUTTON adds ImGuiCollapsingHeaderProps
+	 * '...'. Body is hidden while closed. @p flags is SK_UI_TREE_NODE_FLAG_*.
+	 */
+	sk_ui_node_t (*widget_collapsing_header)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, u32 flags);
+	i32 (*collapsing_header_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+	i32 (*collapsing_header_set_open)(sk_ui_context_t* ctx, sk_ui_node_t header, i32 open);
+	/** Content host under the header (hidden when closed). */
+	sk_ui_node_t (*collapsing_header_body)(sk_ui_context_t* ctx, sk_ui_node_t header);
+	/** Trailing '...' button, or SK_UI_NODE_INVALID when the flag is off. */
+	sk_ui_node_t (*collapsing_header_button)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+	/** Edge-triggered click on the trailing button, then clears. */
+	i32 (*collapsing_header_button_clicked)(sk_ui_context_t* ctx, sk_ui_node_t header);
+	u32 (*collapsing_header_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t header);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

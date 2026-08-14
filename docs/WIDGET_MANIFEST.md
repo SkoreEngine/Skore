@@ -603,12 +603,24 @@ every frame.
 - Header with an extra `…` button (`ImGuiCollapsingHeaderProps`).
 
 **sk-ui today:** `widget_tree` + `item_bind_*` (APX-338) is the retained
-array contract. Full TreeNode chrome (table host, inline rename, header
-`…` button) is a later wave on this binding.
+array contract. TreeNode chrome (APX-350): OpenOnArrow vs OpenOnDoubleClick,
+leaf vs branch, SpanFullWidth hit, DefaultOpen, AllowOverlap, SetNextItemOpen
+(Once) / `item_bind_open_ancestors`, and `widget_collapsing_header` with an
+optional trailing `…` (`SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON`). Table host
+and inline rename stay a later wave.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/item_bind.c` + `plugins/ui/widgets.c`
+  (`ui_item_bind_depth_indent_leaf_vs_branch`,
+  `ui_item_bind_set_next_open_once_ancestors`,
+  `ui_item_bind_default_open_and_mutation_state`,
+  `ui_widget_tree_family_open_select_leaf_depth`,
+  `ui_widget_tree_family_set_next_open_once`,
+  `ui_widget_tree_family_double_click_overlap`,
+  `ui_widget_collapsing_header_open_button`)
+- [x] Headless UI automation — `plugins/ui/tree_family_tests.c`
+  (`ui_author_tree_family_expand_select_double_click`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget tree`,
+  `collapsing_header`, `tree_deep`; states default/hovered/disabled/focused)
 
 ---
 

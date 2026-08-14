@@ -1576,6 +1576,10 @@ static const sk_ui_api_t ui_api = {
 	ui_item_bind_clear_state_impl,
 	ui_item_bind_set_on_activate_impl,
 	ui_item_bind_set_on_toggle_impl,
+	ui_item_bind_set_flags_impl,
+	ui_item_bind_get_flags_impl,
+	ui_item_bind_set_open_cond_impl,
+	ui_item_bind_open_ancestors_impl,
 	ui_query_by_test_id_impl,
 	ui_query_by_class_impl,
 	ui_query_by_widget_impl,
@@ -1859,6 +1863,14 @@ static const sk_ui_api_t ui_api = {
 	ui_widget_spacing_impl,
 	ui_widget_dummy_impl,
 	ui_widget_same_line_impl,
+	ui_set_next_item_open_impl,
+	ui_widget_collapsing_header_impl,
+	ui_collapsing_header_get_open_impl,
+	ui_collapsing_header_set_open_impl,
+	ui_collapsing_header_body_impl,
+	ui_collapsing_header_button_impl,
+	ui_collapsing_header_button_clicked_impl,
+	ui_collapsing_header_get_flags_impl,
 };
 
 /**

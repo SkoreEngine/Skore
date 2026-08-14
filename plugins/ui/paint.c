@@ -1402,6 +1402,23 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 			}
 		}
+		if (wtype != NULL && strcmp(wtype, "tree_arrow") == 0) {
+			/* ImGui-style filled triangle: right when closed, down when open. */
+			i32 open = 0;
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			f32 s = 4.6f * avg;
+			f32 ax = bx + bw * 0.5f;
+			f32 ay = by + bh * 0.5f;
+			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			(void)ui_paint_prop_i32(slot, "open", &open);
+			if (open != 0) {
+				if (ui_paint_add_triangle(em, ax - s, ay - s * 0.45f, ax + s, ay - s * 0.45f, ax, ay + s * 0.75f, mk) != 0) {
+					return -1;
+				}
+			} else if (ui_paint_add_triangle(em, ax - s * 0.45f, ay - s, ax - s * 0.45f, ay + s, ax + s * 0.75f, ay, mk) != 0) {
+				return -1;
+			}
+		}
 	}
 
 	/* Slider / Drag fill + grab + optional text-entry inset. */
