@@ -988,6 +988,49 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_TOOLTIP_OFFSET_Y 16.0f
 
 /**
+ * Drag-drop payload API (APX-356; WIDGET_MANIFEST.md §17).
+ * Sources / targets hang off tree rows, property fields, and custom rects.
+ * The payload is transient (lives until mouse release); no §21 bind.
+ */
+#define SK_UI_CLASS_DRAG_DROP_PREVIEW "ui-drag-drop-preview"
+#define SK_UI_CLASS_DRAG_DROP_TARGET "ui-drag-drop-target"
+/** EditorCommon.hpp payload type strings. */
+#define SK_UI_ASSET_PAYLOAD "sk-asset-payload"
+#define SK_UI_ENTITY_PAYLOAD "sk-entity-payload"
+/** ImGui DataType buffer (32 + NUL). */
+#define SK_UI_PAYLOAD_TYPE_MAX 32
+/** Preview tooltip / SetDragDropPayload preview text. */
+#define SK_UI_DRAG_DROP_PREVIEW_MAX 96
+/** BeginDragDropTargetCustom id (between-row / viewport). */
+#define SK_UI_DRAG_DROP_ID_MAX 64
+/** ImGui drag threshold in logical px before the payload becomes active. */
+#define SK_UI_DRAG_DROP_THRESHOLD 6.0f
+
+#define SK_UI_DRAG_DROP_FLAG_NONE 0u
+/** Do not hold-to-open other tree nodes while this source is dragged. */
+#define SK_UI_DRAG_DROP_FLAG_SOURCE_NO_HOLD_TO_OPEN_OTHERS (1u << 0)
+/** Keep hover on other items while dragging (editor default). */
+#define SK_UI_DRAG_DROP_FLAG_SOURCE_NO_DISABLE_HOVER (1u << 1)
+/** Do not paint the default target highlight; caller peeks GetDragDropPayload. */
+#define SK_UI_DRAG_DROP_FLAG_ACCEPT_NO_DRAW_DEFAULT_RECT (1u << 2)
+/** Hide the preview tooltip while this target is hovered. */
+#define SK_UI_DRAG_DROP_FLAG_ACCEPT_NO_PREVIEW_TOOLTIP (1u << 3)
+
+/**
+ * Active drag payload (ImGuiPayload analog). Owned by the context; valid
+ * until mouse release (or the next begin). @p data is NULL when size is 0
+ * (SK_ENTITY_PAYLOAD — selection is implicit).
+ */
+typedef struct sk_ui_payload_t {
+	char type[SK_UI_PAYLOAD_TYPE_MAX + 1];
+	const void* data;
+	u32 size;
+	sk_ui_node_t source;
+	i32 preview;  /**< Non-zero while a matching target is hovered. */
+	i32 delivery; /**< Non-zero on the release frame that hit a target. */
+} sk_ui_payload_t;
+
+/**
  * BeginTable flags the editor actually sets (ImGuiTableFlags analog).
  * Sizing bits are mutually exclusive; the last one that is set wins.
  */
@@ -4396,6 +4439,47 @@ typedef struct sk_ui_api_t {
 	/** Override the hover item. SK_UI_NODE_INVALID restores previous-sibling. */
 	i32 (*tooltip_set_anchor)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t item);
 	sk_ui_node_t (*tooltip_get_anchor)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- drag-drop payload (APX-356; manifest §17) ---- */
+
+	/**
+	 * BeginDragDropSource + SetDragDropPayload on @p item (tree row / field).
+	 * @p data is copied. Empty payload: data == NULL && size == 0
+	 * (SK_ENTITY_PAYLOAD; selection is implicit).
+	 */
+	i32 (*drag_drop_source)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, const void* data, u32 size, u32 flags);
+	/** Preview tooltip text while this source is dragged. */
+	i32 (*drag_drop_set_preview)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t text);
+	/** BeginDragDropTarget on @p item (previous item / tree row / field). */
+	i32 (*drag_drop_target)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, u32 flags);
+	/**
+	 * BeginDragDropTargetCustom: caller-supplied rect + id (Entity Tree
+	 * between-row reparent, Scene View full-viewport drop).
+	 */
+	i32 (*drag_drop_target_custom)(sk_ui_context_t* ctx, const sk_ui_rect_t* bb, const_chr_t id, const_chr_t type, u32 flags);
+	i32 (*drag_drop_target_custom_clear)(sk_ui_context_t* ctx, const_chr_t id);
+	/**
+	 * AcceptDragDropPayload on the hovered node target. Type must match.
+	 * Drop-on-self is rejected. Consume-on-read (one delivery).
+	 */
+	const sk_ui_payload_t* (*drag_drop_accept)(sk_ui_context_t* ctx, const_chr_t type, u32 flags);
+	/** Accept on a hovered custom-rect target. */
+	const sk_ui_payload_t* (*drag_drop_accept_custom)(sk_ui_context_t* ctx, const_chr_t id, const_chr_t type, u32 flags);
+	/** GetDragDropPayload: peek the active payload without accepting. */
+	const sk_ui_payload_t* (*drag_drop_get_payload)(const sk_ui_context_t* ctx);
+	/** Non-zero while a payload is live (until mouse release). */
+	i32 (*drag_drop_is_active)(const sk_ui_context_t* ctx);
+	sk_ui_node_t (*drag_drop_get_source)(const sk_ui_context_t* ctx);
+	sk_ui_node_t (*drag_drop_get_hovered_target)(const sk_ui_context_t* ctx);
+	const_chr_t (*drag_drop_get_hovered_custom_id)(const sk_ui_context_t* ctx);
+	/** Peek highlight: @p item is the hovered node target (before accept). */
+	i32 (*drag_drop_target_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t item);
+	/** Preview overlay node (tooltip text while dragging). */
+	sk_ui_node_t (*drag_drop_preview)(const sk_ui_context_t* ctx);
+	/** Force-start a drag from an attached source (sandbox / tests). */
+	i32 (*drag_drop_begin)(sk_ui_context_t* ctx, sk_ui_node_t item);
+	/** Cancel / expire the active payload. */
+	i32 (*drag_drop_cancel)(sk_ui_context_t* ctx);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

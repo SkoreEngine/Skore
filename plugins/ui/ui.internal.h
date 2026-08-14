@@ -254,8 +254,9 @@ struct sk_ui_context_t {
 	sk_ui_clipboard_set_fn clipboard_set;
 	void_ptr_t clipboard_user;
 	i32 widgets_defaults_registered;
-	ui_node_list_t item_binds; /**< Hosts with a live item-array bind (item_bind.c). */
-	ui_node_list_t tables;	   /**< Live widget_table hosts (table.c). */
+	ui_node_list_t item_binds;		  /**< Hosts with a live item-array bind (item_bind.c). */
+	ui_node_list_t tables;			  /**< Live widget_table hosts (table.c). */
+	struct ui_drag_drop_t* drag_drop; /**< Transient payload session (drag_drop.c). */
 
 	/* Dock model (dock.c). Unused when dockspace_count == 0. */
 	ui_dock_slot_array_t dock_slots;
@@ -533,6 +534,32 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_COMBO_DATA_TYPE_ID SK_TYPE_ID("sk.ui_combo_data", 0x5e8a3c1d9b7f2460ULL, 0xc4d6e8f0a2143658ULL)
 /** Type id for tooltip user_data (tooltip.c). */
 #define SK_UI_TOOLTIP_DATA_TYPE_ID SK_TYPE_ID("sk.ui_tooltip_data", 0x9f2a6c8e1b4d5073ULL, 0xa7c5e913d8462b0fULL)
+
+/* Drag-drop payload (APX-356; manifest §17). */
+i32 ui_drag_drop_init(sk_ui_context_t* ctx);
+void ui_drag_drop_shutdown(sk_ui_context_t* ctx);
+void ui_drag_drop_on_pointer(sk_ui_context_t* ctx, i32 button, i32 down);
+void ui_drag_drop_place(sk_ui_context_t* ctx);
+void ui_drag_drop_on_node_destroy(sk_ui_context_t* ctx, sk_ui_node_t node);
+/** SourceNoHoldToOpenOthers: skip opening other tree nodes while dragging. */
+i32 ui_drag_drop_blocks_hold_to_open(const sk_ui_context_t* ctx);
+
+i32 ui_drag_drop_source_impl(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, const void* data, u32 size, u32 flags);
+i32 ui_drag_drop_set_preview_impl(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t text);
+i32 ui_drag_drop_target_impl(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, u32 flags);
+i32 ui_drag_drop_target_custom_impl(sk_ui_context_t* ctx, const sk_ui_rect_t* bb, const_chr_t id, const_chr_t type, u32 flags);
+i32 ui_drag_drop_target_custom_clear_impl(sk_ui_context_t* ctx, const_chr_t id);
+const sk_ui_payload_t* ui_drag_drop_accept_impl(sk_ui_context_t* ctx, const_chr_t type, u32 flags);
+const sk_ui_payload_t* ui_drag_drop_accept_custom_impl(sk_ui_context_t* ctx, const_chr_t id, const_chr_t type, u32 flags);
+const sk_ui_payload_t* ui_drag_drop_get_payload_impl(const sk_ui_context_t* ctx);
+i32 ui_drag_drop_is_active_impl(const sk_ui_context_t* ctx);
+sk_ui_node_t ui_drag_drop_get_source_impl(const sk_ui_context_t* ctx);
+sk_ui_node_t ui_drag_drop_get_hovered_target_impl(const sk_ui_context_t* ctx);
+const_chr_t ui_drag_drop_get_hovered_custom_id_impl(const sk_ui_context_t* ctx);
+i32 ui_drag_drop_target_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t item);
+sk_ui_node_t ui_drag_drop_preview_impl(const sk_ui_context_t* ctx);
+i32 ui_drag_drop_begin_impl(sk_ui_context_t* ctx, sk_ui_node_t item);
+i32 ui_drag_drop_cancel_impl(sk_ui_context_t* ctx);
 
 /** Free widget user_data if present (called from slot release). */
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);

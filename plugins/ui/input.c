@@ -961,6 +961,7 @@ i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* even
 	case SK_UI_INPUT_POINTER_MOVE:
 		ui_handle_pointer_move(ctx, event->x, event->y, event->mods);
 		ui_dock_drag_tick(ctx, event->x, event->y, 0);
+		ui_drag_drop_on_pointer(ctx, SK_UI_POINTER_BUTTON_LEFT, -1);
 		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_POINTER_BUTTON:
@@ -968,6 +969,7 @@ i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* even
 		if (event->button == SK_UI_POINTER_BUTTON_LEFT && event->down == 0) {
 			ui_dock_drag_tick(ctx, event->x, event->y, 1);
 		}
+		ui_drag_drop_on_pointer(ctx, event->button, event->down);
 		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_WHEEL:

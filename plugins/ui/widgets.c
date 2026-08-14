@@ -1699,6 +1699,24 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
+	/* Drag-drop preview: same floating card as tooltip (payload label). */
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG_DROP_PREVIEW, &base) != 0) {
+		return -1;
+	}
+
+	/* Default drop-target highlight (ImGui Header overlay). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	base.background_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.35f);
+	base.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.90f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DRAG_DROP_TARGET, &base) != 0) {
+		return -1;
+	}
+
 	ctx->widgets_defaults_registered = 1;
 	return 0;
 }
@@ -9776,6 +9794,9 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TEXT_INPUT));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SCROLL_VIEW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_IMAGE));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOOLTIP));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG_DROP_PREVIEW));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_DRAG_DROP_TARGET));
 	ui->context_destroy(ctx);
 }
 

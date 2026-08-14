@@ -1224,11 +1224,22 @@ and targets hang off tree rows / content items / property fields.
 - Accept by type; optional no default highlight / no tooltip.
 - Peek `GetDragDropPayload` for hover highlighting before accept.
 
-**sk-ui today:** no drag-drop payload API.
+**sk-ui today:** drag-drop payload API (`drag_drop_source` / `drag_drop_target` /
+`drag_drop_target_custom` / `drag_drop_accept` / `drag_drop_get_payload`). Typed
+blob + empty `SK_ENTITY_PAYLOAD`. Flags used by the editor. Custom-rect targets
+for between-row reparent and viewport drop. Payload is transient until mouse
+release.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/drag_drop.c`
+  (`ui_widget_drag_drop_payload_type_match_reject`,
+  `ui_widget_drag_drop_payload_lifetime_across_frames`,
+  `ui_widget_drag_drop_drop_on_self_rejected`,
+  `ui_widget_drag_drop_cancel_release_outside`,
+  `ui_widget_drag_drop_custom_rect_hit`)
+- [x] Headless UI automation — `plugins/ui/drag_drop_family_tests.c`
+  (`ui_author_drag_drop_family_tree_row_and_property_field`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget drag_drop`;
+  states default/dragging/hovered)
 
 ---
 

@@ -1795,6 +1795,113 @@ static i32 sandbox_widget_build_tooltip_edge(const sandbox_widget_host_t* host, 
 	return 0;
 }
 
+static sk_ui_item_t s_review_dd_items[6];
+static sk_ui_item_array_t s_review_dd_arr;
+
+static i32 sandbox_widget_build_drag_drop(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t row_col;
+	sk_ui_node_t tree;
+	sk_ui_node_t field;
+	sk_ui_node_t src;
+	sk_ui_node_t dst;
+	sk_ui_style_props_t p;
+	sk_ui_rect_t gap;
+
+	sandbox_widget_style_fill(host);
+	row_col = ui->widget_vertical(host->ctx, root, "review-dd-col");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ROW_GAP;
+	p.layout.width = sk_ui_pt((f32)host->width - 32.0f);
+	p.layout.height = sk_ui_pt((f32)host->height - 32.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.row_gap = 10.0f;
+	(void)ui->node_merge_inline_style(host->ctx, row_col, &p);
+
+	sk_ui_item_set(&s_review_dd_items[0], 1ull, 0ull, "Scene", (u32)SK_UI_ITEM_FLAG_OPEN);
+	sk_ui_item_set(&s_review_dd_items[1], 2ull, 1ull, "EntityA", (u32)SK_UI_ITEM_FLAG_LEAF | (u32)SK_UI_ITEM_FLAG_SELECTED);
+	sk_ui_item_set(&s_review_dd_items[2], 3ull, 1ull, "EntityB", (u32)SK_UI_ITEM_FLAG_LEAF);
+	s_review_dd_arr.items = s_review_dd_items;
+	s_review_dd_arr.count = 3u;
+	s_review_dd_arr.revision = 1u;
+
+	tree = ui->widget_tree(host->ctx, row_col, &s_review_dd_arr, "review-dd");
+	if (!sk_ui_node_is_valid(tree)) {
+		fprintf(stderr, "sk-sandbox: drag_drop tree failed\n");
+		return -1;
+	}
+	(void)ui->item_bind_set_flags(host->ctx, tree, SK_UI_TREE_NODE_FLAGS_DEFAULT);
+	(void)ui->item_bind_set_open(host->ctx, tree, 1ull, 1);
+	(void)ui->item_bind_set_selected(host->ctx, tree, 2ull, 1);
+	sandbox_tree_size(host, tree, (f32)host->width - 48.0f, 110.0f);
+
+	(void)ui->widget_text(host->ctx, row_col, "Mesh", "review-dd-label");
+	field = ui->widget_text_input(host->ctx, row_col, "hero.skmesh", "review-dd-field");
+	if (!sk_ui_node_is_valid(field)) {
+		fprintf(stderr, "sk-sandbox: drag_drop field failed\n");
+		return -1;
+	}
+
+	src = ui->item_bind_find(host->ctx, tree, 2ull);
+	dst = ui->item_bind_find(host->ctx, tree, 3ull);
+	if (!sk_ui_node_is_valid(src) || !sk_ui_node_is_valid(dst)) {
+		fprintf(stderr, "sk-sandbox: drag_drop rows missing\n");
+		return -1;
+	}
+	(void)ui->drag_drop_source(host->ctx, src, SK_UI_ENTITY_PAYLOAD, NULL, 0u, SK_UI_DRAG_DROP_FLAG_SOURCE_NO_HOLD_TO_OPEN_OTHERS | SK_UI_DRAG_DROP_FLAG_SOURCE_NO_DISABLE_HOVER);
+	(void)ui->drag_drop_set_preview(host->ctx, src, "1 entity");
+	(void)ui->drag_drop_target(host->ctx, dst, SK_UI_ENTITY_PAYLOAD, 0u);
+	(void)ui->drag_drop_target(host->ctx, field, SK_UI_ASSET_PAYLOAD, 0u);
+
+	memset(&gap, 0, sizeof(gap));
+	gap.x = 16.0f;
+	gap.y = 118.0f;
+	gap.width = (f32)host->width - 48.0f;
+	gap.height = 8.0f;
+	(void)ui->drag_drop_target_custom(host->ctx, &gap, "review-dd-between", SK_UI_ENTITY_PAYLOAD, SK_UI_DRAG_DROP_FLAG_ACCEPT_NO_DRAW_DEFAULT_RECT);
+
+	*out_target = src;
+	return 0;
+}
+
+static i32 sandbox_drag_drop_apply(const sandbox_widget_host_t* host, sandbox_widget_state_t st) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t src = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-dd/i2");
+	sk_ui_node_t dst = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-dd/i3");
+	sk_ui_rect_t r;
+	sk_ui_input_event_t ev;
+
+	(void)ui->drag_drop_cancel(host->ctx);
+	if (!sk_ui_node_is_valid(src)) {
+		return -1;
+	}
+	if (st == SANDBOX_WS_DEFAULT) {
+		return 0;
+	}
+	if (ui->drag_drop_begin(host->ctx, src) != 0) {
+		return -1;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	if (st == SANDBOX_WS_HOVERED && sk_ui_node_is_valid(dst) && ui->node_get_abs_rect(host->ctx, dst, &r, NULL) == 0) {
+		ev.x = r.x + r.width * 0.55f;
+		ev.y = r.y + r.height * 0.5f;
+	} else {
+		sk_ui_node_t gap = ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-dd-label");
+		if (sk_ui_node_is_valid(gap) && ui->node_get_abs_rect(host->ctx, gap, &r, NULL) == 0) {
+			/* Empty band above the Mesh label — preview without a drop target. */
+			ev.x = r.x + 120.0f;
+			ev.y = r.y - 8.0f;
+		} else {
+			ev.x = 280.0f;
+			ev.y = 148.0f;
+		}
+	}
+	(void)ui->input_dispatch(host->ctx, &ev);
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1860,6 +1967,7 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"tooltip", NULL, "§20 Tooltip simple text", SANDBOX_WS_BIT_DEFAULT, 320u, 128u, sandbox_widget_build_tooltip},
 	{"tooltip_card", "tooltipcard", "§20 asset hover card", SANDBOX_WS_BIT_DEFAULT, 400u, 200u, sandbox_widget_build_tooltip_card},
 	{"tooltip_edge", "tooltipclamp", "§20 tooltip clamped at edge", SANDBOX_WS_BIT_DEFAULT, 280u, 160u, sandbox_widget_build_tooltip_edge},
+	{"drag_drop", "dragdrop", "§17 DragDrop payload", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DRAGGING | SANDBOX_WS_BIT_HOVERED, 480u, 280u, sandbox_widget_build_drag_drop},
 };
 
 static const sandbox_widget_desc_t* sandbox_widget_find(const_chr_t name) {
@@ -1917,6 +2025,7 @@ void sandbox_widget_list(void) {
 	printf("         contextmenu=popup_menu savecontent=modal_save\n");
 	printf("         selectable_rows=selectable_list comboopen=combo_open\n");
 	printf("         tooltipcard=tooltip_card tooltipclamp=tooltip_edge\n");
+	printf("         dragdrop=drag_drop\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {
@@ -1949,6 +2058,9 @@ static i32 sandbox_widget_layout(const sandbox_widget_host_t* host) {
 
 static i32 sandbox_widget_apply_state(const sandbox_widget_host_t* host, sk_ui_node_t node, sandbox_widget_state_t st) {
 	const sk_ui_api_t* ui = host->ui;
+	if (sk_ui_node_is_valid(ui->query_by_test_id(host->ctx, SK_UI_NODE_INVALID, "review-dd"))) {
+		return sandbox_drag_drop_apply(host, st);
+	}
 	(void)ui->focus_set(host->ctx, SK_UI_NODE_INVALID);
 	if (ui->node_set_state(host->ctx, node, (u32)SK_UI_STATE_NONE) != 0) {
 		return -1;

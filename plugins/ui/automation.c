@@ -659,6 +659,10 @@ i32 ui_harness_step_impl(sk_ui_harness_t* harness, f32 delta_seconds) {
 	harness->frame_index += 1u;
 
 	ui_tooltip_tick_impl(harness->ctx, delta_seconds);
+	/* Expire a delivered payload after the accept frame (mouse already up). */
+	if ((harness->ctx->pointer_buttons & (1u << (u32)SK_UI_POINTER_BUTTON_LEFT)) == 0u) {
+		ui_drag_drop_on_pointer(harness->ctx, SK_UI_POINTER_BUTTON_LEFT, -1);
+	}
 
 	if (ui->style_resolve(harness->ctx) != 0) {
 		return -1;

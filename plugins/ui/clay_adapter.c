@@ -1632,6 +1632,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	ui_selectable_apply_spans(ctx);
 	ui_combo_place_popups(ctx);
 	ui_tooltip_place(ctx);
+	ui_drag_drop_place(ctx);
 
 	(void)limitations;
 	return 0;

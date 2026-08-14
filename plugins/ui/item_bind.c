@@ -926,6 +926,13 @@ static void ib_on_arrow_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_eve
 	if (id == SK_UI_ITEM_ID_NONE || ib_item_disabled(b, id)) {
 		return;
 	}
+	/* SourceNoHoldToOpenOthers: do not open other rows while a drag is live. */
+	if (ui_drag_drop_blocks_hold_to_open(ctx) != 0 && !sk_ui_node_eq(node, ui_drag_drop_get_source_impl(ctx))) {
+		if (event != NULL) {
+			event->consumed = 1;
+		}
+		return;
+	}
 	if (sk_hash_set_contains(&b->open, id)) {
 		(void)sk_hash_set_remove(&b->open, id);
 	} else {
@@ -980,6 +987,9 @@ static void ib_on_row_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event
 			i32 toggle = 0;
 			if ((is_double != 0 && (b->tree_flags & SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK) != 0u) || (b->tree_flags & SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW) == 0u) {
 				toggle = 1;
+			}
+			if (toggle != 0 && ui_drag_drop_blocks_hold_to_open(ctx) != 0 && !sk_ui_node_eq(node, ui_drag_drop_get_source_impl(ctx))) {
+				toggle = 0;
 			}
 			if (toggle != 0) {
 				if (sk_hash_set_contains(&b->open, id)) {

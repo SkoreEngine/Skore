@@ -390,6 +390,7 @@ static void ui_free_node_recursive(sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 	/* Drop hover/active/focus/capture before the handle becomes stale. */
 	ui_input_on_node_destroy(ctx, node);
+	ui_drag_drop_on_node_destroy(ctx, node);
 	ui_dock_on_window_destroy(ctx, node);
 
 	/* Snapshot children first — recursive free mutates the tree. */
@@ -502,6 +503,10 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	ctx->root = root;
 	/* Default widget styles so factories work without hand-styling. */
 	(void)ui_widgets_register_defaults_impl(ctx);
+	if (ui_drag_drop_init(ctx) != 0) {
+		ui_context_destroy(ctx);
+		return NULL;
+	}
 	if (ui_dock_context_init(ctx) != 0) {
 		ui_context_destroy(ctx);
 		return NULL;
@@ -555,6 +560,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	ui_draw_list_store_shutdown(&ctx->draw);
 	ui_clay_context_shutdown(ctx);
 	ui_dock_context_shutdown(ctx);
+	ui_drag_drop_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -1947,6 +1953,22 @@ static const sk_ui_api_t ui_api = {
 	ui_tooltip_get_delay_impl,
 	ui_tooltip_set_anchor_impl,
 	ui_tooltip_get_anchor_impl,
+	ui_drag_drop_source_impl,
+	ui_drag_drop_set_preview_impl,
+	ui_drag_drop_target_impl,
+	ui_drag_drop_target_custom_impl,
+	ui_drag_drop_target_custom_clear_impl,
+	ui_drag_drop_accept_impl,
+	ui_drag_drop_accept_custom_impl,
+	ui_drag_drop_get_payload_impl,
+	ui_drag_drop_is_active_impl,
+	ui_drag_drop_get_source_impl,
+	ui_drag_drop_get_hovered_target_impl,
+	ui_drag_drop_get_hovered_custom_id_impl,
+	ui_drag_drop_target_hovered_impl,
+	ui_drag_drop_preview_impl,
+	ui_drag_drop_begin_impl,
+	ui_drag_drop_cancel_impl,
 };
 
 /**
