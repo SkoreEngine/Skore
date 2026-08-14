@@ -16,8 +16,9 @@
  * binding for tree / list / combo / table is in item_bind.c (APX-338). TreeNode
  * / CollapsingHeader chrome is APX-350. Table family (BeginTable / columns /
  * headers / scroll-freeze / CellBg) is APX-351 in table.c. Selectable
- * (history / combo / type-list / entity-picker rows) is APX-352. Not full
- * ImGui parity — no multi-viewport docking.
+ * (history / combo / type-list / entity-picker rows) is APX-352. Combo /
+ * ListBox (int* + zero-separated items, BeginCombo, list-box height) is
+ * APX-353 in combo.c. Not full ImGui parity — no multi-viewport docking.
  */
 
 #include "ui.internal.h"
@@ -129,6 +130,10 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
 	}
 	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_TABLE_DATA_TYPE_ID)) {
 		ui_table_release_user_data(ctx, slot);
+		return;
+	}
+	if (SK_TYPE_ID_EQ(slot->user_data_type, SK_UI_COMBO_DATA_TYPE_ID)) {
+		ui_combo_release_user_data(ctx, slot);
 		return;
 	}
 	ui_item_bind_release_user_data(ctx, slot);
@@ -884,6 +889,51 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	if (ui->style_class_register(ctx, SK_UI_CLASS_DROPDOWN, &base) != 0) {
 		return -1;
 	}
+	/* Combo preview (APX-353): FrameBg + border, preview text left, arrow right. */
+	{
+		sk_ui_style_props_t combo;
+		ui_style_props_clear(&combo);
+		combo.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
+					 SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT;
+		combo.background_color = sk_ui_rgba(0.16f, 0.17f, 0.19f, 1.0f);
+		combo.border_color = sk_ui_rgba(0.32f, 0.34f, 0.38f, 1.0f);
+		combo.layout.border.left = 1.0f;
+		combo.layout.border.top = 1.0f;
+		combo.layout.border.right = 1.0f;
+		combo.layout.border.bottom = 1.0f;
+		combo.corner_radius = 3.0f;
+		combo.layout.padding.left = 8.0f;
+		combo.layout.padding.right = 22.0f;
+		combo.layout.padding.top = 4.0f;
+		combo.layout.padding.bottom = 4.0f;
+		combo.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+		combo.font_size = 13.0f;
+		combo.layout.min_height = sk_ui_pt(24.0f);
+		combo.layout.min_width = sk_ui_pt(120.0f);
+		combo.layout.height = sk_ui_pt(24.0f);
+		combo.layout.align_items = SK_UI_ALIGN_CENTER;
+		combo.layout.justify_content = SK_UI_JUSTIFY_FLEX_START;
+		if (ui->style_class_register(ctx, SK_UI_CLASS_COMBO, &combo) != 0) {
+			return -1;
+		}
+		ui_style_props_clear(&var);
+		var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+		var.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+		var.border_color = sk_ui_rgba(0.40f, 0.44f, 0.50f, 1.0f);
+		(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COMBO, SK_UI_STATE_HOVER, &var);
+		var.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+		var.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.90f);
+		(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COMBO, SK_UI_STATE_FOCUSED, &var);
+		var.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+		var.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 1.0f);
+		(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COMBO, SK_UI_STATE_ACTIVE, &var);
+		ui_style_props_clear(&var);
+		var.mask = SK_UI_SP_COLOR | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+		var.color = sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f);
+		var.background_color = sk_ui_rgba(0.12f, 0.13f, 0.14f, 1.0f);
+		var.border_color = sk_ui_rgba(0.22f, 0.23f, 0.25f, 1.0f);
+		(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_COMBO, SK_UI_STATE_DISABLED, &var);
+	}
 	if (ui->style_class_register(ctx, SK_UI_CLASS_SUBMENU, &base) != 0) {
 		return -1;
 	}
@@ -1414,6 +1464,29 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	}
 	if (ui->style_class_register(ctx, SK_UI_CLASS_COMBO_ITEMS, &base) != 0) {
 		return -1;
+	}
+	{
+		sk_ui_style_props_t list_box;
+		ui_style_props_clear(&list_box);
+		list_box.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS |
+						SK_UI_SP_PADDING | SK_UI_SP_WIDTH;
+		list_box.layout.flex_direction = SK_UI_FLEX_COLUMN;
+		list_box.layout.align_items = SK_UI_ALIGN_STRETCH;
+		list_box.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+		list_box.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+		list_box.layout.border.left = 1.0f;
+		list_box.layout.border.top = 1.0f;
+		list_box.layout.border.right = 1.0f;
+		list_box.layout.border.bottom = 1.0f;
+		list_box.corner_radius = 3.0f;
+		list_box.layout.padding.left = 2.0f;
+		list_box.layout.padding.right = 2.0f;
+		list_box.layout.padding.top = 2.0f;
+		list_box.layout.padding.bottom = 2.0f;
+		list_box.layout.width = sk_ui_percent(100.0f);
+		if (ui->style_class_register(ctx, SK_UI_CLASS_LIST_BOX, &list_box) != 0) {
+			return -1;
+		}
 	}
 	if (ui->style_class_register(ctx, SK_UI_CLASS_TABLE, &base) != 0) {
 		return -1;
@@ -4926,7 +4999,10 @@ static i32 ui_menu_is_owner_widget(const_chr_t w) {
 	if (w == NULL) {
 		return 0;
 	}
-	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0) ? 1 : 0;
+	return (strcmp(w, "menu") == 0 || strcmp(w, "dropdown") == 0 || strcmp(w, "submenu") == 0 || strcmp(w, "context_menu") == 0 || strcmp(w, "popup_menu") == 0 ||
+			strcmp(w, "combo") == 0) ?
+			   1 :
+			   0;
 }
 
 static void ui_menu_close_ancestors(sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -4970,7 +5046,7 @@ static i32 ui_menu_dismiss_walk(sk_ui_context_t* ctx, sk_ui_node_t node, u32 dep
 	if (w != NULL && strcmp(w, "menu_popup") == 0) {
 		const ui_node_slot_t* ps = ui_slot(ctx, slot->parent);
 		const_chr_t pw = ps != NULL ? ui_prop_str_const(ps, "widget") : NULL;
-		if (pw != NULL && (strcmp(pw, "menu") == 0 || strcmp(pw, "dropdown") == 0 || strcmp(pw, "submenu") == 0)) {
+		if (pw != NULL && (strcmp(pw, "menu") == 0 || strcmp(pw, "dropdown") == 0 || strcmp(pw, "submenu") == 0 || strcmp(pw, "combo") == 0)) {
 			return 0;
 		}
 		if (ui_menu_get_open_impl(ctx, node) != 0 && ui_menu_point_in_surface(ctx, node, d->x, d->y) == 0 &&
@@ -9656,6 +9732,8 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_BORDERED));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_ARROW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SELECTABLE));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_COMBO));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_LIST_BOX));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_CHECKBOX));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));

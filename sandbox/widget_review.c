@@ -1620,6 +1620,79 @@ static i32 sandbox_widget_build_selectable_list(const sandbox_widget_host_t* hos
 	return 0;
 }
 
+static i32 g_review_combo_index;
+static i32 g_review_combo_open_index;
+
+static i32 sandbox_widget_build_combo(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t combo;
+
+	sandbox_widget_style_fill(host);
+	g_review_combo_index = 0;
+	combo = ui->widget_combo(host->ctx, root, "##shadingmodel", &g_review_combo_index, "Default Lit\0Unlit\0", -1, "review-combo");
+	if (!sk_ui_node_is_valid(combo)) {
+		fprintf(stderr, "sk-sandbox: widget_combo failed\n");
+		return -1;
+	}
+	*out_target = combo;
+	return 0;
+}
+
+static i32 sandbox_widget_build_combo_open(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t combo;
+
+	sandbox_widget_style_fill(host);
+	g_review_combo_open_index = 0;
+	combo = ui->widget_combo(host->ctx, root, "##shadingmodel", &g_review_combo_open_index, "Default Lit\0Unlit\0", -1, "review-combo-open");
+	if (!sk_ui_node_is_valid(combo)) {
+		fprintf(stderr, "sk-sandbox: widget_combo (open) failed\n");
+		return -1;
+	}
+	if (ui->combo_set_open(host->ctx, combo, 1) != 0) {
+		fprintf(stderr, "sk-sandbox: combo_set_open failed\n");
+		return -1;
+	}
+	*out_target = combo;
+	return 0;
+}
+
+static i32 sandbox_widget_build_listbox(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t box;
+	sk_ui_node_t content;
+	sk_ui_node_t first;
+	const_chr_t labels[5] = {"Create Entity", "Move Entity", "Rename Entity", "Delete Entity", "Assign Material"};
+	u32 i;
+
+	sandbox_widget_style_fill(host);
+	box = ui->widget_list_box(host->ctx, root, "###", 280.0f, 0.0f, 5, "review-listbox");
+	if (!sk_ui_node_is_valid(box)) {
+		fprintf(stderr, "sk-sandbox: widget_list_box failed\n");
+		return -1;
+	}
+	content = ui->list_box_content(host->ctx, box);
+	first = SK_UI_NODE_INVALID;
+	for (i = 0u; i < 5u; ++i) {
+		char id[32];
+		sk_ui_node_t row;
+		(void)snprintf(id, sizeof(id), "review-lb-row%u", i);
+		row = ui->widget_selectable(host->ctx, content, labels[i], i == 1u ? 1 : 0, SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH, id, 0.0f, 0.0f);
+		if (i == 0u) {
+			first = row;
+		}
+	}
+	if (!sk_ui_node_is_valid(first)) {
+		fprintf(stderr, "sk-sandbox: listbox rows failed\n");
+		return -1;
+	}
+	*out_target = box;
+	return 0;
+}
+
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
 	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
@@ -1648,7 +1721,10 @@ static const sandbox_widget_desc_t catalog[] = {
 	{"drag_float", "drag", "§6 DragFloat", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_drag_float},
 	{"drag_int", "dragint", "§6 DragInt", SANDBOX_WS_BITS_SLIDER, 420u, 96u, sandbox_widget_build_drag_int},
 	{"drag_float3", "dragf3", "§6 DragFloat3", SANDBOX_WS_BITS_SLIDER, 480u, 96u, sandbox_widget_build_drag_float3},
-	{"combo", "listbox", "§7 Combo / ListBox", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 320u, 160u, NULL},
+	{"combo", NULL, "§7 Combo closed preview", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 360u, 96u,
+	 sandbox_widget_build_combo},
+	{"combo_open", "comboopen", "§7 Combo open popup + selectables", SANDBOX_WS_BIT_DEFAULT, 360u, 220u, sandbox_widget_build_combo_open},
+	{"listbox", NULL, "§7 ListBox History rows", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 360u, 220u, sandbox_widget_build_listbox},
 	{"tree", NULL, "§8 TreeNode Entity Tree", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_DISABLED | SANDBOX_WS_BIT_FOCUSED, 384u, 256u,
 	 sandbox_widget_build_tree},
 	{"collapsing_header", "collapsing", "§8 CollapsingHeader + trailing button", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_HOVERED | SANDBOX_WS_BIT_FOCUSED, 420u, 220u,
@@ -1724,7 +1800,7 @@ void sandbox_widget_list(void) {
 		}
 		printf("%-12s %-52s %-6s %s\n", catalog[i].name, states, catalog[i].build != NULL ? "ready" : "none", catalog[i].manifest);
 	}
-	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar tabplus=tab_bar_plus menubar=menu modal=popup resizex=child_resize\n");
+	printf("aliases: label=text input=text_input tab=tab_bar tabplus=tab_bar_plus menubar=menu modal=popup resizex=child_resize\n");
 	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
 	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 	printf("         colored=text_colored textdisabled=text_disabled wrapped=text_wrapped bullet=bullet_text\n");
@@ -1735,7 +1811,7 @@ void sandbox_widget_list(void) {
 	printf("         dragint=drag_int dragf3=drag_float3\n");
 	printf("         menuopen=menu_open submenu=menu_submenu menupopup=menu_popup\n");
 	printf("         contextmenu=popup_menu savecontent=modal_save\n");
-	printf("         selectable_rows=selectable_list\n");
+	printf("         selectable_rows=selectable_list comboopen=combo_open\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

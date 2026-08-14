@@ -529,6 +529,8 @@ i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_reg
 #define SK_UI_ITEM_BIND_DATA_TYPE_ID SK_TYPE_ID("sk.ui_item_bind_data", 0x4cd9667484ce0c69ULL, 0xd02fc4d8299c22b5ULL)
 /** Type id for table widget user_data (table.c). */
 #define SK_UI_TABLE_DATA_TYPE_ID SK_TYPE_ID("sk.ui_table_data", 0x7a1e9c2b4d6f80a1ULL, 0xb3c5d7e9f1023456ULL)
+/** Type id for combo / list-box user_data (combo.c). */
+#define SK_UI_COMBO_DATA_TYPE_ID SK_TYPE_ID("sk.ui_combo_data", 0x5e8a3c1d9b7f2460ULL, 0xc4d6e8f0a2143658ULL)
 
 /** Free widget user_data if present (called from slot release). */
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
@@ -536,6 +538,12 @@ void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 void ui_item_bind_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
 /** Free table user_data if present (called from widget release). */
 void ui_table_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Free combo / list-box user_data if present (called from widget release). */
+void ui_combo_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+/** Pull bound combo int* before style/layout (style_resolve). */
+void ui_combo_sync_all(sk_ui_context_t* ctx);
+/** Flip open combo popups that would clip past the viewport (after Clay). */
+void ui_combo_place_popups(sk_ui_context_t* ctx);
 /** Sync every bound item-array host (style_resolve / harness_step). */
 void ui_item_bind_sync_all(sk_ui_context_t* ctx);
 /** Sync every live table (item bind + column widths). */
@@ -706,6 +714,35 @@ i32 ui_selectable_is_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t node)
 i32 ui_selectable_is_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 /** Expand SpanAllColumns hit/highlight rects after Clay writeback. */
 void ui_selectable_apply_spans(sk_ui_context_t* ctx);
+
+/* Combo / ListBox family (APX-353; manifest §7). */
+sk_ui_node_t ui_widget_combo_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32* current_item, const_chr_t items_separated_by_zeros,
+								  i32 popup_max_height_in_items, const_chr_t id);
+sk_ui_node_t ui_widget_begin_combo_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t preview_value, u32 flags, const_chr_t id);
+sk_ui_node_t ui_combo_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 open);
+i32 ui_combo_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_bind_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, i32* current_item);
+i32 ui_combo_set_items_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items_separated_by_zeros);
+i32 ui_combo_set_items_n_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items, u32 nbytes);
+u32 ui_combo_item_count_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+const_chr_t ui_combo_item_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+sk_ui_node_t ui_combo_item_at_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+i32 ui_combo_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+i32 ui_combo_changed_impl(sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_set_preview_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t preview);
+const_chr_t ui_combo_get_preview_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_set_max_height_in_items_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 n);
+i32 ui_combo_get_popup_flipped_impl(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+i32 ui_combo_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 disabled);
+i32 ui_combo_bind_items_impl(sk_ui_context_t* ctx, sk_ui_node_t combo, sk_ui_item_array_t* items);
+sk_ui_node_t ui_widget_list_box_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32 width, f32 height, i32 height_in_items, const_chr_t id);
+sk_ui_node_t ui_list_box_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+i32 ui_list_box_set_height_in_items_impl(sk_ui_context_t* ctx, sk_ui_node_t list_box, i32 n);
+i32 ui_list_box_get_height_in_items_impl(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+f32 ui_list_box_get_height_impl(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+i32 ui_list_box_bind_items_impl(sk_ui_context_t* ctx, sk_ui_node_t list_box, sk_ui_item_array_t* items);
 
 sk_ui_node_t ui_widget_text_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_text_wrapped_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);

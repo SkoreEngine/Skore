@@ -958,7 +958,16 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 /** Item-array hosts (APX-338): tree / list / combo / table share one binding. */
 #define SK_UI_CLASS_TREE "ui-tree"
 #define SK_UI_CLASS_LIST "ui-list"
+#define SK_UI_CLASS_COMBO "ui-combo"
 #define SK_UI_CLASS_COMBO_ITEMS "ui-combo-items"
+#define SK_UI_CLASS_LIST_BOX "ui-list-box"
+
+/** Combo / ListBox row height (selectable min height, manifest §7 / §18). */
+#define SK_UI_COMBO_ITEM_HEIGHT 22.0f
+/** ImGui default popup / list height in items when the caller passes -1. */
+#define SK_UI_COMBO_DEFAULT_HEIGHT_IN_ITEMS 8
+/** BeginCombo flags. Editor always uses the default (0). */
+#define SK_UI_COMBO_FLAG_NONE 0u
 #define SK_UI_CLASS_TABLE "ui-table"
 #define SK_UI_CLASS_TABLE_HEADER "ui-table-header"
 #define SK_UI_CLASS_TABLE_ROW "ui-table-row"
@@ -4289,6 +4298,75 @@ typedef struct sk_ui_api_t {
 	i32 (*selectable_double_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
 	i32 (*selectable_is_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 	i32 (*selectable_is_active)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- combo / list box family (APX-353; manifest §7) ---- */
+
+	/**
+	 * Combo(label, int* current_item, items_separated_by_zeros, popup_max_height_in_items).
+	 * Zero-separated items: "A\\0B\\0C\\0" (ImGui walk; empty / trailing entries
+	 * via combo_set_items_n). Binds @p current_item. Preview is the selected
+	 * item, or empty when the index is out of range.
+	 */
+	sk_ui_node_t (*widget_combo)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32* current_item, const_chr_t items_separated_by_zeros,
+								 i32 popup_max_height_in_items, const_chr_t id);
+
+	/**
+	 * BeginCombo(label, preview_value, flags): preview chrome + custom popup body.
+	 * Parent selectables under combo_popup(). Clicking a row closes the popup.
+	 */
+	sk_ui_node_t (*widget_begin_combo)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t preview_value, u32 flags, const_chr_t id);
+
+	/** Popup body under a combo (menu_popup child). */
+	sk_ui_node_t (*combo_popup)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_open)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 open);
+	i32 (*combo_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+
+	/** Bind / replace the caller int*. NULL unbinds. */
+	i32 (*combo_bind)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32* current_item);
+	/** Replace zero-separated items (C-string walk until a double-NUL). */
+	i32 (*combo_set_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items_separated_by_zeros);
+	/**
+	 * Replace items from an explicit blob of @p nbytes. Splits on NUL and
+	 * keeps empty and trailing entries (unit-test / packed buffers).
+	 */
+	i32 (*combo_set_items_n)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items, u32 nbytes);
+	u32 (*combo_item_count)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	const_chr_t (*combo_item_text)(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+	/** Selectable row for a zero-separated item, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*combo_item_at)(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+
+	i32 (*combo_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+	/** Consume-on-read; true once when the bound index changes from a pick. */
+	i32 (*combo_changed)(sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_preview)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t preview);
+	const_chr_t (*combo_get_preview)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_max_height_in_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 n);
+	/** Non-zero when the open popup was flipped above the preview (clipped). */
+	i32 (*combo_get_popup_flipped)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 disabled);
+	/**
+	 * Bind a caller-owned item array as the popup rows (§21 COMBO). Diffs by
+	 * id; the combo chrome is not rebuilt.
+	 */
+	i32 (*combo_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, sk_ui_item_array_t* items);
+
+	/**
+	 * BeginListBox(label, size) with height from @p height_in_items when
+	 * @p height is 0. Negative item count uses SK_UI_COMBO_DEFAULT_HEIGHT_IN_ITEMS.
+	 */
+	sk_ui_node_t (*widget_list_box)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32 width, f32 height, i32 height_in_items, const_chr_t id);
+	/** Content host — parent selectables or an item-bind list here. */
+	sk_ui_node_t (*list_box_content)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	i32 (*list_box_set_height_in_items)(sk_ui_context_t* ctx, sk_ui_node_t list_box, i32 n);
+	i32 (*list_box_get_height_in_items)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	/** Resolved height in logical px (item-count * SK_UI_COMBO_ITEM_HEIGHT). */
+	f32 (*list_box_get_height)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	/**
+	 * Bind a caller-owned item array as list rows (§21 LIST). Diffs by id;
+	 * the list-box chrome is not rebuilt.
+	 */
+	i32 (*list_box_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t list_box, sk_ui_item_array_t* items);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

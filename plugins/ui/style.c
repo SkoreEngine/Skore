@@ -843,6 +843,8 @@ i32 ui_style_resolve_impl(sk_ui_context_t* ctx) {
 	ui_table_sync_all(ctx);
 	/* Pull checkbox / radio bound scalars (bool*, flags*, radio int*). */
 	ui_checkbox_radio_sync_all(ctx);
+	/* Pull combo bound int* (enum / layer / material index). */
+	ui_combo_sync_all(ctx);
 	/* Pull InputScalar pointers when the field is not focused. */
 	ui_text_input_sync_all(ctx);
 	max_passes = ctx->live_count + 2u;

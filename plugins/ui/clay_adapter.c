@@ -921,6 +921,10 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 				if (decl.floating.offset.x < 1.0f) {
 					decl.floating.offset.x = 2.0f;
 				}
+			} else if (attach == 2) {
+				/* Combo popup flipped above the preview when the list would clip. */
+				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
 			} else {
 				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_BOTTOM;
@@ -986,7 +990,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		}
 		if (widget != NULL && fully_fixed == 0 &&
 			(strcmp(widget, "button") == 0 || strcmp(widget, "selectable") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 ||
-			 strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 ||
+			 strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "combo") == 0 || strcmp(widget, "tab") == 0 ||
 			 strcmp(widget, "window_title_bar") == 0)) {
 			need_text = 1;
 		}
@@ -1619,6 +1623,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	ui_clay_sameline_postpass(ctx);
 	ui_dock_layout_end(ctx);
 	ui_selectable_apply_spans(ctx);
+	ui_combo_place_popups(ctx);
 
 	(void)limitations;
 	return 0;

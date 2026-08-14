@@ -470,7 +470,7 @@ i32 sk_ui_open_menu_path(sk_ui_test_t* t, const_chr_t id_path) {
 			widget = pv.data.str_value;
 		}
 		if (widget != NULL && (strcmp(widget, "menu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "menu_popup") == 0 ||
-							   strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0)) {
+							   strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0 || strcmp(widget, "combo") == 0)) {
 			is_menu_like = 1;
 		}
 
@@ -545,6 +545,11 @@ static i32 ut_read_value_string(sk_ui_test_t* t, const_chr_t test_id, char* out,
 	}
 	if (widget != NULL && strcmp(widget, "progress") == 0) {
 		(void)snprintf(out, out_cap, "%.4g", (double)ui->progress_get_value(ctx, node));
+		return 0;
+	}
+	if (widget != NULL && strcmp(widget, "combo") == 0) {
+		const_chr_t preview = ui->combo_get_preview(ctx, node);
+		(void)snprintf(out, out_cap, "%s", preview != NULL ? preview : "");
 		return 0;
 	}
 	if (widget != NULL && strcmp(widget, "text_input") == 0) {

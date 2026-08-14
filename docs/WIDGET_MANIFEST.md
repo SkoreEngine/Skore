@@ -73,9 +73,9 @@ multiline, hint/search, read-only, InputScalar / InputFloat / InputFloat3),
 scroll_view, image, menu_bar / menu / menu_item / menu_popup / dropdown /
 context_menu / submenu, dock_space / dock_node / splitter / tab_bar / tab /
 editor_window. Missing factories that this audit makes load-bearing:
-**drag-drop payload**, **color picker**, **combo that binds an
-int + zero-separated items**, **tooltip**. Tree (APX-350) and table (APX-351)
-now have factories.
+**drag-drop payload**, **color picker**, **tooltip**. Combo that binds an
+int + zero-separated items (APX-353) now has factories. Tree (APX-350) and
+table (APX-351) now have factories.
 
 ---
 
@@ -516,12 +516,24 @@ rather than creating one retained node per undo entry / entity every frame.
 - Full-window list box of selectables (history).
 - Nested entity names inside a list box (picker); double-click accepts.
 
-**sk-ui today:** `widget_dropdown` (menu surface). No `int*` + `\0` items
-combo, no list box.
+**sk-ui today:** `widget_combo` (Combo `int*` + `\0`-separated items),
+`widget_begin_combo` (preview + custom selectable body), `widget_list_box`
+(height from visible item count). Popup opens below the preview and flips
+above when it would clip. Keyboard arrows move the highlight; Enter/click
+writes the bound int. Item rows reuse §18 `widget_selectable`. Array-backed
+History / entity-picker / enum popups bind `sk_ui_item_array_t*` via
+`list_box_bind_items` / `combo_bind_items` (`widget_list` / `widget_item_view`
+COMBO, §21) so the host is not rebuilt every frame.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/combo.c`
+  (`ui_combo_parse_zero_separated_empty_trailing`,
+  `ui_widget_combo_bind_writeback_changed`,
+  `ui_widget_combo_out_of_range_and_open_close`,
+  `ui_widget_list_box_height_from_item_count`)
+- [x] Headless UI automation — `plugins/ui/combo_family_tests.c`
+  (`ui_author_combo_family_open_pick_keyboard_listbox`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget combo`,
+  `combo_open`, `listbox`; states default/hovered/disabled/focused)
 
 ---
 
