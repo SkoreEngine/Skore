@@ -564,7 +564,12 @@ Factories create nodes with a default style class, prop `"widget"` type string, 
 | `widget_panel` | BOX / `ui-panel` | `panel` | Styled container |
 | `widget_view` | BOX / `ui-view` | `view` | Lightweight container |
 | `widget_label` | TEXT / `ui-label` | `label` | Text + wrap/align |
-| `widget_button` | BUTTON / `ui-button` | `button` | Focusable; use `on_click` |
+| `widget_button` | BUTTON / `ui-button` | `button` | Focusable; `button_clicked` on release |
+| `widget_small_button` | BUTTON / `ui-button` + `ui-button-small` | `button` | Compact pad (ImGui SmallButton) |
+| `widget_invisible_button` | BUTTON / `ui-button` + `ui-button-invisible` | `button` | Hit target; mouse-button flags |
+| `widget_selection_button` | BUTTON / `ui-button` + optional `ui-button-selected` | `button` | Caller `selected` look |
+| `widget_bordered_button` | BUTTON / `ui-button` + `ui-button-bordered` | `button` | Visible gray border |
+| `widget_arrow_button` | BUTTON / `ui-button` + `ui-button-arrow` | `button` | Square dir chrome |
 | `widget_checkbox` | BOX / `ui-checkbox` | `checkbox` | Toggle + `on_change` |
 | `widget_slider` | BOX / `ui-slider` | `slider` | Drag value + `on_change` |
 | `widget_text_input` | BOX / `ui-text-input` | `text_input` | Single-line edit, focusable |
@@ -602,32 +607,41 @@ sk_ui_node_t lab = ui->widget_label(ctx, panel, "Volume", "lbl-volume");
 
 Callbacks: none built-in; use `node_set_callbacks` if needed.
 
-### 7.3 Button
+### 7.3 Button family
+
+Matches the editor ImGui overloads in `docs/WIDGET_MANIFEST.md` §2.
 
 | Prop / API | Meaning |
 | --- | --- |
-| prop `"text"` | Label |
+| prop `"text"` | Visible label (`###id` suffix is stripped) |
 | `button_set_label` | Set label text |
 | `button_set_disabled` | Sets/clears `SK_UI_STATE_DISABLED` |
-| focusable | default on |
+| `button_set_size` | Explicit size; 0 on an axis is auto |
+| `button_clicked` / `button_pressed` / `button_released` | Edge-triggered; consume-on-read |
+| `button_is_hovered` / `button_is_active` | Live state flags |
+| `button_set_selected` / `button_get_selected` | Caller-owned selected look |
+| `button_set_flags` / `button_get_flags` | `SK_UI_BUTTON_FLAG_MOUSE_*` |
+| focusable | default on (off for InvisibleButton) |
+
+Click returns true once on release over the button. Drag-off-then-release is not a click. Disabled buttons are not hittable.
 
 ```c
-static void save_clicked(sk_ui_context_t* c, sk_ui_node_t n, sk_ui_event_t* e, void_ptr_t u) {
-    (void)c;
-    (void)n;
-    (void)u;
-    if (e->type == SK_UI_EVENT_CLICK) {
-        /* host save path */
-        e->consumed = 1;
-    }
+sk_ui_node_t save = ui->widget_button(ctx, panel, "Save", "btn-save");
+(void)ui->button_set_size(ctx, save, 120.0f, 0.0f);
+(void)ui->button_set_disabled(ctx, save, 0);
+if (ui->button_clicked(ctx, save)) {
+    /* host save path */
 }
 
-sk_ui_node_t save = ui->widget_button(ctx, panel, "Save", "btn-save");
-sk_ui_node_callbacks_t cbs;
-memset(&cbs, 0, sizeof(cbs));
-cbs.on_click = save_clicked;
-(void)ui->node_set_callbacks(ctx, save, &cbs);
-(void)ui->button_set_disabled(ctx, save, 0);
+sk_ui_node_t trash = ui->widget_small_button(ctx, row, "x###trash", NULL);
+sk_ui_node_t hit = ui->widget_invisible_button(ctx, canvas, "tex-hit", 256.0f, 256.0f,
+    SK_UI_BUTTON_FLAG_MOUSE_LEFT | SK_UI_BUTTON_FLAG_MOUSE_MIDDLE);
+sk_ui_node_t tool = ui->widget_selection_button(ctx, toolbar, "Move", 1, "tool-move", 28.0f, 28.0f);
+sk_ui_node_t add = ui->widget_bordered_button(ctx, props, "Add Component", "add-comp", 0.0f, 0.0f);
+(void)trash;
+(void)hit;
+(void)tool;
+(void)add;
 ```
 
 ### 7.4 Checkbox

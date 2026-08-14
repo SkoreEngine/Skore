@@ -131,11 +131,22 @@ the mode.
 - Invisible hit target for splitters / texture pan-zoom.
 - Selected-look toolbar toggle (background when `selected`).
 
-**sk-ui today:** `widget_button`. No selected-toggle or invisible-hit factory.
+**sk-ui today:** `widget_button`, `widget_small_button`, `widget_invisible_button`,
+`widget_selection_button`, `widget_bordered_button`, `widget_arrow_button`.
+Click is edge-triggered (`button_clicked` on release over the button). Zero on
+a size axis is auto. `###id` labels strip the visible prefix. InvisibleButton
+accepts `SK_UI_BUTTON_FLAG_MOUSE_LEFT | MIDDLE` (texture canvas). Selection
+look is a caller `bool` (`button_set_selected`). ArrowButton is implemented
+for completeness; the editor never calls it (§22.3). Repeat/held is not used.
 
-- [ ] Unit test
-- [ ] Headless UI automation
-- [ ] lavapipe PNG reviewed
+- [x] Unit test — `plugins/ui/widgets.c`
+  (`ui_widget_button_family_labels_ids_size`,
+  `ui_widget_button_family_click_press_release`)
+- [x] Headless UI automation — `plugins/ui/button_family_tests.c`
+  (`ui_author_button_family_press_release_drag_off`, SK_UI_TEST harness)
+- [x] lavapipe PNG reviewed — `sandbox/widget_review.c` (`--widget button`,
+  `small_button`, `invisible_button`, `selection_button`, `bordered_button`,
+  `arrow_button`; states default/hovered/pressed/disabled/focused)
 
 ---
 

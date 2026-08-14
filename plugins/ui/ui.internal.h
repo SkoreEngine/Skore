@@ -536,6 +536,11 @@ sk_ui_node_t ui_widget_panel_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, con
 sk_ui_node_t ui_widget_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_small_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_invisible_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+sk_ui_node_t ui_widget_selection_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, const_chr_t id, f32 width, f32 height);
+sk_ui_node_t ui_widget_bordered_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, f32 width, f32 height);
+sk_ui_node_t ui_widget_arrow_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 dir, const_chr_t id);
 sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
 sk_ui_node_t ui_widget_radio_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
 sk_ui_node_t ui_widget_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id);
@@ -580,6 +585,16 @@ i32 ui_label_set_align_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 text_al
 
 i32 ui_button_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
 i32 ui_button_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_button_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+i32 ui_button_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_pressed_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_released_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_is_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_is_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+i32 ui_button_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_button_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+u32 ui_button_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);

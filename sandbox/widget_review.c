@@ -121,7 +121,6 @@ static i32 sandbox_widget_build_button(const sandbox_widget_host_t* host, sk_ui_
 	const sk_ui_api_t* ui = host->ui;
 	sk_ui_node_t root = ui->context_root(host->ctx);
 	sk_ui_node_t btn;
-	sk_ui_style_props_t p;
 
 	sandbox_widget_style_stage(host);
 	btn = ui->widget_button(host->ctx, root, "OK", WIDGET_BTN_ID);
@@ -130,17 +129,96 @@ static i32 sandbox_widget_build_button(const sandbox_widget_host_t* host, sk_ui_
 		return -1;
 	}
 	/* Editor modal buttons use an explicit 120-wide size (WIDGET_MANIFEST §2). */
-	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT;
-	p.layout.width = sk_ui_pt(WIDGET_BTN_W);
-	p.layout.min_height = sk_ui_pt(28.0f);
-	(void)ui->node_merge_inline_style(host->ctx, btn, &p);
+	(void)ui->button_set_size(host->ctx, btn, WIDGET_BTN_W, 0.0f);
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_small_button(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	/* PackagesWindow: SmallButton(ICON_FA_TRASH) — compact icon/text chrome. */
+	btn = ui->widget_small_button(host->ctx, root, "Del", "review-small");
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_small_button failed\n");
+		return -1;
+	}
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_invisible_button(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	btn = ui->widget_invisible_button(host->ctx, root, "review-invisible", 80.0f, 40.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT | SK_UI_BUTTON_FLAG_MOUSE_MIDDLE);
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_invisible_button failed\n");
+		return -1;
+	}
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_selection_button(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	/* SceneView toolbar: ImGuiSelectionButton paints selected from a caller bool. */
+	btn = ui->widget_selection_button(host->ctx, root, "Move", 1, "review-selection", 56.0f, 28.0f);
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_selection_button failed\n");
+		return -1;
+	}
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_bordered_button(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	/* PropertiesWindow: ImGuiBorderedButton("Add Component", …). */
+	btn = ui->widget_bordered_button(host->ctx, root, "Add Component", "review-bordered", 140.0f, 0.0f);
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_bordered_button failed\n");
+		return -1;
+	}
+	*out_target = btn;
+	return 0;
+}
+
+static i32 sandbox_widget_build_arrow_button(const sandbox_widget_host_t* host, sk_ui_node_t* out_target) {
+	const sk_ui_api_t* ui = host->ui;
+	sk_ui_node_t root = ui->context_root(host->ctx);
+	sk_ui_node_t btn;
+
+	sandbox_widget_style_stage(host);
+	btn = ui->widget_arrow_button(host->ctx, root, SK_UI_ARROW_RIGHT, "review-arrow");
+	if (!sk_ui_node_is_valid(btn)) {
+		fprintf(stderr, "sk-sandbox: widget_arrow_button failed\n");
+		return -1;
+	}
 	*out_target = btn;
 	return 0;
 }
 
 static const sandbox_widget_desc_t catalog[] = {
 	{"button", NULL, "§2 Button", SANDBOX_WS_BITS_INTERACTIVE, 320u, 128u, sandbox_widget_build_button},
+	{"small_button", "smallbutton", "§2 SmallButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_small_button},
+	{"invisible_button", "invisiblebutton", "§2 InvisibleButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_invisible_button},
+	{"selection_button", "selectionbutton", "§2 ImGuiSelectionButton", SANDBOX_WS_BITS_INTERACTIVE, 256u, 96u, sandbox_widget_build_selection_button},
+	{"bordered_button", "borderedbutton", "§2 ImGuiBorderedButton", SANDBOX_WS_BITS_INTERACTIVE, 360u, 96u, sandbox_widget_build_bordered_button},
+	{"arrow_button", "arrowbutton", "§2 ArrowButton", SANDBOX_WS_BITS_INTERACTIVE, 192u, 96u, sandbox_widget_build_arrow_button},
 	{"text", "label", "§3 Text", SANDBOX_WS_BIT_DEFAULT | SANDBOX_WS_BIT_DISABLED, 320u, 96u, NULL},
 	{"checkbox", NULL, "§4 Checkbox", SANDBOX_WS_BITS_INTERACTIVE, 256u, 128u, NULL},
 	{"text_input", "input", "§5 InputText", SANDBOX_WS_BITS_INTERACTIVE, 384u, 96u, NULL},
@@ -202,6 +280,8 @@ void sandbox_widget_list(void) {
 		printf("%-12s %-52s %-6s %s\n", catalog[i].name, states, catalog[i].build != NULL ? "ready" : "none", catalog[i].manifest);
 	}
 	printf("aliases: label=text input=text_input listbox=combo tab=tab_bar menubar=menu modal=popup layout=window\n");
+	printf("         smallbutton=small_button invisiblebutton=invisible_button selectionbutton=selection_button\n");
+	printf("         borderedbutton=bordered_button arrowbutton=arrow_button\n");
 }
 
 i32 sandbox_widget_lookup(const_chr_t name, u32* out_width, u32* out_height, i32* out_ready) {

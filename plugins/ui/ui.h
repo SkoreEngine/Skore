@@ -778,6 +778,20 @@ typedef i32 (*sk_ui_clipboard_get_fn)(void_ptr_t user, char* buf, u32 cap, u32* 
 /** Clipboard set: store UTF-8 @p text, return 0 on success. */
 typedef i32 (*sk_ui_clipboard_set_fn)(void_ptr_t user, const_chr_t text);
 
+/**
+ * Mouse buttons that activate a button (ImGuiButtonFlags_MouseButton*).
+ * Default is LEFT. InvisibleButton on the editor texture canvas ORs LEFT|MIDDLE.
+ */
+#define SK_UI_BUTTON_FLAG_MOUSE_LEFT (1u << 0)
+#define SK_UI_BUTTON_FLAG_MOUSE_MIDDLE (1u << 1)
+#define SK_UI_BUTTON_FLAG_MOUSE_RIGHT (1u << 2)
+
+/** ArrowButton dir (ImGuiDir): Left / Right / Up / Down. */
+#define SK_UI_ARROW_LEFT 0
+#define SK_UI_ARROW_RIGHT 1
+#define SK_UI_ARROW_UP 2
+#define SK_UI_ARROW_DOWN 3
+
 /** Widget bool change (checkbox). */
 typedef void (*sk_ui_widget_bool_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value, void_ptr_t user);
 /** Widget float change (slider). */
@@ -793,6 +807,11 @@ typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 it
 #define SK_UI_CLASS_VIEW "ui-view"
 #define SK_UI_CLASS_LABEL "ui-label"
 #define SK_UI_CLASS_BUTTON "ui-button"
+#define SK_UI_CLASS_BUTTON_SMALL "ui-button-small"
+#define SK_UI_CLASS_BUTTON_INVISIBLE "ui-button-invisible"
+#define SK_UI_CLASS_BUTTON_SELECTED "ui-button-selected"
+#define SK_UI_CLASS_BUTTON_BORDERED "ui-button-bordered"
+#define SK_UI_CLASS_BUTTON_ARROW "ui-button-arrow"
 #define SK_UI_CLASS_CHECKBOX "ui-checkbox"
 #define SK_UI_CLASS_RADIO "ui-radio"
 #define SK_UI_CLASS_TOGGLE "ui-toggle"
@@ -3307,6 +3326,68 @@ typedef struct sk_ui_api_t {
 	 * (1280 x 720). Either out pointer may be NULL.
 	 */
 	void (*sample_dock_demo_logical_size)(f32* out_width, f32* out_height);
+
+	/* ---- button family (APX-339; editor Button / SmallButton / Invisible /
+	 * SelectionButton / BorderedButton / ArrowButton) ---- */
+
+	/**
+	 * Compact Button (ImGui SmallButton): auto size, reduced vertical pad.
+	 * Label may use a `###id` suffix; @p id wins when non-empty.
+	 */
+	sk_ui_node_t (*widget_small_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Invisible hit target (ImGui InvisibleButton). No chrome. Zero on an
+	 * axis is auto. @p flags is a SK_UI_BUTTON_FLAG_MOUSE_* mask (0 = LEFT).
+	 */
+	sk_ui_node_t (*widget_invisible_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+
+	/**
+	 * Toolbar toggle (ImGuiSelectionButton). @p selected paints the selected
+	 * look from the caller bool; the widget does not own the mode.
+	 * Zero on a size axis is auto.
+	 */
+	sk_ui_node_t (*widget_selection_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, const_chr_t id, f32 width, f32 height);
+
+	/**
+	 * Button with a visible gray border (ImGuiBorderedButton).
+	 * Zero on a size axis is auto.
+	 */
+	sk_ui_node_t (*widget_bordered_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, f32 width, f32 height);
+
+	/**
+	 * Square arrow chrome (ImGui ArrowButton). @p dir is SK_UI_ARROW_*.
+	 * Editor does not call ArrowButton today; factory is here for completeness.
+	 */
+	sk_ui_node_t (*widget_arrow_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 dir, const_chr_t id);
+
+	/**
+	 * Explicit size. Zero on an axis means auto (ImGui ImVec2 convention).
+	 * @return 0 on success.
+	 */
+	i32 (*button_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Edge-triggered click: 1 once after a press+release over the button
+	 * with an allowed mouse button, then clears. Disabled / drag-off → 0.
+	 */
+	i32 (*button_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Edge-triggered pointer-down on an allowed button; consume-on-read. */
+	i32 (*button_pressed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Edge-triggered pointer-up (even if dragged off); consume-on-read. */
+	i32 (*button_released)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Live SK_UI_STATE_HOVER (does not consume). */
+	i32 (*button_is_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Live SK_UI_STATE_ACTIVE / held (does not consume). */
+	i32 (*button_is_active)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Caller-owned selected look (SelectionButton). Does not own the mode. */
+	i32 (*button_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*button_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Allowed mouse buttons (SK_UI_BUTTON_FLAG_MOUSE_*). 0 treated as LEFT. */
+	i32 (*button_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*button_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

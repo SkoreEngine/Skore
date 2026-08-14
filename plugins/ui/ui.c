@@ -1685,6 +1685,21 @@ static const sk_ui_api_t ui_api = {
 	ui_sample_dock_demo_register_styles_impl,
 	ui_sample_dock_demo_build_impl,
 	ui_sample_dock_demo_logical_size_impl,
+	ui_widget_small_button_impl,
+	ui_widget_invisible_button_impl,
+	ui_widget_selection_button_impl,
+	ui_widget_bordered_button_impl,
+	ui_widget_arrow_button_impl,
+	ui_button_set_size_impl,
+	ui_button_clicked_impl,
+	ui_button_pressed_impl,
+	ui_button_released_impl,
+	ui_button_is_hovered_impl,
+	ui_button_is_active_impl,
+	ui_button_set_selected_impl,
+	ui_button_get_selected_impl,
+	ui_button_set_flags_impl,
+	ui_button_get_flags_impl,
 };
 
 /**

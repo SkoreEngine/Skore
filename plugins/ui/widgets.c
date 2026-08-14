@@ -52,6 +52,11 @@ typedef struct ui_widget_data_t {
 	f32 drag_last_x;
 	f32 drag_last_y;
 	i32 dragging;
+	/* button family (APX-339): edge-triggered click/press/release + flags */
+	u32 button_flags;
+	i32 edge_clicked;
+	i32 edge_pressed;
+	i32 edge_released;
 } ui_widget_data_t;
 
 void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -315,6 +320,89 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.mask = SK_UI_SP_BORDER_COLOR;
 	var.border_color = sk_ui_rgba(0.55f, 0.72f, 1.0f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON, SK_UI_STATE_FOCUSED, &var);
+
+	/* SmallButton: same chrome, tighter pad / shorter min height (ImGui FramePadding.y = 0). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_PADDING | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_FONT_SIZE;
+	base.layout.padding.left = 6.0f;
+	base.layout.padding.right = 6.0f;
+	base.layout.padding.top = 0.0f;
+	base.layout.padding.bottom = 0.0f;
+	base.layout.min_height = sk_ui_pt(18.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_SMALL, &base) != 0) {
+		return -1;
+	}
+
+	/* InvisibleButton: no fill, no border — hit target only. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.border_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	base.layout.border.left = 0.0f;
+	base.layout.border.top = 0.0f;
+	base.layout.border.right = 0.0f;
+	base.layout.border.bottom = 0.0f;
+	base.corner_radius = 0.0f;
+	ui_style_fill_layout_pad(&base, 0.0f);
+	base.layout.min_height = sk_ui_pt(0.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_INVISIBLE, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	var.border_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_INVISIBLE, SK_UI_STATE_HOVER, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_INVISIBLE, SK_UI_STATE_ACTIVE, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_INVISIBLE, SK_UI_STATE_FOCUSED, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_INVISIBLE, SK_UI_STATE_DISABLED, &var);
+
+	/* SelectionButton: editor uses the same accent for normal/hover/active. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	base.background_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.67f);
+	base.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.85f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_SELECTED, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.background_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.67f);
+	var.border_color = sk_ui_rgba(0.26f, 0.59f, 0.98f, 0.85f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_SELECTED, SK_UI_STATE_HOVER, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_SELECTED, SK_UI_STATE_ACTIVE, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_SELECTED, SK_UI_STATE_FOCUSED, &var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_COLOR;
+	var.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+	var.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	var.color = sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON_SELECTED, SK_UI_STATE_DISABLED, &var);
+
+	/* BorderedButton: visible gray border over the default button fill. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	base.border_color = sk_ui_rgba(0.46f, 0.49f, 0.50f, 0.90f);
+	base.layout.border.left = 2.0f;
+	base.layout.border.top = 2.0f;
+	base.layout.border.right = 2.0f;
+	base.layout.border.bottom = 2.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_BORDERED, &base) != 0) {
+		return -1;
+	}
+
+	/* ArrowButton: square compact chrome. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_PADDING | SK_UI_SP_FONT_SIZE;
+	base.layout.width = sk_ui_pt(22.0f);
+	base.layout.height = sk_ui_pt(22.0f);
+	base.layout.min_width = sk_ui_pt(22.0f);
+	base.layout.min_height = sk_ui_pt(22.0f);
+	ui_style_fill_layout_pad(&base, 2.0f);
+	base.font_size = 13.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_BUTTON_ARROW, &base) != 0) {
+		return -1;
+	}
 
 	/* Checkbox: light empty face + border so unchecked is not a solid "on" block. */
 	ui_style_props_clear(&base);
@@ -1187,18 +1275,317 @@ sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, con
 	return n;
 }
 
-sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+/**
+ * Split an ImGui-style label at `###`. Visible text is the prefix; the
+ * suffix is a hidden id. No `###` → the whole string is visible.
+ */
+static void ui_button_split_label(const_chr_t label, char* visible, u32 vis_cap, const_chr_t* out_id_suffix) {
+	const_chr_t hash;
+	u32 n;
+	if (visible != NULL && vis_cap > 0u) {
+		visible[0] = '\0';
+	}
+	if (out_id_suffix != NULL) {
+		*out_id_suffix = NULL;
+	}
+	if (label == NULL) {
+		return;
+	}
+	hash = strstr(label, "###");
+	if (hash == NULL) {
+		if (visible != NULL && vis_cap > 0u) {
+			n = (u32)strlen(label);
+			if (n >= vis_cap) {
+				n = vis_cap - 1u;
+			}
+			memcpy(visible, label, n);
+			visible[n] = '\0';
+		}
+		return;
+	}
+	if (visible != NULL && vis_cap > 0u) {
+		n = (u32)(hash - label);
+		if (n >= vis_cap) {
+			n = vis_cap - 1u;
+		}
+		if (n > 0u) {
+			memcpy(visible, label, n);
+		}
+		visible[n] = '\0';
+	}
+	if (out_id_suffix != NULL && hash[3] != '\0') {
+		*out_id_suffix = hash + 3;
+	}
+}
+
+static u32 ui_button_norm_flags(u32 flags) {
+	if (flags == 0u) {
+		return SK_UI_BUTTON_FLAG_MOUSE_LEFT;
+	}
+	return flags;
+}
+
+static i32 ui_button_flag_for_mouse(i32 button) {
+	if (button == SK_UI_POINTER_BUTTON_LEFT) {
+		return (i32)SK_UI_BUTTON_FLAG_MOUSE_LEFT;
+	}
+	if (button == SK_UI_POINTER_BUTTON_MIDDLE) {
+		return (i32)SK_UI_BUTTON_FLAG_MOUSE_MIDDLE;
+	}
+	if (button == SK_UI_POINTER_BUTTON_RIGHT) {
+		return (i32)SK_UI_BUTTON_FLAG_MOUSE_RIGHT;
+	}
+	return 0;
+}
+
+static i32 ui_button_allows(const ui_widget_data_t* wd, i32 button) {
+	u32 flags = ui_button_norm_flags(wd != NULL ? wd->button_flags : 0u);
+	i32 bit = ui_button_flag_for_mouse(button);
+	return bit != 0 && (flags & (u32)bit) != 0u ? 1 : 0;
+}
+
+static void ui_button_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	const sk_ui_api_t* ui = ui_wapi();
-	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_BUTTON, "button", "ui-button", id);
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	sk_ui_node_t hit;
+	if (wd == NULL || event == NULL) {
+		return;
+	}
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_DOWN) {
+		if (ui_button_allows(wd, event->button) == 0) {
+			return;
+		}
+		wd->edge_pressed = 1;
+		wd->edge_released = 0;
+		wd->edge_clicked = 0;
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (ui_button_allows(wd, event->button) == 0) {
+			return;
+		}
+		wd->edge_released = 1;
+		hit = ui->hit_test(ctx, event->x, event->y);
+		if (sk_ui_node_eq(hit, node)) {
+			wd->edge_clicked = 1;
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_CLICK) {
+		if (ui_button_allows(wd, event->button) != 0) {
+			wd->edge_clicked = 1;
+		}
+	}
+}
+
+i32 ui_button_set_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_style_props_t p;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	if (width > 0.0f) {
+		p.layout.width = sk_ui_pt(width);
+		p.mask |= SK_UI_SP_MIN_WIDTH | SK_UI_SP_MAX_WIDTH;
+		p.layout.min_width = sk_ui_pt(width);
+		p.layout.max_width = sk_ui_pt(width);
+	} else {
+		p.layout.width = sk_ui_auto();
+	}
+	if (height > 0.0f) {
+		p.layout.height = sk_ui_pt(height);
+		p.mask |= SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_HEIGHT;
+		p.layout.min_height = sk_ui_pt(height);
+		p.layout.max_height = sk_ui_pt(height);
+	} else {
+		p.layout.height = sk_ui_auto();
+	}
+	return ui->node_merge_inline_style(ctx, node, &p);
+}
+
+i32 ui_button_set_selected_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected) {
+	const sk_ui_api_t* ui = ui_wapi();
+	i32 rc;
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return -1;
+	}
+	rc = ui->node_set_prop_i32(ctx, node, "selected", selected != 0 ? 1 : 0);
+	if (rc != 0) {
+		return rc;
+	}
+	if (selected != 0) {
+		if (ui->node_has_class(ctx, node, SK_UI_CLASS_BUTTON_SELECTED) == 0) {
+			(void)ui->node_add_class(ctx, node, SK_UI_CLASS_BUTTON_SELECTED);
+		}
+	} else {
+		(void)ui->node_remove_class(ctx, node, SK_UI_CLASS_BUTTON_SELECTED);
+	}
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	return 0;
+}
+
+i32 ui_button_get_selected_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 selected = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "selected", &selected);
+	return selected != 0 ? 1 : 0;
+}
+
+i32 ui_button_set_flags_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_BUTTON);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->button_flags = ui_button_norm_flags(flags);
+	return 0;
+}
+
+u32 ui_button_get_flags_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_widget_data_t* wd = ui_widget_data_const(ctx, node);
+	if (wd == NULL) {
+		return SK_UI_BUTTON_FLAG_MOUSE_LEFT;
+	}
+	return ui_button_norm_flags(wd->button_flags);
+}
+
+i32 ui_button_clicked_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_clicked != 0 ? 1 : 0;
+	wd->edge_clicked = 0;
+	return v;
+}
+
+i32 ui_button_pressed_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_pressed != 0 ? 1 : 0;
+	wd->edge_pressed = 0;
+	return v;
+}
+
+i32 ui_button_released_impl(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_widget_data_t* wd = ui_widget_data(ctx, node);
+	i32 v;
+	if (wd == NULL) {
+		return 0;
+	}
+	v = wd->edge_released != 0 ? 1 : 0;
+	wd->edge_released = 0;
+	return v;
+}
+
+i32 ui_button_is_hovered_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	return (ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_HOVER) != 0u ? 1 : 0;
+}
+
+i32 ui_button_is_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	if (ctx == NULL || !sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	return (ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_ACTIVE) != 0u ? 1 : 0;
+}
+
+static sk_ui_node_t ui_button_make(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, const_chr_t extra_class, const_chr_t widget_type, f32 width,
+								   f32 height, u32 flags, i32 focusable) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	char visible[256];
+	const_chr_t id_suffix = NULL;
+	const_chr_t use_id = id;
+	sk_ui_node_t n;
+
+	ui_button_split_label(label, visible, (u32)sizeof(visible), &id_suffix);
+	if ((use_id == NULL || use_id[0] == '\0') && id_suffix != NULL && id_suffix[0] != '\0') {
+		use_id = id_suffix;
+	}
+
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_BUTTON, "button", "ui-button", use_id);
 	if (!sk_ui_node_is_valid(n)) {
 		return n;
 	}
-	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	if (extra_class != NULL && extra_class[0] != '\0') {
+		(void)ui->node_add_class(ctx, n, extra_class);
+	}
+	(void)ui->node_set_prop_str(ctx, n, "button_variant", widget_type != NULL ? widget_type : "button");
+	(void)ui->node_set_prop_str(ctx, n, "text", visible);
 	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
 	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
-	(void)ui->node_set_focusable(ctx, n, 1);
-	(void)ui_widget_data_ensure(ctx, n, UI_WD_BUTTON);
+	(void)ui->node_set_focusable(ctx, n, focusable != 0 ? 1 : 0);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_BUTTON);
+	if (wd != NULL) {
+		wd->button_flags = ui_button_norm_flags(flags);
+		wd->edge_clicked = 0;
+		wd->edge_pressed = 0;
+		wd->edge_released = 0;
+	}
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_event = ui_button_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	if (width > 0.0f || height > 0.0f) {
+		(void)ui_button_set_size_impl(ctx, n, width, height);
+	}
 	return n;
+}
+
+sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	return ui_button_make(ctx, parent, label, id, NULL, "button", 0.0f, 0.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+}
+
+sk_ui_node_t ui_widget_small_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	return ui_button_make(ctx, parent, label, id, SK_UI_CLASS_BUTTON_SMALL, "small_button", 0.0f, 0.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+}
+
+sk_ui_node_t ui_widget_invisible_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags) {
+	return ui_button_make(ctx, parent, "", id, SK_UI_CLASS_BUTTON_INVISIBLE, "invisible_button", width, height, flags, 0);
+}
+
+sk_ui_node_t ui_widget_selection_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, const_chr_t id, f32 width, f32 height) {
+	sk_ui_node_t n = ui_button_make(ctx, parent, label, id, NULL, "selection_button", width, height, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui_button_set_selected_impl(ctx, n, selected);
+	return n;
+}
+
+sk_ui_node_t ui_widget_bordered_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, f32 width, f32 height) {
+	return ui_button_make(ctx, parent, label, id, SK_UI_CLASS_BUTTON_BORDERED, "bordered_button", width, height, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
+}
+
+sk_ui_node_t ui_widget_arrow_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 dir, const_chr_t id) {
+	const_chr_t glyph = ">";
+	if (dir == SK_UI_ARROW_LEFT) {
+		glyph = "<";
+	} else if (dir == SK_UI_ARROW_UP) {
+		glyph = "^";
+	} else if (dir == SK_UI_ARROW_DOWN) {
+		glyph = "v";
+	}
+	return ui_button_make(ctx, parent, glyph, id, SK_UI_CLASS_BUTTON_ARROW, "arrow_button", 22.0f, 22.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT, 1);
 }
 
 sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id) {
@@ -3141,6 +3528,11 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_PANEL));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_SMALL));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_INVISIBLE));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_SELECTED));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_BORDERED));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON_ARROW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_CHECKBOX));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));
@@ -3193,6 +3585,199 @@ SK_TEST(ui_widget_button_hover_disabled_states) {
 	TEST_ASSERT_TRUE((ui->node_get_state(ctx, btn) & SK_UI_STATE_DISABLED) != 0u);
 	TEST_ASSERT_EQUAL_INT(0, ui->button_set_label(ctx, btn, "Go"));
 	TEST_ASSERT_EQUAL_STRING("Go", ui->label_get_text(ctx, btn));
+	ui->context_destroy(ctx);
+}
+
+static void wtest_pointer(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 x, f32 y, i32 button, i32 down) {
+	sk_ui_input_event_t ev;
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.x = x;
+	ev.y = y;
+	ev.button = button;
+	ev.down = down;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+}
+
+static void wtest_move(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 x, f32 y) {
+	sk_ui_input_event_t ev;
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	ev.x = x;
+	ev.y = y;
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+}
+
+SK_TEST(ui_widget_button_family_labels_ids_size) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t btn;
+	sk_ui_node_t small;
+	sk_ui_node_t empty;
+	sk_ui_node_t zero;
+	sk_ui_node_t hidden;
+	sk_ui_node_t collide;
+	sk_ui_node_t sized;
+	sk_ui_rect_t border;
+	sk_ui_prop_value_t pv;
+
+	btn = ui->widget_button(ctx, root, "Clear", "btn-clear");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(btn));
+	TEST_ASSERT_EQUAL_STRING("Clear", ui->label_get_text(ctx, btn));
+	TEST_ASSERT_EQUAL_STRING("btn-clear", ui->node_get_id(ctx, btn));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, btn, SK_UI_CLASS_BUTTON));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, btn, "widget", &pv));
+	TEST_ASSERT_EQUAL_STRING("button", pv.data.str_value);
+
+	/* ###id suffix: visible prefix, hidden id when factory id is empty. */
+	hidden = ui->widget_button(ctx, root, "ICON###trash", NULL);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(hidden));
+	TEST_ASSERT_EQUAL_STRING("ICON", ui->label_get_text(ctx, hidden));
+	TEST_ASSERT_EQUAL_STRING("trash", ui->node_get_id(ctx, hidden));
+
+	/* Empty label is legal; node still lives. */
+	empty = ui->widget_button(ctx, root, "", "btn-empty");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(empty));
+	TEST_ASSERT_EQUAL_STRING("", ui->label_get_text(ctx, empty));
+
+	/* NULL label treated as empty. */
+	zero = ui->widget_button(ctx, root, NULL, "btn-null");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(zero));
+	TEST_ASSERT_EQUAL_STRING("", ui->label_get_text(ctx, zero));
+
+	/* Id collision: second node stays valid; find_by_id keeps the first. */
+	collide = ui->widget_button(ctx, root, "Other", "btn-clear");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(collide));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->find_by_id(ctx, "btn-clear"), btn));
+	TEST_ASSERT_TRUE(ui->node_get_id(ctx, collide) == NULL || strcmp(ui->node_get_id(ctx, collide), "btn-clear") != 0);
+
+	small = ui->widget_small_button(ctx, root, "x", "btn-small");
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, small, SK_UI_CLASS_BUTTON_SMALL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, small, "button_variant", &pv));
+	TEST_ASSERT_EQUAL_STRING("small_button", pv.data.str_value);
+
+	/* Explicit size; zero axis stays auto. */
+	sized = ui->widget_button(ctx, root, "OK", "btn-sized");
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, sized, 120.0f, 0.0f));
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sized, &border, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 120.0f, border.width);
+	TEST_ASSERT_TRUE(border.height >= 18.0f);
+
+	/* Zero size on both axes: auto (content + class min_height). */
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_size(ctx, empty, 0.0f, 0.0f));
+	wtest_layout(ui, ctx, 200.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, empty, &border, NULL));
+	TEST_ASSERT_TRUE(border.width >= 0.0f);
+	TEST_ASSERT_TRUE(border.height >= 0.0f);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_widget_button_family_click_press_release) {
+	const sk_ui_api_t* ui = wtest_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t btn;
+	sk_ui_node_t inv;
+	sk_ui_node_t dis;
+	sk_ui_node_t sel;
+	sk_ui_node_t brd;
+	sk_ui_node_t arr;
+
+	btn = ui->widget_button(ctx, root, "OK", "fam-ok");
+	wtest_set_size(ui, ctx, btn, 80.0f, 28.0f);
+	inv = ui->widget_invisible_button(ctx, root, "fam-inv", 40.0f, 40.0f, SK_UI_BUTTON_FLAG_MOUSE_LEFT | SK_UI_BUTTON_FLAG_MOUSE_MIDDLE);
+	dis = ui->widget_button(ctx, root, "No", "fam-dis");
+	wtest_set_size(ui, ctx, dis, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_disabled(ctx, dis, 1));
+	sel = ui->widget_selection_button(ctx, root, "Move", 1, "fam-sel", 48.0f, 24.0f);
+	brd = ui->widget_bordered_button(ctx, root, "Add", "fam-brd", 80.0f, 24.0f);
+	arr = ui->widget_arrow_button(ctx, root, SK_UI_ARROW_RIGHT, "fam-arr");
+
+	/* Place so hit tests do not overlap. */
+	{
+		sk_ui_layout_style_t ls;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, inv, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(100.0f);
+		ls.top = sk_ui_pt(0.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, inv, &ls));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, dis, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(0.0f);
+		ls.top = sk_ui_pt(40.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, dis, &ls));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, sel, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(50.0f);
+		ls.top = sk_ui_pt(40.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, sel, &ls));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, brd, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(0.0f);
+		ls.top = sk_ui_pt(80.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, brd, &ls));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, arr, &ls));
+		ls.position = SK_UI_POSITION_ABSOLUTE;
+		ls.left = sk_ui_pt(100.0f);
+		ls.top = sk_ui_pt(80.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, arr, &ls));
+	}
+	wtest_layout(ui, ctx, 200.0f, 140.0f);
+
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, inv, SK_UI_CLASS_BUTTON_INVISIBLE));
+	TEST_ASSERT_EQUAL_INT(1, ui->button_get_selected(ctx, sel));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, sel, SK_UI_CLASS_BUTTON_SELECTED));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, brd, SK_UI_CLASS_BUTTON_BORDERED));
+	TEST_ASSERT_TRUE(ui->node_has_class(ctx, arr, SK_UI_CLASS_BUTTON_ARROW));
+	TEST_ASSERT_EQUAL_STRING(">", ui->label_get_text(ctx, arr));
+	TEST_ASSERT_EQUAL_UINT(SK_UI_BUTTON_FLAG_MOUSE_LEFT | SK_UI_BUTTON_FLAG_MOUSE_MIDDLE, ui->button_get_flags(ctx, inv));
+
+	/* Press/release over the button → clicked once, consume-on-read. */
+	wtest_move(ui, ctx, 40.0f, 14.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_is_hovered(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_is_active(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, btn));
+	wtest_pointer(ui, ctx, 40.0f, 14.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_pressed(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_pressed(ctx, btn)); /* consumed */
+	TEST_ASSERT_EQUAL_INT(1, ui->button_is_active(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, btn));
+	wtest_pointer(ui, ctx, 40.0f, 14.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_released(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(1, ui->button_clicked(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_is_active(ctx, btn));
+
+	/* Drag off then release: no click. */
+	wtest_pointer(ui, ctx, 40.0f, 14.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_pressed(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(1, ui->button_is_active(ctx, btn));
+	wtest_move(ui, ctx, 190.0f, 130.0f);
+	wtest_pointer(ui, ctx, 190.0f, 130.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_released(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, btn));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_is_active(ctx, btn));
+
+	/* Disabled is not hittable: no press / click. */
+	wtest_pointer(ui, ctx, 20.0f, 50.0f, SK_UI_POINTER_BUTTON_LEFT, 1);
+	wtest_pointer(ui, ctx, 20.0f, 50.0f, SK_UI_POINTER_BUTTON_LEFT, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->button_pressed(ctx, dis));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_clicked(ctx, dis));
+
+	/* Invisible middle-click is a click (editor texture canvas flags). */
+	wtest_pointer(ui, ctx, 120.0f, 20.0f, SK_UI_POINTER_BUTTON_MIDDLE, 1);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_pressed(ctx, inv));
+	wtest_pointer(ui, ctx, 120.0f, 20.0f, SK_UI_POINTER_BUTTON_MIDDLE, 0);
+	TEST_ASSERT_EQUAL_INT(1, ui->button_clicked(ctx, inv));
+
+	/* Selection look is caller-owned. */
+	TEST_ASSERT_EQUAL_INT(0, ui->button_set_selected(ctx, sel, 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->button_get_selected(ctx, sel));
+	TEST_ASSERT_FALSE(ui->node_has_class(ctx, sel, SK_UI_CLASS_BUTTON_SELECTED));
+
 	ui->context_destroy(ctx);
 }
 
