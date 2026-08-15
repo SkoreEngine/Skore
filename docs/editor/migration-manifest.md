@@ -18,7 +18,7 @@ It **specifies behaviour only** — no implementation code.
 | Method | `git archive origin/main`, then read every window `.hpp`/`.cpp`; grep for external callers, `Event::Bind`/`EventHandler<...>::Invoke`, `StaticContent::Get*("Content/Images/...")`, `EditorSerialize`, `EditorWindowProperties` |
 | Cross-check | Window directory listing vs manifest: **28 files (14 `.cpp` + 14 `.hpp`) = 14 window classes; all 14 are listed in §3, none missing, none extra** (see §5) |
 | Out of scope | Graph node editors, thumbnail generation, real scene rendering — listed separately in §4, **not** part of the v2 window work queue |
-| Companion docs | `docs/WIDGET_MANIFEST.md` (APX-335 widget audit), `docs/ui-editor-migration.md` (APX-139 Console port), `editor/main_windows.c` (v2 window scaffolding, same 14 windows) |
+| Companion docs | `docs/WIDGET_MANIFEST.md` (APX-335 widget audit), `docs/ui-editor-migration.md` (APX-139 Console port), `editor/main_windows.c` (v2 window scaffolding, same 14 windows), `docs/editor/window-table-pattern.md` (APX-365 ops tables + add_impl observers) |
 
 ## 1. The window base contract (shared by all 14)
 
@@ -380,3 +380,18 @@ infrastructure in §1. The v2 scaffold registers the **same 14 windows**
    windows + per-window state blob) once window state lands.
 6. Out-of-scope features must be **mockable per window** so each window's in-scope
    UI can be exercised without graph/thumbnail/render subsystems (§2).
+
+## 7. v2 struct-table + notify pattern (APX-365)
+
+Public window functions go through a **per-window ops table** registered with
+`app_api->add_impl` — never a direct symbol (`ProjectBrowserWindow.ClearSelection`
+→ `sk_editor_project_browser_ops(ctx, api)->clear_selection(...)`).
+
+C++ `Event` is **not** ported. Each former event is an observer struct of
+function pointers, also published with `add_impl`. Publishers call
+`sk_editor_notify_*` which copies, sorts by `order`, and invokes that type
+only. No event bus.
+
+Registration, lookup, ordering, and lifetime rules — and the Project Browser
+reference window later migrations copy — are in
+`docs/editor/window-table-pattern.md`.
