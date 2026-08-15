@@ -319,6 +319,11 @@ ctest --test-dir build --output-on-failure          # unit + smoke (sk-tests)
 #   cmake -S ../skore-test-suite -B ../skore-test-suite/build -G Ninja
 #   ctest --test-dir ../skore-test-suite/build -L integration --output-on-failure
 #   # SK_RUN_INTEGRATION=0 skips the integration binaries under ctest
+# widget family automation (check #2, no GPU) is also in that repo:
+#   point SKORE_DIR at origin/feature/review-necessary-widgets-for-skore-edito
+#   (fetch first — a local feature/ checkout can be a stale SHA; APX-363)
+#   ctest --test-dir ../skore-test-suite/build --output-on-failure
+#   SK_TEST_FILTER='ui_author_*'  and  scripts/run-widget-automation.sh
 ```
 
 - Optional: `sk-tests [--list] [--filter=<tokens>] [plugins_dir]` — `plugins_dir` overrides `{app_folder}/plugins`. `--filter` is comma-separated exact names and/or `prefix*` (same as `SK_TEST_FILTER`). `--list` prints registered names and exits.

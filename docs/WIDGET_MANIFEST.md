@@ -1810,3 +1810,99 @@ Windows ABI tidy on the edited `plugins/ui/widgets.c`: passed.
 - Did not commit the lavapipe PNG directory (sandbox host output).
 - C++ editor on `main` is still ImGui; this goal is sk-ui factories +
   the three checks, not a live editor port.
+
+### APX-363 independent replay (2026-08-15)
+
+Independent replay of APX-361 from a **clean** `skore-test-suite` clone
+(no reuse of that task’s build dir). Suite commit `5a46020` on
+`feature/review-necessary-widgets-for-skore-edito`. Engine pointed at
+this worktree: `origin/feature/review-necessary-widgets-for-skore-edito`
+`b92db91` (APX-361 recorded `3778594`; the extra commit is the
+content-item clang-tidy glyph fallback only).
+
+**Documented sequence (APX-361 README / commit) reproduced green.**
+GPU/vision stayed off the default unit path. `sk-sandbox --widget` is
+not a CTest case.
+
+| Command | APX-361 | This replay | Delta |
+| --- | --- | --- | --- |
+| `ctest --test-dir build --output-on-failure` | 10/10 passed, 0 failed (20.79s) | 10/10 passed, 0 failed (21.49s) | wall time only |
+| `sk-tests` inside default ctest | 947 ran, 0 failed | 947 ran, 0 failed | match |
+| `sk-widget-auto-tests` | 7/7 passed | 7/7 passed | match |
+| `sk-widget-family-automation` | 22/22 passed (image has 4) | 22/22 passed | match |
+| `SK_TEST_FILTER='ui_author_*' ./sk-tests` | 39/39 passed | 39/39 passed | match |
+| `./sk-integration-tests --filter='ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*'` | 1/1 (`ui_ix_integration_tab_and_menu`) | 1/1 same name | match |
+| `SK_RUN_INTEGRATION=0 ctest -L integration` | 2 skipped | 2 skipped (`sk-integration-tests`, `sk-text-screenshot`) | match |
+| Negative: `button_clicked` forced to 0 | family case 22 ran, 8 failed | family 22 ran, 8 failed; **plain ctest** 8/10, 2 failed (`sk-tests` 947/17, family 22/8) | family match; this replay also ran plain ctest |
+| Engine SHA | 3778594 | b92db91 | +1 commit; counts unchanged |
+
+**19 families actually executed** (`sk-tests --list` + family CTest, not
+filtered to zero). `listed_ui_author=22 families_expected=19 families_missing=0`:
+
+- `ui_author_button_family_press_release_drag_off`
+- `ui_author_text_family_layout_extent_and_content_updates`
+- `ui_author_checkbox_radio_toggle_bind_group_and_external`
+- `ui_author_input_text_family_keystrokes_focus_commit_revert`
+- `ui_author_slider_drag_family_drag_clamp_changed_text_entry`
+- `ui_author_combo_family_open_pick_keyboard_listbox`
+- `ui_author_tree_family_expand_select_double_click`
+- `ui_author_table_family_resize_scroll_cell_queries`
+- `ui_author_tab_bar_family_click_close_plus`
+- `ui_author_menu_family_bar_submenu_activate_disabled_outside`
+- `ui_author_popup_modal_family_open_block_escape`
+- `ui_author_child_window_layout_family_scroll_disabled_resizex`
+- `ui_author_color_family_open_drag_type_close`
+- `ui_author_image_family_size_uv_tint_border`
+- `ui_author_image_family_flipped_v_texture_change`
+- `ui_author_image_family_zero_invalid_texture`
+- `ui_author_image_family_size_aspect`
+- `ui_author_content_item_family_select_activate_rename_mutate`
+- `ui_author_drag_drop_family_tree_row_and_property_field`
+- `ui_author_selectable_family_click_double_hover`
+- `ui_author_separator_layout_family_toolbar_and_matrix_packing`
+- `ui_author_tooltip_family_hover_delay_clamp_passthrough`
+
+**Doc finding (command did not land on origin tip).** Verbatim
+`git -C ../skore checkout feature/review-necessary-widgets-for-skore-edito`
+exited 0 but switched this worktree to the stale local branch at
+`3778594` (`behind origin by 1`). Restored to
+`origin/feature/review-necessary-widgets-for-skore-edito` (`b92db91`)
+before configure. Correct form:
+
+```bash
+git -C ../skore fetch origin
+git -C ../skore checkout --detach origin/feature/review-necessary-widgets-for-skore-edito
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSKORE_DIR=../skore
+cmake --build build
+ctest --test-dir build --output-on-failure
+(cd build/bin && SK_TEST_FILTER='ui_author_*' ./sk-tests)
+(cd build/bin && ./sk-integration-tests --filter='ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*')
+./scripts/run-widget-automation.sh --no-build
+```
+
+The suite README still has the stale-local checkout (this task can only
+edit `skore`). Engine README Tests now carries the origin-tip form.
+
+**Negative red (plain ctest, then revert).** Forced
+`ui_button_clicked_impl` to return 0, rebuilt `sk-ui`, then:
+
+```
+80% tests passed, 2 tests failed out of 10
+The following tests FAILED:
+  6 - sk-tests (Failed)
+  8 - sk-widget-family-automation (Failed)
+======== TOTAL: ran=947 failed=17 ========
+======== TOTAL: ran=22 failed=8 ========
+ui_author_button_family_press_release_drag_off:FAIL: Expected 1 Was 0
+ui_author_combo_family_open_pick_keyboard_listbox:FAIL: Expected 1 Was 0
+ui_author_menu_family_bar_submenu_activate_disabled_outside:FAIL: Expected 1 Was 0
+ui_author_popup_modal_family_open_block_escape:FAIL: Expected 1 Was 0
+ui_author_selectable_family_click_double_hover:FAIL: Expected 1 Was 0
+ui_author_tab_bar_family_click_close_plus:FAIL: Expected 1 Was 0
+ui_author_tooltip_family_hover_delay_clamp_passthrough:FAIL: Expected 1 Was 0
+ui_author_tree_family_expand_select_double_click:FAIL: Expected 1 Was 0
+```
+
+Restore of `ui_button_clicked_impl` + rebuild:
+`sk-widget-family-automation` Passed 1.05s (22/0).
+

@@ -65,15 +65,40 @@ ctest --test-dir build --output-on-failure
 ```
 
 Default `ctest` in this engine tree is the **unit** suite. Integration
-binaries (Vulkan, UI capture, text screenshots) live in **skore-test-suite**
-and run there by default (`SK_RUN_INTEGRATION=0` skips them):
+binaries (Vulkan, UI capture, text screenshots) and the headless widget
+family automation (check #2) live in **skore-test-suite** and run there
+by default (`SK_RUN_INTEGRATION=0` skips the GPU/integration binaries
+only; `sk-widget-family-automation` stays on the unit path):
 
 ```bash
+# Fresh suite clone next to this tree, on the same goal branch
+# (main of skore-test-suite does not register the 19-family CTest).
+# Fetch origin — a local `git checkout feature/...` can land on a stale
+# ref (APX-363: exited 0 at 3778594, behind origin).
+git -C ../skore-test-suite fetch origin
+git -C ../skore-test-suite checkout origin/feature/review-necessary-widgets-for-skore-edito
+git -C ../skore fetch origin
+git -C ../skore checkout --detach origin/feature/review-necessary-widgets-for-skore-edito
+cmake -S ../skore-test-suite -B ../skore-test-suite/build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DSKORE_DIR="$PWD"
+cmake --build ../skore-test-suite/build
+ctest --test-dir ../skore-test-suite/build --output-on-failure
+(cd ../skore-test-suite/build/bin && SK_TEST_FILTER='ui_author_*' ./sk-tests)
+(cd ../skore-test-suite/build/bin && \
+  ./sk-integration-tests --filter='ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*')
+../skore-test-suite/scripts/run-widget-automation.sh --no-build
+# integration only:
 ctest --test-dir ../skore-test-suite/build -L integration --output-on-failure
 # or run the binary directly (never gated):
 ../skore-test-suite/build/bin/sk-integration-tests
 ../skore-test-suite/scripts/run-integration-tests.sh
 ```
+
+Recorded on a clean suite checkout at `5a46020` against this branch
+`b92db91` (APX-363): default ctest 10/10, `sk-tests` 947/0, family
+automation 22/22 (all 19 families ran), `ui_author_*` 39/39. Do not
+register `sk-sandbox --widget` with CTest. See
+**[docs/WIDGET_MANIFEST.md](docs/WIDGET_MANIFEST.md)** §APX-363.
 
 Release builds never compile test bodies into plugins.
 
