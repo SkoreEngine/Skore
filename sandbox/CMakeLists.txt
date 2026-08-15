@@ -1,4 +1,6 @@
-add_executable(sk-sandbox dock_preview_sandbox.c)
+add_executable(sk-sandbox
+    dock_preview_sandbox.c
+    widget_review.c)
 
 # App entry: sk-foundation (sk_app_init + platform APIs + engine utilities).
 target_link_libraries(sk-sandbox PRIVATE sk-foundation)

@@ -175,7 +175,9 @@ static i32 ui_clay_is_menu_surface(const_chr_t widget) {
 		return 0;
 	}
 	if (strcmp(widget, "menu_bar") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu_popup") == 0 ||
-		strcmp(widget, "dropdown") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "submenu") == 0) {
+		strcmp(widget, "dropdown") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "popup_menu") == 0 ||
+		strcmp(widget, "modal") == 0 || strcmp(widget, "modal_dim") == 0 || strcmp(widget, "modal_dialog") == 0 || strcmp(widget, "modal_title") == 0 ||
+		strcmp(widget, "modal_body") == 0 || strcmp(widget, "modal_buttons") == 0) {
 		return 1;
 	}
 	return 0;
@@ -186,7 +188,8 @@ static i32 ui_clay_is_menu_popup(const_chr_t widget) {
 	if (widget == NULL) {
 		return 0;
 	}
-	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0) {
+	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0 ||
+		strcmp(widget, "tooltip") == 0) {
 		return 1;
 	}
 	return 0;
@@ -202,7 +205,10 @@ static i32 ui_clay_is_dock_surface(const_chr_t widget) {
 		return 0;
 	}
 	if (strcmp(widget, "dock_space") == 0 || strcmp(widget, "dock_node") == 0 || strcmp(widget, "splitter") == 0 || strcmp(widget, "tab_bar") == 0 || strcmp(widget, "tab") == 0 ||
-		strcmp(widget, "editor_window") == 0 || strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "window_content") == 0) {
+		strcmp(widget, "tab_button") == 0 || strcmp(widget, "tab_close") == 0 || strcmp(widget, "tab_body") == 0 || strcmp(widget, "editor_window") == 0 ||
+		strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "window_content") == 0 || strcmp(widget, "fullscreen") == 0 || strcmp(widget, "child") == 0 ||
+		strcmp(widget, "child_resize") == 0 || strcmp(widget, "window_close") == 0 || strcmp(widget, "group") == 0 || strcmp(widget, "horizontal") == 0 ||
+		strcmp(widget, "vertical") == 0 || strcmp(widget, "spring") == 0) {
 		return 1;
 	}
 	return 0;
@@ -213,7 +219,8 @@ static i32 ui_clay_is_dock_drag_target(const_chr_t widget) {
 	if (widget == NULL) {
 		return 0;
 	}
-	if (strcmp(widget, "splitter") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0) {
+	if (strcmp(widget, "splitter") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "tab_button") == 0 || strcmp(widget, "tab_close") == 0 ||
+		strcmp(widget, "window_title_bar") == 0) {
 		return 1;
 	}
 	return 0;
@@ -277,8 +284,9 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 		return 0;
 	}
 	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "radio") == 0 || strcmp(w, "toggle") == 0 || strcmp(w, "slider") == 0 ||
-		strcmp(w, "range_slider") == 0 || strcmp(w, "progress") == 0 || strcmp(w, "text_input") == 0 || strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 ||
-		strcmp(w, "label") == 0 || strcmp(w, "image") == 0 || strcmp(w, "view") == 0) {
+		strcmp(w, "drag") == 0 || strcmp(w, "slider_n") == 0 || strcmp(w, "drag_n") == 0 || strcmp(w, "range_slider") == 0 || strcmp(w, "progress") == 0 ||
+		strcmp(w, "text_input") == 0 || strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 || strcmp(w, "label") == 0 || strcmp(w, "image") == 0 ||
+		strcmp(w, "view") == 0) {
 		return 1;
 	}
 	/* Menu inventory surfaces always keep stable IDs (hover → nested popup). */
@@ -681,7 +689,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	 * - clip_children alone (dock_space / dock_node / window_content / menu
 	 *   popups) → Clay clip without scroll-container offset semantics.
 	 */
-	has_scroll_props = (ui_clay_has_prop_f32(slot, "scroll_x") != 0 || ui_clay_has_prop_f32(slot, "scroll_y") != 0 || (widget != NULL && strcmp(widget, "scroll_view") == 0));
+	has_scroll_props = (ui_clay_has_prop_f32(slot, "scroll_x") != 0 || ui_clay_has_prop_f32(slot, "scroll_y") != 0 ||
+						(widget != NULL && (strcmp(widget, "scroll_view") == 0 || strcmp(widget, "child") == 0)));
 	is_scroll_container = has_scroll_props != 0 ? 1 : 0;
 	is_clip = (slot->clip_children != 0u) || is_scroll_container != 0;
 	if (is_scroll_container != 0) {
@@ -691,7 +700,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	}
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
 				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "tab") == 0 ||
-									   strcmp(widget, "window_title_bar") == 0));
+									   strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "modal_title") == 0 || strcmp(widget, "separator_text") == 0));
 	wrap = ui_clay_prop_i32(slot, "wrap", 0);
 	(void)is_dock_drag;
 
@@ -783,6 +792,25 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	if (cross_align == SK_UI_ALIGN_AUTO) {
 		cross_align = parent_align_items;
 	}
+	/* SameLine rows (APX-349): when any child of the parent carries the
+	 * same_line prop the parent packs a horizontal row — every child keeps its
+	 * intrinsic cross size (toolbar buttons must not stretch to the column
+	 * width, including the row-start button before the first SameLine). */
+	if (ui_clay_prop_i32(slot, "same_line", 0) != 0) {
+		cross_align = SK_UI_ALIGN_FLEX_START;
+	} else if (sk_ui_node_is_valid(slot->parent)) {
+		const ui_node_slot_t* pslot = ui_slot(ctx, slot->parent);
+		u32 k;
+		if (pslot != NULL) {
+			for (k = 0u; k < pslot->children.count; ++k) {
+				const ui_node_slot_t* cs = ui_slot(ctx, pslot->children.items[k]);
+				if (cs != NULL && ui_clay_prop_i32(cs, "same_line", 0) != 0) {
+					cross_align = SK_UI_ALIGN_FLEX_START;
+					break;
+				}
+			}
+		}
+	}
 	if (cross_align == SK_UI_ALIGN_STRETCH && ls->position != SK_UI_POSITION_ABSOLUTE) {
 		if (ui_clay_is_row_dir(parent_dir) != 0) {
 			/* Row parent: cross axis is height. */
@@ -800,6 +828,40 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	/* POINT sizes are border-box (outer); see ui_clay_map_axis. */
 	decl.layout.sizing.width = ui_clay_map_axis(ls->width, ls->min_width, ls->max_width, grow_w, parent_w, parent_def);
 	decl.layout.sizing.height = ui_clay_map_axis(ls->height, ls->min_height, ls->max_height, grow_h, parent_h, parent_def);
+	/* Separator (§19): the factory flags vertical for row-class parents and
+	 * SameLine, but a parent flipped to a row via inline style only shows up
+	 * here. When the resolved direction is a row, force the 1px vertical rule
+	 * sizing (grow to the row height); paint re-checks the parent so the rule
+	 * orientation stays consistent. */
+	if (widget != NULL && strcmp(widget, "separator") == 0 && ui_clay_prop_i32(slot, "vertical", 0) == 0 && ui_clay_is_row_dir(parent_dir) != 0) {
+		decl.layout.sizing.width = CLAY_SIZING_FIXED(1);
+		decl.layout.sizing.height = CLAY_SIZING_GROW(0);
+	}
+	/* Floating percent-of-parent is 0 under Clay; pin modal chrome to the viewport. */
+	if (widget != NULL && (strcmp(widget, "modal") == 0 || strcmp(widget, "modal_dim") == 0)) {
+		f32 vw = ctx->root_width > 1.0f ? ctx->root_width : parent_w;
+		f32 vh = ctx->root_height > 1.0f ? ctx->root_height : parent_h;
+		if (vw < 1.0f) {
+			vw = 640.0f;
+		}
+		if (vh < 1.0f) {
+			vh = 400.0f;
+		}
+		{
+			Clay_SizingAxis aw;
+			Clay_SizingAxis ah;
+			memset(&aw, 0, sizeof(aw));
+			memset(&ah, 0, sizeof(ah));
+			aw.type = CLAY__SIZING_TYPE_FIXED;
+			aw.size.minMax.min = vw;
+			aw.size.minMax.max = vw;
+			ah.type = CLAY__SIZING_TYPE_FIXED;
+			ah.size.minMax.min = vh;
+			ah.size.minMax.max = vh;
+			decl.layout.sizing.width = aw;
+			decl.layout.sizing.height = ah;
+		}
+	}
 
 	if (slot->computed.background_color.a > 0.001f) {
 		decl.backgroundColor = ui_clay_color(slot->computed.background_color);
@@ -846,7 +908,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		i32 z_default = is_menu_popup != 0 ? 100 : (widget != NULL && strcmp(widget, "editor_window") == 0 ? 50 : 0);
 		i32 z = ui_clay_prop_i32(slot, "z_index", z_default);
 		/* context_menu and free-floating editor_window: root attach. */
-		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0)) {
+		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0 || strcmp(widget, "popup_menu") == 0 || strcmp(widget, "modal") == 0 ||
+							   strcmp(widget, "tooltip") == 0)) {
 			decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
 		} else {
 			decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;
@@ -857,16 +920,32 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			if (attach == 1) {
 				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_RIGHT_TOP;
+				if (decl.floating.offset.x < 1.0f) {
+					decl.floating.offset.x = 2.0f;
+				}
+			} else if (attach == 2) {
+				/* Combo popup flipped above the preview when the list would clip. */
+				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
 			} else {
 				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+				/* Hang below the 28px bar trigger so File stays visible. */
+				if (decl.floating.offset.y < 20.0f) {
+					decl.floating.offset.y = 28.0f;
+				}
 			}
 		} else {
 			decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 			decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
 		}
-		/* Capture pointer on floating chrome so title-bar drags stay on target. */
-		decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
+		/* Capture pointer on floating chrome so title-bar drags stay on target.
+		 * Tooltips must not steal hover/click from the item beneath. */
+		if (widget != NULL && strcmp(widget, "tooltip") == 0) {
+			decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
+		} else {
+			decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
+		}
 		if (z != 0) {
 			decl.floating.zIndex = (int16_t)(z < -32768 ? -32768 : (z > 32767 ? 32767 : z));
 		}
@@ -917,8 +996,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			need_text = 1;
 		}
 		if (widget != NULL && fully_fixed == 0 &&
-			(strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 ||
-			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0)) {
+			(strcmp(widget, "button") == 0 || strcmp(widget, "selectable") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 ||
+			 strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "combo") == 0 || strcmp(widget, "tab") == 0 ||
+			 strcmp(widget, "window_title_bar") == 0)) {
 			need_text = 1;
 		}
 		if (need_text != 0 && text_prop != NULL) {
@@ -1129,6 +1209,222 @@ static void ui_clay_writeback_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 
 }
 // NOLINTEND(misc-no-recursion)
 
+/* -------------------------------------------------------------------------- */
+/* SameLine row packing (APX-349; manifest §19)                              */
+/* -------------------------------------------------------------------------- */
+
+/** Non-zero when @p slot carries the same_line prop; reads its params. */
+static i32 ui_clay_slot_same_line(const ui_node_slot_t* slot, f32* out_offset, f32* out_spacing) {
+	if (slot == NULL || ui_clay_prop_i32(slot, "same_line", 0) == 0) {
+		return 0;
+	}
+	if (out_offset != NULL) {
+		*out_offset = ui_clay_prop_f32(slot, "same_line_offset", 0.0f);
+	}
+	if (out_spacing != NULL) {
+		*out_spacing = ui_clay_prop_f32(slot, "same_line_spacing", -1.0f);
+	}
+	return 1;
+}
+
+static void ui_clay_sameline_recompute_content(ui_node_slot_t* s) {
+	const sk_ui_layout_style_t* ls;
+	if (s == NULL) {
+		return;
+	}
+	ls = &s->layout_style;
+	s->layout_content.x = s->layout_border.x + ls->border.left + ls->padding.left;
+	s->layout_content.y = s->layout_border.y + ls->border.top + ls->padding.top;
+	s->layout_content.width = ui_clay_fmaxf(0.0f, s->layout_border.width - ls->border.left - ls->border.right - ls->padding.left - ls->padding.right);
+	s->layout_content.height = ui_clay_fmaxf(0.0f, s->layout_border.height - ls->border.top - ls->border.bottom - ls->padding.top - ls->padding.bottom);
+}
+
+/** Non-zero when @p slot is a vertical separator (widget=separator + vertical). */
+static i32 ui_clay_slot_vertical_separator(const ui_node_slot_t* slot) {
+	const_chr_t wtype = ui_clay_prop_str(slot, "widget");
+	if (wtype == NULL || strcmp(wtype, "separator") != 0) {
+		return 0;
+	}
+	return ui_clay_prop_i32(slot, "vertical", 0) != 0 ? 1 : 0;
+}
+
+/**
+ * Clay has no "place on the previous line" primitive, so same-line siblings
+ * are measured in flow (their sizes matter) but flex stacked them on separate
+ * lines. Rebuild each affected parent's child rows: a child joins the previous
+ * child's row when it carries the same_line prop; every other child starts a
+ * new row (ImGui ItemSize semantics — SameLine applies to the next item only).
+ *
+ * y: every child on a row shares the row's y; rows stack with the parent's
+ *    row_gap and a row height equal to the tallest child. The parent border
+ *    height is rewritten from the rows so containers report the toolbar's
+ *    true height (the flex pass otherwise inflates it by phantom lines).
+ * x: offset_from_start_x == 0 → previous item right edge + spacing (default
+ *    SK_UI_SAMELINE_DEFAULT_GAP); non-zero → row start x + offset, plus
+ *    spacing when >= 0 (ImGui SameLine: offset is relative to the line start).
+ * Vertical separators on a row are stretched to the row height (toolbar
+ * dividers span the full line, matching ImGui SeparatorEx vertical).
+ */
+static void ui_clay_sameline_reflow_children(sk_ui_context_t* ctx, sk_ui_node_t parent) {
+	ui_node_slot_t* pslot = ui_slot_mut(ctx, parent);
+	u32 n;
+	u32 i;
+	u32 any = 0u;
+	u32 row_begin = 0u;
+	f32 row_start_x = 0.0f;
+	f32 row_h = 0.0f;
+	f32 row_w = 0.0f;
+	f32 max_row_w = 0.0f;
+	f32 new_y = 0.0f;
+	f32 gap;
+
+	if (pslot == NULL || pslot->children.count == 0u) {
+		return;
+	}
+	/* SameLine only reshapes column-ish containers (toolbar / property rows).
+	 * A row parent already packs horizontally. */
+	if (pslot->layout_style.flex_direction == SK_UI_FLEX_ROW || pslot->layout_style.flex_direction == SK_UI_FLEX_ROW_REVERSE) {
+		return;
+	}
+	n = pslot->children.count;
+	for (i = 0u; i < n; ++i) {
+		const ui_node_slot_t* cs = ui_slot(ctx, pslot->children.items[i]);
+		if (cs != NULL && ui_clay_slot_same_line(cs, NULL, NULL) != 0) {
+			any = 1u;
+			break;
+		}
+	}
+	if (any == 0u) {
+		return;
+	}
+	gap = pslot->layout_style.row_gap;
+
+	/* Row 0 starts at child 0. */
+	{
+		ui_node_slot_t* c0 = ui_slot_mut(ctx, pslot->children.items[0]);
+		if (c0 != NULL) {
+			row_start_x = c0->layout_border.x;
+			row_h = c0->layout_border.height;
+			row_w = c0->layout_border.width;
+			c0->layout_border.y = 0.0f;
+			ui_clay_sameline_recompute_content(c0);
+		}
+	}
+	for (i = 1u; i < n; ++i) {
+		ui_node_slot_t* c = ui_slot_mut(ctx, pslot->children.items[i]);
+		f32 off = 0.0f;
+		f32 sp = -1.0f;
+		const ui_node_slot_t* prev;
+		u32 j;
+		if (c == NULL) {
+			continue;
+		}
+		if (ui_clay_slot_same_line(c, &off, &sp) != 0) {
+			/* Same row as the previous child (chained SameLine joins the row). */
+			f32 x;
+			f32 right_edge;
+			prev = ui_slot(ctx, pslot->children.items[i - 1u]);
+			if (fabsf(off) > 1.0e-6f) {
+				x = row_start_x + off + (sp >= 0.0f ? sp : 0.0f);
+			} else if (prev != NULL) {
+				x = (prev->layout_border.x + prev->layout_border.width) + (sp >= 0.0f ? sp : SK_UI_SAMELINE_DEFAULT_GAP);
+			} else {
+				x = row_start_x;
+			}
+			c->layout_border.x = x;
+			c->layout_border.y = new_y;
+			ui_clay_sameline_recompute_content(c);
+			if (row_h < c->layout_border.height) {
+				row_h = c->layout_border.height;
+			}
+			right_edge = x + c->layout_border.width;
+			if (row_w < right_edge - row_start_x) {
+				row_w = right_edge - row_start_x;
+			}
+		} else {
+			/* Close the previous row: stretch its vertical separators. */
+			for (j = row_begin; j < i; ++j) {
+				ui_node_slot_t* rs = ui_slot_mut(ctx, pslot->children.items[j]);
+				if (rs != NULL && ui_clay_slot_vertical_separator(rs) != 0) {
+					rs->layout_border.height = row_h;
+					ui_clay_sameline_recompute_content(rs);
+				}
+			}
+			if (max_row_w < row_w) {
+				max_row_w = row_w;
+			}
+			new_y += row_h;
+			if (gap > 0.0f) {
+				new_y += gap;
+			}
+			row_begin = i;
+			row_start_x = c->layout_border.x;
+			row_h = c->layout_border.height;
+			row_w = c->layout_border.width;
+			c->layout_border.y = new_y;
+			ui_clay_sameline_recompute_content(c);
+		}
+	}
+	/* Close the last row. */
+	{
+		u32 j;
+		for (j = row_begin; j < n; ++j) {
+			ui_node_slot_t* rs = ui_slot_mut(ctx, pslot->children.items[j]);
+			if (rs != NULL && ui_clay_slot_vertical_separator(rs) != 0) {
+				rs->layout_border.height = row_h;
+				ui_clay_sameline_recompute_content(rs);
+			}
+		}
+		if (max_row_w < row_w) {
+			max_row_w = row_w;
+		}
+		new_y += row_h;
+	}
+	/* Parent border size = rows + padding (border+padding unchanged). Only
+	 * auto axes are rewritten — a caller-fixed width (toolbar spanning a
+	 * panel) or the viewport root keeps its size. */
+	{
+		const sk_ui_layout_style_t* ls = &pslot->layout_style;
+		f32 pad_x = ls->border.left + ls->border.right + ls->padding.left + ls->padding.right;
+		f32 pad_y = ls->border.top + ls->border.bottom + ls->padding.top + ls->padding.bottom;
+		if (ls->width.unit == SK_UI_LENGTH_AUTO && !sk_ui_node_eq(parent, ctx->root)) {
+			pslot->layout_border.width = max_row_w + pad_x;
+		}
+		if (ls->height.unit == SK_UI_LENGTH_AUTO) {
+			pslot->layout_border.height = new_y + pad_y;
+		}
+		pslot->layout_content.width = ui_clay_fmaxf(0.0f, pslot->layout_border.width - ls->border.left - ls->border.right - ls->padding.left - ls->padding.right);
+		pslot->layout_content.height = new_y;
+		pslot->layout_content.x = pslot->layout_border.x + ls->border.left + ls->padding.left;
+		pslot->layout_content.y = pslot->layout_border.y + ls->border.top + ls->padding.top;
+	}
+}
+
+// NOLINTBEGIN(misc-no-recursion)
+static void ui_clay_sameline_postpass_node(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_node_slot_t* slot = ui_slot_mut(ctx, node);
+	u32 i;
+	if (slot == NULL) {
+		return;
+	}
+	/* Children first (bottom-up): a same-line container collapses to its row
+	 * height before the parent measures the row it sits on. Positions are
+	 * parent-content-relative, so moving the container afterwards does not
+	 * invalidate its children (their abs rects walk content origins). */
+	for (i = 0u; i < slot->children.count; ++i) {
+		ui_clay_sameline_postpass_node(ctx, slot->children.items[i]);
+	}
+	ui_clay_sameline_reflow_children(ctx, node);
+}
+// NOLINTEND(misc-no-recursion)
+
+static void ui_clay_sameline_postpass(sk_ui_context_t* ctx) {
+	if (ctx == NULL || !sk_ui_node_is_valid(ctx->root)) {
+		return;
+	}
+	ui_clay_sameline_postpass_node(ctx, ctx->root);
+}
+
 /**
  * Resolve the root border-box size: viewport size overridden by definite
  * root width/height style (percent against the viewport), clamped by
@@ -1328,7 +1624,16 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	 * tree (root included) so paint, hit-test, scale, and queries see the
 	 * same geometry as before. */
 	ui_clay_writeback_node(ctx, ctx->root, 0.0f, 0.0f);
+	/* SameLine rows (APX-349): reposition + reflow after Clay writeback. Also
+	 * drops an unconsumed SameLine so it never leaks into the next frame. */
+	ui_same_line_reset_pending(ctx);
+	ui_clay_sameline_postpass(ctx);
 	ui_dock_layout_end(ctx);
+	ui_selectable_apply_spans(ctx);
+	ui_combo_place_popups(ctx);
+	ui_color_place_popups(ctx);
+	ui_tooltip_place(ctx);
+	ui_drag_drop_place(ctx);
 
 	(void)limitations;
 	return 0;

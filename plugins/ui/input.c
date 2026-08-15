@@ -35,8 +35,51 @@ static sk_ui_rect_t ui_rect_intersect(const sk_ui_rect_t* a, const sk_ui_rect_t*
 	return out;
 }
 
+static const_chr_t ui_input_prop_str(const ui_node_slot_t* slot, const_chr_t key) {
+	u32 i;
+	if (slot == NULL || key == NULL) {
+		return NULL;
+	}
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_STR && e->key != NULL && strcmp(e->key, key) == 0) {
+			return e->data.str_value;
+		}
+	}
+	return NULL;
+}
+
+static i32 ui_input_prop_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fallback) {
+	u32 i;
+	if (slot == NULL || key == NULL) {
+		return fallback;
+	}
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_I32 && e->key != NULL && strcmp(e->key, key) == 0) {
+			return e->data.i32_value;
+		}
+	}
+	return fallback;
+}
+
 static i32 ui_node_is_disabled(const ui_node_slot_t* slot) {
 	return (slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u ? 1 : 0;
+}
+
+static i32 ui_node_or_ancestor_disabled(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_node_t cur = node;
+	while (sk_ui_node_is_valid(cur)) {
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		if (slot == NULL) {
+			return 0;
+		}
+		if (ui_node_is_disabled(slot)) {
+			return 1;
+		}
+		cur = slot->parent;
+	}
+	return 0;
 }
 
 /** Scroll offset props (ScrollView / overflow). Default 0. */
@@ -189,6 +232,18 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 			if (child_slot == NULL) {
 				continue;
 			}
+			{
+				i32 hidden = ui_input_prop_i32(child_slot, "hidden", 0);
+				const_chr_t w;
+				if (hidden != 0) {
+					continue;
+				}
+				/* Tooltip surfaces never steal hover / click from the item. */
+				w = ui_input_prop_str(child_slot, "widget");
+				if (w != NULL && strcmp(w, "tooltip") == 0) {
+					continue;
+				}
+			}
 
 			/* Child rects relative to parent content origin, minus parent scroll. */
 			cox = fr->origin_x - ui_slot_scroll_x(slot);
@@ -264,7 +319,7 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 			if (slot->pointer_events == (u8)SK_UI_POINTER_EVENTS_NONE) {
 				can_target = 0;
 			}
-			if (ui_node_is_disabled(slot)) {
+			if (ui_node_or_ancestor_disabled(ctx, fr->node)) {
 				can_target = 0;
 			}
 
@@ -289,7 +344,10 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 }
 
 sk_ui_node_t ui_hit_test_impl(const sk_ui_context_t* ctx, f32 x, f32 y) {
-	return ui_hit_test_walk(ctx, x, y);
+	sk_ui_node_t hit = ui_hit_test_walk(ctx, x, y);
+	(void)x;
+	(void)y;
+	return ui_popup_hit_redirect_impl(ctx, hit);
 }
 
 i32 ui_node_get_abs_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content) {
@@ -603,7 +661,7 @@ static i32 ui_node_can_focus(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	if (slot->focusable == 0u) {
 		return 0;
 	}
-	if (ui_node_is_disabled(slot)) {
+	if (ui_node_or_ancestor_disabled(ctx, node)) {
 		return 0;
 	}
 	return 1;
@@ -773,6 +831,11 @@ static void ui_handle_pointer_button(sk_ui_context_t* ctx, f32 x, f32 y, i32 but
 		if (bit != 0u) {
 			ctx->pointer_buttons |= bit;
 		}
+		/* Click-outside dismisses open menus / popups (ImGui menu bar). */
+		ui_menu_dismiss_outside_impl(ctx, hit, x, y);
+		if (button == SK_UI_POINTER_BUTTON_RIGHT) {
+			ui_popup_on_right_click_impl(ctx, hit, x, y);
+		}
 		route = hit;
 		if (sk_ui_node_is_valid(route)) {
 			ctx->pointer_capture = route;
@@ -850,6 +913,13 @@ static void ui_handle_key(sk_ui_context_t* ctx, i32 key, i32 down, u32 mods, i32
 	sk_ui_event_t ev;
 	sk_ui_node_t target = ctx->focus;
 
+	/* Escape closes the current popup / modal (CloseCurrentPopup). */
+	if (down && key == SK_UI_KEY_ESCAPE) {
+		if (ui_popup_on_escape_impl(ctx) != 0) {
+			return;
+		}
+	}
+
 	/* Tab traversal before delivering KEY_DOWN to the focused node. */
 	if (down && key == SK_UI_KEY_TAB) {
 		i32 reverse = (mods & (u32)SK_UI_MOD_SHIFT) != 0u ? 1 : 0;
@@ -891,15 +961,20 @@ i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* even
 	case SK_UI_INPUT_POINTER_MOVE:
 		ui_handle_pointer_move(ctx, event->x, event->y, event->mods);
 		ui_dock_drag_tick(ctx, event->x, event->y, 0);
+		ui_drag_drop_on_pointer(ctx, SK_UI_POINTER_BUTTON_LEFT, -1);
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_POINTER_BUTTON:
 		ui_handle_pointer_button(ctx, event->x, event->y, event->button, event->down, event->mods);
 		if (event->button == SK_UI_POINTER_BUTTON_LEFT && event->down == 0) {
 			ui_dock_drag_tick(ctx, event->x, event->y, 1);
 		}
+		ui_drag_drop_on_pointer(ctx, event->button, event->down);
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_WHEEL:
 		ui_handle_wheel(ctx, event->x, event->y, event->scroll_x, event->scroll_y, event->mods);
+		ui_tooltip_tick_impl(ctx, 0.0f);
 		return 0;
 	case SK_UI_INPUT_KEY:
 		ui_handle_key(ctx, event->key, event->down, event->mods, event->repeat);

@@ -778,42 +778,545 @@ typedef i32 (*sk_ui_clipboard_get_fn)(void_ptr_t user, char* buf, u32 cap, u32* 
 /** Clipboard set: store UTF-8 @p text, return 0 on success. */
 typedef i32 (*sk_ui_clipboard_set_fn)(void_ptr_t user, const_chr_t text);
 
+/**
+ * Mouse buttons that activate a button (ImGuiButtonFlags_MouseButton*).
+ * Default is LEFT. InvisibleButton on the editor texture canvas ORs LEFT|MIDDLE.
+ */
+#define SK_UI_BUTTON_FLAG_MOUSE_LEFT (1u << 0)
+#define SK_UI_BUTTON_FLAG_MOUSE_MIDDLE (1u << 1)
+#define SK_UI_BUTTON_FLAG_MOUSE_RIGHT (1u << 2)
+
+/** ArrowButton dir (ImGuiDir): Left / Right / Up / Down. */
+#define SK_UI_ARROW_LEFT 0
+#define SK_UI_ARROW_RIGHT 1
+#define SK_UI_ARROW_UP 2
+#define SK_UI_ARROW_DOWN 3
+
+/**
+ * InputText flags (ImGuiInputTextFlags + editor extra ShowError).
+ * READ_ONLY stays focusable (blue focus rect). ENTER_RETURNS_TRUE makes
+ * text_input_changed fire on Enter rather than every live edit.
+ */
+#define SK_UI_INPUT_TEXT_FLAG_NONE 0u
+#define SK_UI_INPUT_TEXT_FLAG_READ_ONLY (1u << 0)
+#define SK_UI_INPUT_TEXT_FLAG_PASSWORD (1u << 1)
+#define SK_UI_INPUT_TEXT_FLAG_ENTER_RETURNS_TRUE (1u << 2)
+#define SK_UI_INPUT_TEXT_FLAG_AUTO_SELECT_ALL (1u << 3)
+#define SK_UI_INPUT_TEXT_FLAG_CHARS_DECIMAL (1u << 4)
+#define SK_UI_INPUT_TEXT_FLAG_MULTILINE (1u << 5)
+#define SK_UI_INPUT_TEXT_FLAG_SHOW_ERROR (1u << 6)
+
+/** InputScalar data types the editor actually binds (FieldRenderers). */
+typedef enum sk_ui_input_data_type_t {
+	SK_UI_INPUT_DATA_S32 = 0,
+	SK_UI_INPUT_DATA_U32 = 1,
+	SK_UI_INPUT_DATA_U64 = 2,
+	SK_UI_INPUT_DATA_F32 = 3,
+	SK_UI_INPUT_DATA_F64 = 4,
+} sk_ui_input_data_type_t;
+
 /** Widget bool change (checkbox). */
 typedef void (*sk_ui_widget_bool_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value, void_ptr_t user);
 /** Widget float change (slider). */
 typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user);
+/** Widget text change (InputText live edit / commit). */
+typedef void (*sk_ui_widget_text_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text, void_ptr_t user);
+/**
+ * Item-array interaction (activate a row, toggle expand).
+ * @p host is the bound widget; @p item_id is the stable caller id.
+ */
+typedef void (*sk_ui_item_id_fn)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, void_ptr_t user);
 
 /** Default style class names (stable automation surface). */
 #define SK_UI_CLASS_PANEL "ui-panel"
 #define SK_UI_CLASS_VIEW "ui-view"
 #define SK_UI_CLASS_LABEL "ui-label"
+#define SK_UI_CLASS_TEXT "ui-text"
+#define SK_UI_CLASS_TEXT_WRAPPED "ui-text-wrapped"
+#define SK_UI_CLASS_SEPARATOR_TEXT "ui-separator-text"
+#define SK_UI_CLASS_SEPARATOR "ui-separator"
+#define SK_UI_CLASS_SPACING "ui-spacing"
+#define SK_UI_CLASS_DUMMY "ui-dummy"
+#define SK_UI_CLASS_BULLET_TEXT "ui-bullet-text"
 #define SK_UI_CLASS_BUTTON "ui-button"
+#define SK_UI_CLASS_BUTTON_SMALL "ui-button-small"
+#define SK_UI_CLASS_BUTTON_INVISIBLE "ui-button-invisible"
+#define SK_UI_CLASS_BUTTON_SELECTED "ui-button-selected"
+#define SK_UI_CLASS_BUTTON_BORDERED "ui-button-bordered"
+#define SK_UI_CLASS_BUTTON_ARROW "ui-button-arrow"
+#define SK_UI_CLASS_SELECTABLE "ui-selectable"
 #define SK_UI_CLASS_CHECKBOX "ui-checkbox"
 #define SK_UI_CLASS_RADIO "ui-radio"
 #define SK_UI_CLASS_TOGGLE "ui-toggle"
 #define SK_UI_CLASS_SLIDER "ui-slider"
+#define SK_UI_CLASS_DRAG "ui-drag"
+#define SK_UI_CLASS_SLIDER_N "ui-slider-n"
+#define SK_UI_CLASS_DRAG_N "ui-drag-n"
 #define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
+/** ColorEdit / ColorPicker family (APX-357; manifest §15). */
+#define SK_UI_CLASS_COLOR_BUTTON "ui-color-button"
+#define SK_UI_CLASS_COLOR_SWATCH "ui-color-swatch"
+#define SK_UI_CLASS_COLOR_EDIT "ui-color-edit"
+#define SK_UI_CLASS_COLOR_PICKER "ui-color-picker"
+#define SK_UI_CLASS_COLOR_SV "ui-color-sv"
+#define SK_UI_CLASS_COLOR_HUE "ui-color-hue"
+#define SK_UI_CLASS_COLOR_ALPHA "ui-color-alpha"
+#define SK_UI_CLASS_COLOR_PREVIEW "ui-color-preview"
+
+/**
+ * ImGuiColorEditFlags the editor actually sets (FieldRenderers ColorPicker4
+ * DisplayMask_ | NoLabel | AlphaPreviewHalf | AlphaBar; ResourceDebugger
+ * NoTooltip | NoPicker). ColorEdit4 / ColorPicker3 / SetColorEditOptions
+ * are not used.
+ */
+#define SK_UI_COLOR_FLAG_NONE 0u
+#define SK_UI_COLOR_FLAG_NO_ALPHA (1u << 0)
+#define SK_UI_COLOR_FLAG_NO_PICKER (1u << 1)
+#define SK_UI_COLOR_FLAG_NO_TOOLTIP (1u << 2)
+#define SK_UI_COLOR_FLAG_NO_LABEL (1u << 3)
+#define SK_UI_COLOR_FLAG_ALPHA_BAR (1u << 4)
+#define SK_UI_COLOR_FLAG_ALPHA_PREVIEW_HALF (1u << 5)
+#define SK_UI_COLOR_FLAG_DISPLAY_RGB (1u << 6)
+#define SK_UI_COLOR_FLAG_DISPLAY_HSV (1u << 7)
+#define SK_UI_COLOR_FLAG_DISPLAY_HEX (1u << 8)
+#define SK_UI_COLOR_FLAG_DISPLAY_MASK (SK_UI_COLOR_FLAG_DISPLAY_RGB | SK_UI_COLOR_FLAG_DISPLAY_HSV | SK_UI_COLOR_FLAG_DISPLAY_HEX)
+/** FieldRenderers.cpp:203-220 ColorPicker4 flags. */
+#define SK_UI_COLOR_FLAG_PICKER_DEFAULT (SK_UI_COLOR_FLAG_DISPLAY_MASK | SK_UI_COLOR_FLAG_NO_LABEL | SK_UI_COLOR_FLAG_ALPHA_PREVIEW_HALF | SK_UI_COLOR_FLAG_ALPHA_BAR)
+/** ResourceDebugger 14x14 swatch. */
+#define SK_UI_COLOR_FLAG_SWATCH (SK_UI_COLOR_FLAG_NO_PICKER | SK_UI_COLOR_FLAG_NO_TOOLTIP)
+#define SK_UI_COLOR_SWATCH_SIZE 14.0f
+#define SK_UI_COLOR_BUTTON_HEIGHT 22.0f
+
+/** Slider / Drag flags (ImGuiSliderFlags the editor actually sets). */
+#define SK_UI_SLIDER_FLAG_NONE 0u
+#define SK_UI_SLIDER_FLAG_ALWAYS_CLAMP (1u << 0)
+
+/**
+ * ImGuiSelectableFlags the editor actually sets (manifest §18).
+ * Disabled, SpanAllColumns, SpanAvailWidth, AllowDoubleClick.
+ */
+#define SK_UI_SELECTABLE_FLAG_NONE 0u
+#define SK_UI_SELECTABLE_FLAG_DISABLED (1u << 0)
+#define SK_UI_SELECTABLE_FLAG_SPAN_ALL_COLUMNS (1u << 1)
+#define SK_UI_SELECTABLE_FLAG_SPAN_AVAIL_WIDTH (1u << 2)
+#define SK_UI_SELECTABLE_FLAG_ALLOW_DOUBLE_CLICK (1u << 3)
+
 #define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
+#define SK_UI_CLASS_TEXT_INPUT_ERROR "ui-text-input-error"
+#define SK_UI_CLASS_TEXT_INPUT_SEARCH "ui-text-input-search"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
 /** Menu surfaces (APX-234): bar, items, floating popups / dropdowns / context. */
 #define SK_UI_CLASS_MENU_BAR "ui-menu-bar"
 #define SK_UI_CLASS_MENU "ui-menu"
 #define SK_UI_CLASS_MENU_ITEM "ui-menu-item"
+#define SK_UI_CLASS_MENU_SEPARATOR "ui-menu-separator"
 #define SK_UI_CLASS_MENU_POPUP "ui-menu-popup"
 #define SK_UI_CLASS_DROPDOWN "ui-dropdown"
 #define SK_UI_CLASS_CONTEXT_MENU "ui-context-menu"
 #define SK_UI_CLASS_SUBMENU "ui-submenu"
+/** Popup / modal chrome (APX-347; manifest §12). */
+#define SK_UI_CLASS_POPUP_MENU "ui-popup-menu"
+#define SK_UI_CLASS_MODAL "ui-modal"
+#define SK_UI_CLASS_MODAL_DIM "ui-modal-dim"
+#define SK_UI_CLASS_MODAL_DIALOG "ui-modal-dialog"
+#define SK_UI_CLASS_MODAL_TITLE "ui-modal-title"
+#define SK_UI_CLASS_MODAL_BODY "ui-modal-body"
+#define SK_UI_CLASS_MODAL_BUTTONS "ui-modal-buttons"
+
+/** ImGuiBeginPopupMenu SetNextWindowSize(ImVec2{300, 0}, Once). */
+#define SK_UI_POPUP_MENU_WIDTH 300.0f
+/** Save Content dialog width (fixed child+table body). */
+#define SK_UI_MODAL_FIXED_WIDTH 420.0f
+/** Save Content table-body height inside a fixed modal. */
+#define SK_UI_MODAL_FIXED_BODY_HEIGHT 160.0f
+
+/** BeginPopupModal window flags the editor actually sets. */
+#define SK_UI_MODAL_FLAG_NONE 0u
+#define SK_UI_MODAL_FLAG_ALWAYS_AUTO_RESIZE (1u << 0)
+#define SK_UI_MODAL_FLAG_NO_SCROLLBAR (1u << 1)
 /** Docking / editor window surfaces (APX-235): nodes, splitters, tabs, chrome. */
 #define SK_UI_CLASS_DOCK_SPACE "ui-dock-space"
 #define SK_UI_CLASS_DOCK_NODE "ui-dock-node"
 #define SK_UI_CLASS_SPLITTER "ui-splitter"
 #define SK_UI_CLASS_TAB_BAR "ui-tab-bar"
 #define SK_UI_CLASS_TAB "ui-tab"
+#define SK_UI_CLASS_TAB_BUTTON "ui-tab-button"
+#define SK_UI_CLASS_TAB_CLOSE "ui-tab-close"
+#define SK_UI_CLASS_TAB_BODY "ui-tab-body"
+
+/**
+ * BeginTabItem / TabItemButton flags. No tab-bar flags (editor never sets any).
+ * SET_SELECTED is ImGuiTabItemFlags_SetSelected: programmatic select wins over
+ * a user click on another tab while the flag is set.
+ * BUTTON is TabItemButton: clickable chrome that is not a selectable page.
+ */
+#define SK_UI_TAB_ITEM_FLAG_NONE 0u
+#define SK_UI_TAB_ITEM_FLAG_SET_SELECTED (1u << 0)
+#define SK_UI_TAB_ITEM_FLAG_BUTTON (1u << 1)
 #define SK_UI_CLASS_EDITOR_WINDOW "ui-editor-window"
 #define SK_UI_CLASS_WINDOW_TITLE_BAR "ui-window-title-bar"
 #define SK_UI_CLASS_WINDOW_CONTENT "ui-window-content"
+#define SK_UI_CLASS_WINDOW_CLOSE "ui-window-close"
+#define SK_UI_CLASS_FULLSCREEN "ui-fullscreen"
+#define SK_UI_CLASS_CHILD "ui-child"
+#define SK_UI_CLASS_CHILD_RESIZE "ui-child-resize"
+#define SK_UI_CLASS_GROUP "ui-group"
+#define SK_UI_CLASS_HORIZONTAL "ui-horizontal"
+#define SK_UI_CLASS_VERTICAL "ui-vertical"
+#define SK_UI_CLASS_SPRING "ui-spring"
+
+/**
+ * BeginChild flags (ImGuiChildFlags + HorizontalScrollbar window flag).
+ * BORDER is the legacy `true` / ChildFlags_Borders pane chrome.
+ * RESIZE_X is ResourceDebugger's user-resize left pane.
+ * HORIZONTAL_SCROLLBAR is Console's ScrollingRegion.
+ */
+#define SK_UI_CHILD_FLAG_NONE 0u
+#define SK_UI_CHILD_FLAG_BORDER (1u << 0)
+#define SK_UI_CHILD_FLAG_RESIZE_X (1u << 1)
+#define SK_UI_CHILD_FLAG_HORIZONTAL_SCROLLBAR (1u << 2)
+
+/** Default Indent() step in logical px (ImGui-ish). */
+#define SK_UI_INDENT_DEFAULT 16.0f
+
+/** ImGui SameLine() default gap (ItemSpacing.x, editor theme scale 1). */
+#define SK_UI_SAMELINE_DEFAULT_GAP 8.0f
+/** ImGui Spacing() height (ItemSpacing.y, editor theme scale 1). */
+#define SK_UI_SPACING_DEFAULT 8.0f
+
+/** SetNextItemWidth(-1): fill leftover main-axis space. */
+#define SK_UI_ITEM_WIDTH_FILL (-1.0f)
+/** Item-array hosts (APX-338): tree / list / combo / table share one binding. */
+#define SK_UI_CLASS_TREE "ui-tree"
+#define SK_UI_CLASS_LIST "ui-list"
+#define SK_UI_CLASS_COMBO "ui-combo"
+#define SK_UI_CLASS_COMBO_ITEMS "ui-combo-items"
+#define SK_UI_CLASS_LIST_BOX "ui-list-box"
+
+/** Combo / ListBox row height (selectable min height, manifest §7 / §18). */
+#define SK_UI_COMBO_ITEM_HEIGHT 22.0f
+/** ImGui default popup / list height in items when the caller passes -1. */
+#define SK_UI_COMBO_DEFAULT_HEIGHT_IN_ITEMS 8
+/** BeginCombo flags. Editor always uses the default (0). */
+#define SK_UI_COMBO_FLAG_NONE 0u
+#define SK_UI_CLASS_TABLE "ui-table"
+#define SK_UI_CLASS_TABLE_HEADER "ui-table-header"
+#define SK_UI_CLASS_TABLE_ROW "ui-table-row"
+#define SK_UI_CLASS_TABLE_CELL "ui-table-cell"
+#define SK_UI_CLASS_TABLE_BODY "ui-table-body"
+#define SK_UI_CLASS_TABLE_RESIZE "ui-table-resize"
+/** Content-item thumbnail grid (APX-358; manifest §16 grid half). */
+#define SK_UI_CLASS_CONTENT_GRID "ui-content-grid"
+#define SK_UI_CLASS_CONTENT_ITEM "ui-content-item"
+#define SK_UI_CLASS_CONTENT_THUMB "ui-content-thumb"
+#define SK_UI_CLASS_CONTENT_ICON "ui-content-icon"
+#define SK_UI_CLASS_CONTENT_ERROR "ui-content-error"
+/** ImGui BeginContentTable cell: thumbnailScale * 112. */
+#define SK_UI_CONTENT_THUMB_BASE 112.0f
+#define SK_UI_CLASS_ITEM_ROW "ui-item-row"
+#define SK_UI_CLASS_TREE_ARROW "ui-tree-arrow"
+#define SK_UI_CLASS_COLLAPSING_HEADER "ui-collapsing-header"
+#define SK_UI_CLASS_COLLAPSING_HEADER_BODY "ui-collapsing-header-body"
+#define SK_UI_CLASS_COLLAPSING_HEADER_BUTTON "ui-collapsing-header-button"
+/** Tooltip surface (APX-354; manifest §20). */
+#define SK_UI_CLASS_TOOLTIP "ui-tooltip"
+/** ImGui HoverDelayNormal / IsItemHovered(DelayNormal). Project Browser card. */
+#define SK_UI_TOOLTIP_DELAY_NORMAL 0.40f
+/** Cursor offset so the surface sits next to the pointer, not under it. */
+#define SK_UI_TOOLTIP_OFFSET_X 12.0f
+#define SK_UI_TOOLTIP_OFFSET_Y 16.0f
+
+/**
+ * Drag-drop payload API (APX-356; WIDGET_MANIFEST.md §17).
+ * Sources / targets hang off tree rows, property fields, and custom rects.
+ * The payload is transient (lives until mouse release); no §21 bind.
+ */
+#define SK_UI_CLASS_DRAG_DROP_PREVIEW "ui-drag-drop-preview"
+#define SK_UI_CLASS_DRAG_DROP_TARGET "ui-drag-drop-target"
+/** EditorCommon.hpp payload type strings. */
+#define SK_UI_ASSET_PAYLOAD "sk-asset-payload"
+#define SK_UI_ENTITY_PAYLOAD "sk-entity-payload"
+/** ImGui DataType buffer (32 + NUL). */
+#define SK_UI_PAYLOAD_TYPE_MAX 32
+/** Preview tooltip / SetDragDropPayload preview text. */
+#define SK_UI_DRAG_DROP_PREVIEW_MAX 96
+/** BeginDragDropTargetCustom id (between-row / viewport). */
+#define SK_UI_DRAG_DROP_ID_MAX 64
+/** ImGui drag threshold in logical px before the payload becomes active. */
+#define SK_UI_DRAG_DROP_THRESHOLD 6.0f
+
+#define SK_UI_DRAG_DROP_FLAG_NONE 0u
+/** Do not hold-to-open other tree nodes while this source is dragged. */
+#define SK_UI_DRAG_DROP_FLAG_SOURCE_NO_HOLD_TO_OPEN_OTHERS (1u << 0)
+/** Keep hover on other items while dragging (editor default). */
+#define SK_UI_DRAG_DROP_FLAG_SOURCE_NO_DISABLE_HOVER (1u << 1)
+/** Do not paint the default target highlight; caller peeks GetDragDropPayload. */
+#define SK_UI_DRAG_DROP_FLAG_ACCEPT_NO_DRAW_DEFAULT_RECT (1u << 2)
+/** Hide the preview tooltip while this target is hovered. */
+#define SK_UI_DRAG_DROP_FLAG_ACCEPT_NO_PREVIEW_TOOLTIP (1u << 3)
+
+/**
+ * Active drag payload (ImGuiPayload analog). Owned by the context; valid
+ * until mouse release (or the next begin). @p data is NULL when size is 0
+ * (SK_ENTITY_PAYLOAD — selection is implicit).
+ */
+typedef struct sk_ui_payload_t {
+	char type[SK_UI_PAYLOAD_TYPE_MAX + 1];
+	const void* data;
+	u32 size;
+	sk_ui_node_t source;
+	i32 preview;  /**< Non-zero while a matching target is hovered. */
+	i32 delivery; /**< Non-zero on the release frame that hit a target. */
+} sk_ui_payload_t;
+
+/**
+ * BeginTable flags the editor actually sets (ImGuiTableFlags analog).
+ * Sizing bits are mutually exclusive; the last one that is set wins.
+ */
+#define SK_UI_TABLE_FLAG_NONE 0u
+#define SK_UI_TABLE_FLAG_RESIZABLE (1u << 0)
+#define SK_UI_TABLE_FLAG_ROW_BG (1u << 1)
+#define SK_UI_TABLE_FLAG_BORDERS_OUTER (1u << 2)
+#define SK_UI_TABLE_FLAG_BORDERS_INNER_H (1u << 3)
+#define SK_UI_TABLE_FLAG_BORDERS_INNER_V (1u << 4)
+#define SK_UI_TABLE_FLAG_BORDERS (SK_UI_TABLE_FLAG_BORDERS_OUTER | SK_UI_TABLE_FLAG_BORDERS_INNER_H | SK_UI_TABLE_FLAG_BORDERS_INNER_V)
+#define SK_UI_TABLE_FLAG_NO_BORDERS_IN_BODY (1u << 5)
+#define SK_UI_TABLE_FLAG_SCROLL_X (1u << 6)
+#define SK_UI_TABLE_FLAG_SCROLL_Y (1u << 7)
+#define SK_UI_TABLE_FLAG_SIZING_FIXED_FIT (1u << 8)
+#define SK_UI_TABLE_FLAG_SIZING_FIXED_SAME (1u << 9)
+#define SK_UI_TABLE_FLAG_SIZING_STRETCH_PROP (1u << 10)
+
+/** TableSetupColumn flags (ImGuiTableColumnFlags analog). */
+#define SK_UI_TABLE_COLUMN_FLAG_NONE 0u
+#define SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH (1u << 0)
+#define SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED (1u << 1)
+#define SK_UI_TABLE_COLUMN_FLAG_NO_HIDE (1u << 2)
+#define SK_UI_TABLE_COLUMN_FLAG_NO_RESIZE (1u << 3)
+#define SK_UI_TABLE_COLUMN_FLAG_INDENT_ENABLE (1u << 4)
+#define SK_UI_TABLE_COLUMN_FLAG_INDENT_DISABLE (1u << 5)
+
+/** TableNextRow flags. HEADERS marks the header row. */
+#define SK_UI_TABLE_ROW_FLAG_NONE 0u
+#define SK_UI_TABLE_ROW_FLAG_HEADERS (1u << 0)
+
+/** TableSetBgColor target. CellBg with column_n < 0 fills the whole row. */
+typedef enum sk_ui_table_bg_target_t {
+	SK_UI_TABLE_BG_NONE = 0,
+	SK_UI_TABLE_BG_ROW_BG0 = 1,
+	SK_UI_TABLE_BG_ROW_BG1 = 2,
+	SK_UI_TABLE_BG_CELL = 3,
+} sk_ui_table_bg_target_t;
+
+/** Editor tables are 1–5 columns; keep a small hard cap. */
+#define SK_UI_TABLE_MAX_COLUMNS 8
+/** Default row height (logical px) when min_row_height is 0. */
+#define SK_UI_TABLE_ROW_HEIGHT 22.0f
+/** FixedFit fallback when a column has no init width. */
+#define SK_UI_TABLE_DEFAULT_COL_WIDTH 80.0f
+
+/** Per-level indent for tree rows (ImGui-ish; Entity Tree / Project Browser). */
+#define SK_UI_TREE_INDENT 14.0f
+/** Leading pad before the first indent step. */
+#define SK_UI_TREE_ROW_PAD_X 4.0f
+
+/**
+ * TreeNodeEx / CollapsingHeader flags (editor wrappers OR these on).
+ * ImGuiTreeNode always ORs OPEN_ON_ARROW | SPAN_AVAIL_WIDTH | SPAN_FULL_WIDTH |
+ * FRAME_PADDING. ImGuiTreeLeaf additionally ORs LEAF | NO_TREE_PUSH_ON_OPEN.
+ */
+#define SK_UI_TREE_NODE_FLAG_NONE 0u
+#define SK_UI_TREE_NODE_FLAG_SELECTED (1u << 0)
+#define SK_UI_TREE_NODE_FLAG_FRAMED (1u << 1)
+#define SK_UI_TREE_NODE_FLAG_ALLOW_OVERLAP (1u << 2)
+#define SK_UI_TREE_NODE_FLAG_NO_TREE_PUSH_ON_OPEN (1u << 3)
+#define SK_UI_TREE_NODE_FLAG_DEFAULT_OPEN (1u << 4)
+#define SK_UI_TREE_NODE_FLAG_OPEN_ON_DOUBLE_CLICK (1u << 5)
+#define SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW (1u << 6)
+#define SK_UI_TREE_NODE_FLAG_LEAF (1u << 7)
+#define SK_UI_TREE_NODE_FLAG_SPAN_AVAIL_WIDTH (1u << 8)
+#define SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH (1u << 9)
+#define SK_UI_TREE_NODE_FLAG_FRAME_PADDING (1u << 10)
+/** ImGuiCollapsingHeaderProps: trailing '...' button on the header. */
+#define SK_UI_TREE_NODE_FLAG_TRAILING_BUTTON (1u << 11)
+
+/** ImGuiTreeNode default OR-mask. */
+#define SK_UI_TREE_NODE_FLAGS_DEFAULT \
+	(SK_UI_TREE_NODE_FLAG_OPEN_ON_ARROW | SK_UI_TREE_NODE_FLAG_SPAN_AVAIL_WIDTH | SK_UI_TREE_NODE_FLAG_SPAN_FULL_WIDTH | SK_UI_TREE_NODE_FLAG_FRAME_PADDING)
+
+/** SetNextItemOpen / item_bind_set_open_cond. ONCE = first seed only. */
+#define SK_UI_COND_NONE 0u
+#define SK_UI_COND_ALWAYS 1u
+#define SK_UI_COND_ONCE 2u
+
+/* ------------------------------------------------------------------ */
+/*  Retained item-array binding (APX-338)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Caller-owned, mutable item array bound by pointer to a retained widget.
+ *
+ * This is the **only** collection-binding contract for hierarchical and
+ * flat editor surfaces (TreeNode, ListBox, Combo items, Table rows,
+ * content-item grids). Later widget tasks must use these types unchanged.
+ *
+ * ---------------------------------------------------------------------------
+ * Ownership
+ * ---------------------------------------------------------------------------
+ * - The **caller** allocates and frees `sk_ui_item_array_t` and `items[]`.
+ * - The **caller** owns every `label` string. A label pointer must stay
+ *   valid until the next `item_bind_sync` after that item is removed or
+ *   the pointer is replaced.
+ * - The widget stores the **pointer** to the `sk_ui_item_array_t` (not a
+ *   copy of the items). It never frees the array, the items, or the labels.
+ * - Destroying the host widget frees only widget-owned row nodes and the
+ *   id → state maps. The caller array is untouched.
+ * - The `sk_ui_item_array_t` object itself must outlive the bind (do not
+ *   pass a temporary). Replacing `array->items` / `array->count` in place
+ *   is the supported grow/shrink path (realloc of the item buffer).
+ *
+ * ---------------------------------------------------------------------------
+ * What invalidates
+ * ---------------------------------------------------------------------------
+ * - Freeing or moving the `sk_ui_item_array_t` while a widget still holds
+ *   the pointer is invalid. Call `item_bind_set_array(ctx, host, NULL)`
+ *   (or destroy the host) first.
+ * - `items == NULL` with `count > 0` is treated as empty.
+ * - `id == 0` (`SK_UI_ITEM_ID_NONE`) is skipped.
+ * - Duplicate ids: the first occurrence in `items[]` wins; later copies
+ *   are ignored for hierarchy and row identity.
+ *
+ * ---------------------------------------------------------------------------
+ * What happens when the pointer's contents change between frames
+ * ---------------------------------------------------------------------------
+ * The host widget is **not** recreated. On each `item_bind_sync` (also
+ * invoked automatically from `style_resolve` / `harness_step`):
+ * - New ids get a row node.
+ * - Removed ids have their row node destroyed.
+ * - Surviving ids keep the same row handle (generation-stable).
+ * - Labels, flags, parent, and sibling order are applied in place.
+ * - TREE: rows whose ancestors are collapsed are not materialized.
+ *
+ * ---------------------------------------------------------------------------
+ * Stable identity (selection / expansion survive mutation)
+ * ---------------------------------------------------------------------------
+ * `id` is the identity. Open and selected state live in widget-owned maps
+ * keyed by `id`, seeded once from `SK_UI_ITEM_FLAG_OPEN` /
+ * `SK_UI_ITEM_FLAG_SELECTED`. Insert, remove, reorder, and relabel do not
+ * drop that state. Removing an item and adding it back with the same `id`
+ * restores open/selected (e.g. a filter). `item_bind_clear_state` wipes maps.
+ * After interaction the widget writes OPEN/SELECTED back onto the live
+ * item flags so the caller can read them.
+ *
+ * Hierarchy: `parent_id == 0` is a root. If the parent item has
+ * `child_count > 0` and `first_child + child_count` is in range, children
+ * are that slice (in slice order). Otherwise children are every item whose
+ * `parent_id` matches, in array order. Cycles stop at depth 64.
+ *
+ * Expand-arrow vs row-activate: click the arrow node (`{host}/a{id}`) to
+ * toggle open without changing selection (`item_bind_last_was_arrow` is
+ * non-zero). Click the row (`{host}/i{id}`) to select (exclusive) and
+ * activate (`last_was_arrow` is 0).
+ */
+
+/** Sentinel index: no parent / unused child range. */
+#define SK_UI_ITEM_NONE 0xFFFFFFFFu
+/** Invalid item id. Live items must use a non-zero id. */
+#define SK_UI_ITEM_ID_NONE 0ull
+
+/** Bits for sk_ui_item_t::flags. */
+typedef enum sk_ui_item_flag_t {
+	SK_UI_ITEM_FLAG_NONE = 0,
+	SK_UI_ITEM_FLAG_LEAF = 1u << 0,		/**< No expand arrow (tree). */
+	SK_UI_ITEM_FLAG_SELECTED = 1u << 1, /**< Selected row. */
+	SK_UI_ITEM_FLAG_OPEN = 1u << 2,		/**< Expanded (tree). */
+	SK_UI_ITEM_FLAG_DISABLED = 1u << 3, /**< Ignore activate / toggle. */
+	SK_UI_ITEM_FLAG_ERROR = 1u << 4,	/**< Error tint (label colour). */
+} sk_ui_item_flag_t;
+
+/**
+ * How a bound array is presented. Same items / ids / flags for all kinds;
+ * only visibility and expand behaviour differ.
+ */
+typedef enum sk_ui_item_bind_kind_t {
+	SK_UI_ITEM_BIND_TREE = 0,  /**< Hierarchical; expand/collapse by id. */
+	SK_UI_ITEM_BIND_LIST = 1,  /**< Flat; every live item is a row. */
+	SK_UI_ITEM_BIND_COMBO = 2, /**< Flat item list for a combo popup. */
+	SK_UI_ITEM_BIND_TABLE = 3, /**< Flat table rows. */
+} sk_ui_item_bind_kind_t;
+
+/**
+ * One row / node in a caller-owned item array.
+ * Layout is 40 bytes on LP64/LLP64 (no implicit hole).
+ */
+typedef struct sk_ui_item_t {
+	u64 id;			   /**< Stable identity. Unique among live items; not 0. */
+	u64 parent_id;	   /**< 0 = root. Must be another item's id or 0. */
+	u32 first_child;   /**< Optional packed children; SK_UI_ITEM_NONE if unused. */
+	u32 child_count;   /**< 0 = derive children by scanning parent_id. */
+	u32 flags;		   /**< sk_ui_item_flag_t bits. */
+	u32 icon;		   /**< Optional host icon / texture id; 0 = none. */
+	const_chr_t label; /**< Caller-owned UTF-8; NULL treated as "". */
+} sk_ui_item_t;
+
+/**
+ * Caller-owned array header. The widget stores this pointer and rereads
+ * `items` / `count` / `revision` on every sync.
+ */
+typedef struct sk_ui_item_array_t {
+	sk_ui_item_t* items; /**< Caller-owned storage; NULL iff count == 0. */
+	u32 count;			 /**< Live item count. */
+	u32 revision;		 /**< Optional; bump on mutation (not required). */
+} sk_ui_item_array_t;
+
+/** Fill an item (unused child range, icon 0). */
+SK_FINLINE void sk_ui_item_set(sk_ui_item_t* item, u64 id, u64 parent_id, const_chr_t label, u32 flags) {
+	item->id = id;
+	item->parent_id = parent_id;
+	item->first_child = SK_UI_ITEM_NONE;
+	item->child_count = 0u;
+	item->flags = flags;
+	item->icon = 0u;
+	item->label = label;
+}
+
+/**
+ * ImGuiContentItemState for one thumbnail cell. hovered / rect are live;
+ * clicked / released / enter / right_clicked / rename_finish are
+ * consume-on-read when read through content_grid_item_state.
+ */
+typedef struct sk_ui_content_item_state_t {
+	i32 hovered;
+	i32 clicked;
+	i32 released;
+	i32 enter; /**< Double-click or Enter while selected (not renaming). */
+	i32 right_clicked;
+	i32 rename_finish;	  /**< Non-zero after commit (not cancel). */
+	const_chr_t new_name; /**< Valid until the next rename or host destroy. */
+	sk_ui_rect_t rect;	  /**< Absolute screen rect of the cell. */
+} sk_ui_content_item_state_t;
+
+/** Cell size used by ImGuiBeginContentTable (logical px). Scale <= 0 → 1. */
+SK_FINLINE f32 sk_ui_content_thumb_size(f32 thumbnail_scale) {
+	if (thumbnail_scale <= 0.0f) {
+		thumbnail_scale = 1.0f;
+	}
+	return thumbnail_scale * SK_UI_CONTENT_THUMB_BASE;
+}
+
+/** Column count from available width and zoom. Always at least 1. */
+SK_FINLINE i32 sk_ui_content_grid_columns_for(f32 avail_width, f32 thumbnail_scale) {
+	f32 size = sk_ui_content_thumb_size(thumbnail_scale);
+	if (size < 1.0f) {
+		size = 1.0f;
+	}
+	if (avail_width < size) {
+		return 1;
+	}
+	return (i32)(avail_width / size);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Headless harness (automation / UI tester foundation)              */
@@ -2203,7 +2706,7 @@ typedef struct sk_ui_api_t {
 	 */
 	sk_ui_node_t (*widget_progress)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id);
 
-	/** Single-line text field with caret/selection editing. */
+	/** Single-line text field with caret/selection editing (InputText). */
 	sk_ui_node_t (*widget_text_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 
 	/** Clipped scroll container with wheel/drag scrolling and painted scrollbars. */
@@ -2211,6 +2714,18 @@ typedef struct sk_ui_api_t {
 
 	/** Image node bound to host texture id (IMAGE + class ui-image). */
 	sk_ui_node_t (*widget_image)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+
+	/**
+	 * Editor textured-quad image (ImGui::Image): explicit size, sub-rect UV
+	 * (@p uv0..@p uv1), tint and border colours. UV defaults are the full
+	 * texture (0,0)-(1,1); @p tint NULL = opaque white; @p border NULL = none.
+	 * Axis flips are allowed (uv1 < uv0 mirrors, e.g. flipped V). Sets the
+	 * same props as widget_image plus uv0_x/uv0_y/uv1_x/uv1_y and
+	 * tint_r/g/b/a, border_r/g/b/a; paint emits one IMAGE textured quad (and
+	 * a 1px border + 1px image inset when the border alpha is > 0).
+	 */
+	sk_ui_node_t (*widget_image_rect)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, f32 width, f32 height, f32 uv0x, f32 uv0y, f32 uv1x, f32 uv1y,
+									  const sk_ui_color_t* tint, const sk_ui_color_t* border, const_chr_t id);
 
 	/**
 	 * Horizontal menu bar container (row flex, widget=menu_bar). Hosts menu /
@@ -2291,12 +2806,14 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Horizontal tab strip (widget=tab_bar). Hosts tab children; stable Clay id.
+	 * Bind the selected page index (tab_bar_bind_selected); do not rebuild.
 	 */
 	sk_ui_node_t (*widget_tab_bar)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 
 	/**
 	 * Selectable tab (widget=tab). Prop "active" (0/1); click activates and
-	 * clears active on sibling tabs under the same tab_bar.
+	 * clears active on sibling page tabs under the same tab_bar.
+	 * Equivalent to widget_tab_item(..., NULL, 0).
 	 */
 	sk_ui_node_t (*widget_tab)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
 
@@ -2384,6 +2901,67 @@ typedef struct sk_ui_api_t {
 	i32 (*scroll_view_set_content_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 	i32 (*image_set_texture)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+	/* ---- retained item-array binding (APX-338; tree / list / combo / table) ---- */
+
+	/**
+	 * Host widget bound to @p items (pointer kept). @p kind selects tree / list /
+	 * combo / table presentation. Same item struct for every kind.
+	 * @p id is the automation test id (auto-generated when NULL/empty).
+	 */
+	sk_ui_node_t (*widget_item_view)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind, const_chr_t id);
+	/** widget_item_view(..., SK_UI_ITEM_BIND_TREE, id). Tree-widget task entry. */
+	sk_ui_node_t (*widget_tree)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+	/** widget_item_view(..., SK_UI_ITEM_BIND_LIST, id). */
+	sk_ui_node_t (*widget_list)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, const_chr_t id);
+
+	/**
+	 * Bind @p items to an existing host (or rebind). Pass items == NULL to
+	 * unbind (row nodes destroyed; open/selected maps kept until clear_state
+	 * or host destroy).
+	 * @return 0 on success, non-zero on dead host / OOM.
+	 */
+	i32 (*item_bind)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items, sk_ui_item_bind_kind_t kind);
+	/** Replace the stored array pointer (NULL unbinds) and sync. */
+	i32 (*item_bind_set_array)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_array_t* items);
+	/**
+	 * Diff the caller array by id and update row nodes in place.
+	 * Also runs from style_resolve / harness_step.
+	 */
+	i32 (*item_bind_sync)(sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Stored array pointer, or NULL if unbound. */
+	sk_ui_item_array_t* (*item_bind_get_array)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	sk_ui_item_bind_kind_t (*item_bind_get_kind)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Live row node for @p item_id, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*item_bind_find)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	/** Number of materialized row nodes (visible rows). */
+	u32 (*item_bind_row_count)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+
+	i32 (*item_bind_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	i32 (*item_bind_set_open)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open);
+	i32 (*item_bind_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
+	i32 (*item_bind_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 selected);
+	/** Last activated item id, or SK_UI_ITEM_ID_NONE. */
+	u64 (*item_bind_last_activate)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Non-zero if the last interaction was the expand arrow (not row activate). */
+	i32 (*item_bind_last_was_arrow)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/** Drop open / selected / seed maps (row nodes stay until next sync). */
+	i32 (*item_bind_clear_state)(sk_ui_context_t* ctx, sk_ui_node_t host);
+	i32 (*item_bind_set_on_activate)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+	i32 (*item_bind_set_on_toggle)(sk_ui_context_t* ctx, sk_ui_node_t host, sk_ui_item_id_fn fn, void_ptr_t user);
+	/**
+	 * TreeNodeEx flags for this host (SK_UI_TREE_NODE_FLAG_*). Default is
+	 * SK_UI_TREE_NODE_FLAGS_DEFAULT (OpenOnArrow + full-row span + frame pad).
+	 */
+	i32 (*item_bind_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t host, u32 flags);
+	u32 (*item_bind_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t host);
+	/**
+	 * Set open with ImGuiCond. ONCE writes only if this id has not been
+	 * seeded yet (EntityTree SetNextItemOpen(true, Once) on ancestors).
+	 */
+	i32 (*item_bind_set_open_cond)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id, i32 open, u32 cond);
+	/** Open every ancestor of @p item_id with SK_UI_COND_ONCE, then sync. */
+	i32 (*item_bind_open_ancestors)(sk_ui_context_t* ctx, sk_ui_node_t host, u64 item_id);
 
 	/* ---- automation / UI tester contract (query, accessors, actions) ---- */
 
@@ -3116,6 +3694,984 @@ typedef struct sk_ui_api_t {
 	 * (1280 x 720). Either out pointer may be NULL.
 	 */
 	void (*sample_dock_demo_logical_size)(f32* out_width, f32* out_height);
+
+	/* ---- button family (APX-339; editor Button / SmallButton / Invisible /
+	 * SelectionButton / BorderedButton / ArrowButton) ---- */
+
+	/**
+	 * Compact Button (ImGui SmallButton): auto size, reduced vertical pad.
+	 * Label may use a `###id` suffix; @p id wins when non-empty.
+	 */
+	sk_ui_node_t (*widget_small_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Invisible hit target (ImGui InvisibleButton). No chrome. Zero on an
+	 * axis is auto. @p flags is a SK_UI_BUTTON_FLAG_MOUSE_* mask (0 = LEFT).
+	 */
+	sk_ui_node_t (*widget_invisible_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+
+	/**
+	 * Toolbar toggle (ImGuiSelectionButton). @p selected paints the selected
+	 * look from the caller bool; the widget does not own the mode.
+	 * Zero on a size axis is auto.
+	 */
+	sk_ui_node_t (*widget_selection_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, const_chr_t id, f32 width, f32 height);
+
+	/**
+	 * Button with a visible gray border (ImGuiBorderedButton).
+	 * Zero on a size axis is auto.
+	 */
+	sk_ui_node_t (*widget_bordered_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, f32 width, f32 height);
+
+	/**
+	 * Square arrow chrome (ImGui ArrowButton). @p dir is SK_UI_ARROW_*.
+	 * Editor does not call ArrowButton today; factory is here for completeness.
+	 */
+	sk_ui_node_t (*widget_arrow_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 dir, const_chr_t id);
+
+	/**
+	 * Explicit size. Zero on an axis means auto (ImGui ImVec2 convention).
+	 * @return 0 on success.
+	 */
+	i32 (*button_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Edge-triggered click: 1 once after a press+release over the button
+	 * with an allowed mouse button, then clears. Disabled / drag-off → 0.
+	 */
+	i32 (*button_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Edge-triggered pointer-down on an allowed button; consume-on-read. */
+	i32 (*button_pressed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Edge-triggered pointer-up (even if dragged off); consume-on-read. */
+	i32 (*button_released)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Live SK_UI_STATE_HOVER (does not consume). */
+	i32 (*button_is_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Live SK_UI_STATE_ACTIVE / held (does not consume). */
+	i32 (*button_is_active)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Caller-owned selected look (SelectionButton). Does not own the mode. */
+	i32 (*button_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*button_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Allowed mouse buttons (SK_UI_BUTTON_FLAG_MOUSE_*). 0 treated as LEFT. */
+	i32 (*button_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*button_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- text family (APX-340; editor Text / TextUnformatted / TextDisabled /
+	 * TextColored / TextWrapped / SeparatorText + ImGui wrappers) ---- */
+
+	/**
+	 * Plain text (ImGui Text / TextUnformatted). No soft wrap: text clips at
+	 * the box width (ImGui Text behaviour). Embedded '\n' still breaks lines.
+	 * UTF-8. @p id optional stable test id.
+	 */
+	sk_ui_node_t (*widget_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Wrapped text (ImGui TextWrapped): soft-wraps at the box width. */
+	sk_ui_node_t (*widget_text_wrapped)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Dimmed text (ImGui TextDisabled); Text + SK_UI_STATE_DISABLED dim. */
+	sk_ui_node_t (*widget_text_disabled)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Text with an explicit linear RGBA colour (ImGui TextColored). */
+	sk_ui_node_t (*widget_text_colored)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, sk_ui_color_t color, const_chr_t id);
+
+	/**
+	 * Labelled section rule (ImGui SeparatorText): full-width horizontal rule
+	 * with the label set into a gap in the rule.
+	 */
+	sk_ui_node_t (*widget_separator_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/**
+	 * Bullet + text (ImGui BulletText): small disc in the left padding, then
+	 * the text. Editor never calls BulletText (manifest §22.3); factory here
+	 * for completeness.
+	 */
+	sk_ui_node_t (*widget_bullet_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/**
+	 * "label: value" pair on one row (ImGui LabelText): dimmed label then
+	 * value. Editor never calls LabelText (manifest §22.3); factory here for
+	 * completeness. Returns the row; children via text_with_label_parts.
+	 */
+	sk_ui_node_t (*widget_label_text)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+
+	/**
+	 * ImGuiTextWithLabel wrapper: dimmed @p label then @p value on one row
+	 * (same shape as widget_label_text, editor-facing name).
+	 */
+	sk_ui_node_t (*widget_text_with_label)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t value, const_chr_t id);
+
+	/**
+	 * ImGuiCentralizedText wrapper: @p text centered in the parent region
+	 * (EntityTree / Properties empty states). Returns the host; text child
+	 * via text_centered_text.
+	 */
+	sk_ui_node_t (*widget_text_centered)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Replace text with a non-null-terminated range [begin, end) (TextUnformatted). */
+	i32 (*text_set_text_range)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t begin, const_chr_t end);
+
+	/** Set/get text colour (style COLOR prop; linear RGBA 0..1). */
+	i32 (*text_set_color)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t color);
+	/** Computed text colour; requires style_resolve to have run. */
+	i32 (*text_get_color)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* out_color);
+
+	/** Set/get disabled (SK_UI_STATE_DISABLED → class disabled variant dims). */
+	i32 (*text_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	i32 (*text_get_disabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Children of a text_with_label / label_text row (out_label, out_value). */
+	i32 (*text_with_label_parts)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_label, sk_ui_node_t* out_value);
+	/** Text child of a widget_text_centered host. */
+	i32 (*text_centered_text)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t* out_text);
+
+	/* ---- checkbox / radio (APX-341; editor Checkbox + flags / radio group) ---- */
+
+	/**
+	 * Visible label on the same item as the box (ImGui Checkbox).
+	 * Empty / `##id` → box only. `###id` strips the hidden id suffix.
+	 */
+	i32 (*checkbox_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*checkbox_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Bind a caller-owned i32* (0/1). Click writes back. External mutation is
+	 * pulled on the next style_resolve / harness_step. NULL unbinds.
+	 */
+	i32 (*checkbox_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value);
+
+	/**
+	 * Bind a flags word + bit mask (ImGui CheckboxFlags). Mixed/indeterminate
+	 * when some but not all bits of @p flags_value are set in *@p flags.
+	 * Click sets all bits if not fully set, otherwise clears them.
+	 */
+	i32 (*checkbox_bind_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* flags, i32 flags_value);
+
+	/** Mixed / indeterminate (0/1). Also derived from a flags bind. */
+	i32 (*checkbox_set_mixed)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 mixed);
+	i32 (*checkbox_get_mixed)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Edge-triggered: 1 once after a value-changing click, then clears.
+	 * Programmatic set / external bind mutation do not set this.
+	 */
+	i32 (*checkbox_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*checkbox_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	i32 (*radio_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*radio_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Bind an int* + this option's value (ImGui RadioButton(label, int*, int)).
+	 * Click writes *@p value = @p option and clears sibling radios.
+	 * NULL unbinds.
+	 */
+	i32 (*radio_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, i32* value, i32 option);
+
+	/** Edge-triggered: 1 once after this radio becomes selected by a click. */
+	i32 (*radio_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*radio_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/* ---- InputText family (APX-342; editor InputText / Multiline / Search /
+	 * ReadOnly / InputFloat / InputFloat3 / InputScalar) ---- */
+
+	/**
+	 * Multi-line InputText. Zero on a size axis is auto. Enter inserts a
+	 * newline unless ENTER_RETURNS_TRUE is set.
+	 */
+	sk_ui_node_t (*widget_text_input_multiline)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, f32 width, f32 height, const_chr_t id);
+
+	/** Single-line field with a dimmed placeholder when empty (InputTextWithHint). */
+	sk_ui_node_t (*widget_text_input_with_hint)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t hint, const_chr_t id);
+
+	/**
+	 * Browser / tree search bar: magnifier + "Search" placeholder.
+	 * Same model as widget_text_input.
+	 */
+	sk_ui_node_t (*widget_search_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Read-only field (UUID / path / entity id). Still focusable. */
+	sk_ui_node_t (*widget_text_input_readonly)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** InputScalar: typed numeric text bound to caller storage. */
+	sk_ui_node_t (*widget_input_scalar)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_input_data_type_t type, void_ptr_t data, const_chr_t id);
+
+	/** InputFloat: widget_input_scalar(F32, v). */
+	sk_ui_node_t (*widget_input_float)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+
+	/** InputInt: widget_input_scalar(S32, v). */
+	sk_ui_node_t (*widget_input_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32* v, const_chr_t id);
+
+	/**
+	 * InputFloat3: horizontal row of three F32 scalars bound to v[0..2].
+	 * Returns the row; children via input_float3_component.
+	 */
+	sk_ui_node_t (*widget_input_float3)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32* v, const_chr_t id);
+
+	i32 (*text_input_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*text_input_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_hint)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t hint);
+	const_chr_t (*text_input_get_hint)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_readonly)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 readonly);
+	i32 (*text_input_get_readonly)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_password)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 password);
+	i32 (*text_input_get_password)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Max UTF-8 bytes excluding the NUL. 0 = unbounded grow (CallbackResize).
+	 * Insert / set_text truncate on a codepoint boundary.
+	 */
+	i32 (*text_input_set_capacity)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 capacity);
+	i32 (*text_input_get_capacity)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_get_selection)(const sk_ui_context_t* ctx, sk_ui_node_t node, i32* out_start, i32* out_end);
+	i32 (*text_input_set_error)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 show_error);
+	i32 (*text_input_get_error)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+	i32 (*text_input_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	/**
+	 * Edge-triggered live-edit return (ImGui InputText). Consume-on-read.
+	 * With ENTER_RETURNS_TRUE this is 1 only on Enter, not on each keystroke.
+	 */
+	i32 (*text_input_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Edge-triggered commit (Enter, or deactivate-after-edit). Consume-on-read.
+	 */
+	i32 (*text_input_committed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_text_fn fn, void_ptr_t user);
+
+	/**
+	 * ImGuiTextFilter::PassFilter: empty filter passes; comma-separated
+	 * tokens; a leading '-' excludes; otherwise at least one inclusion
+	 * token must match (case-insensitive substring).
+	 */
+	i32 (*text_filter_pass)(const_chr_t filter, const_chr_t text);
+
+	/** Optional min/max clamp applied when a scalar field commits. NULL = clear. */
+	i32 (*input_scalar_set_range)(sk_ui_context_t* ctx, sk_ui_node_t node, const void* p_min, const void* p_max);
+	/** Parse the current text into the bound scalar (used by tests / commit). */
+	i32 (*input_scalar_apply)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Child field of an InputFloat3 row (index 0..2). */
+	i32 (*input_float3_component)(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_field);
+
+	/* ---- Slider / Drag family (APX-343; editor SliderFloat / SliderInt /
+	 * SliderScalar, DragFloat / DragFloat2/3/4 / DragInt) ---- */
+
+	/**
+	 * Integer slider (ImGui SliderInt). @p format NULL → "%d". Hidden `##`
+	 * labels are supported via slider_set_label. AlwaysClamp by default.
+	 */
+	sk_ui_node_t (*widget_slider_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+
+	/**
+	 * N-component SliderFloat row (1..4). Each child is an independent
+	 * slider; edit one without touching the others. @p values may be NULL.
+	 */
+	sk_ui_node_t (*widget_slider_float_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_min, f32 v_max, const f32* values, const_chr_t format, const_chr_t id);
+
+	/** N-component SliderInt row (1..4). */
+	sk_ui_node_t (*widget_slider_int_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, i32 v_min, i32 v_max, const i32* values, const_chr_t format, const_chr_t id);
+
+	/**
+	 * Drag scalar (ImGui DragFloat). @p v_speed is value-per-pixel.
+	 * min==max==0 is unbounded (material scalars). @p format NULL → "%.3f".
+	 */
+	sk_ui_node_t (*widget_drag_float)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, f32 v_min, f32 v_max, f32 value, const_chr_t format, const_chr_t id);
+
+	/** DragInt. @p format NULL → "%d". */
+	sk_ui_node_t (*widget_drag_int)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 v_speed, i32 v_min, i32 v_max, i32 value, const_chr_t format, const_chr_t id);
+
+	/** DragFloat2/3/4: N independent drag children (1..4). */
+	sk_ui_node_t (*widget_drag_float_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, f32 v_min, f32 v_max, const f32* values, const_chr_t format,
+										const_chr_t id);
+
+	/** DragInt N-component row (1..4). */
+	sk_ui_node_t (*widget_drag_int_n)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 count, f32 v_speed, i32 v_min, i32 v_max, const i32* values, const_chr_t format,
+									  const_chr_t id);
+
+	/** printf format shown on the grab ("%.3f", "%d", "LOD %d", "" = no label). */
+	i32 (*slider_set_format)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t format);
+	const_chr_t (*slider_get_format)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Snap increment (0 = continuous). Applied after position/speed mapping. */
+	i32 (*slider_set_step)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 step);
+	f32 (*slider_get_step)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Drag speed (value per pixel). Sliders ignore this. */
+	i32 (*slider_set_speed)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 speed);
+	f32 (*slider_get_speed)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** SK_UI_SLIDER_FLAG_* mask (AlwaysClamp). */
+	i32 (*slider_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*slider_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Visible label (`##id` hides it). Does not replace the value format. */
+	i32 (*slider_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	const_chr_t (*slider_get_label)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Edge-triggered: 1 once after a user edit that actually changed the
+	 * value (drag or committed text entry), then clears. Programmatic set
+	 * does not set this.
+	 */
+	i32 (*slider_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*slider_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/** Ctrl-click text-entry overlay (1 = editing). */
+	i32 (*slider_is_text_input)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*slider_set_text_input)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+
+	i32 (*slider_set_int_value)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value);
+	i32 (*slider_get_int_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Apply @p format (or the widget's format) into @p out. */
+	i32 (*slider_format_value)(const sk_ui_context_t* ctx, sk_ui_node_t node, char* out, u32 out_cap);
+
+	/** Child of a vector row (index 0..count-1). */
+	i32 (*slider_component)(const sk_ui_context_t* ctx, sk_ui_node_t row, i32 index, sk_ui_node_t* out_comp);
+
+	/** Read/write all components of a vector row. @p count is the buffer length. */
+	i32 (*slider_set_values)(sk_ui_context_t* ctx, sk_ui_node_t row, const f32* values, i32 count);
+	i32 (*slider_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t row, f32* out, i32 count);
+
+	/* ---- child / window / layout family (APX-345; manifest §13) ---- */
+
+	/**
+	 * Named dockable window (ImGui Begin + p_open). Same chrome as
+	 * widget_editor_window. When @p p_open is non-NULL a close button is
+	 * shown; clicking it writes 0 and hides the window.
+	 */
+	sk_ui_node_t (*widget_window)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open);
+
+	/**
+	 * Fullscreen host (ImGuiBeginFullscreen): fills the parent, no title bar.
+	 * Project-launcher overlay.
+	 */
+	sk_ui_node_t (*widget_fullscreen)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Child region (ImGui BeginChild). @p width/@p height of 0,0 is remaining
+	 * size (flex-grow). A positive height with width 0 is a fixed-height
+	 * toolbar (full remaining width). @p flags is SK_UI_CHILD_FLAG_*.
+	 */
+	sk_ui_node_t (*widget_child)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, f32 width, f32 height, u32 flags);
+
+	/** Scroll content under a child (same as scroll_view_content). */
+	sk_ui_node_t (*child_content)(const sk_ui_context_t* ctx, sk_ui_node_t child);
+	i32 (*child_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t child, u32 flags);
+	u32 (*child_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t child);
+	/** Explicit size. Zero on an axis means remaining / auto (ImVec2). */
+	i32 (*child_set_size)(sk_ui_context_t* ctx, sk_ui_node_t child, f32 width, f32 height);
+
+	/**
+	 * Scroll-to-bottom (ImGui SetScrollHereY(1) / console auto-scroll).
+	 * Works on widget_child and widget_scroll_view.
+	 */
+	i32 (*scroll_view_scroll_to_bottom)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close). */
+	i32 (*editor_window_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t window, i32* p_open);
+	i32 (*editor_window_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+	i32 (*editor_window_set_open)(sk_ui_context_t* ctx, sk_ui_node_t window, i32 open);
+	/** Close button child, or SK_UI_NODE_INVALID when not closable. */
+	sk_ui_node_t (*editor_window_close_button)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+
+	/**
+	 * BeginDisabled / EndDisabled stack. Subsequent factory calls inherit
+	 * SK_UI_STATE_DISABLED (grey + no input). Nested; End pops one frame.
+	 */
+	i32 (*begin_disabled)(sk_ui_context_t* ctx, i32 disabled);
+	i32 (*end_disabled)(sk_ui_context_t* ctx);
+	/** Non-zero if the current disabled stack is active. */
+	i32 (*is_disabled)(const sk_ui_context_t* ctx);
+	/**
+	 * Apply disabled (grey + no input) to @p node and every descendant.
+	 * Use on an existing subtree; factories created under begin_disabled
+	 * are already marked.
+	 */
+	i32 (*set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	/**
+	 * PushID / PopID: prefix subsequently assigned node ids with the stack
+	 * (string / int / pointer). Same local id under different scopes is unique.
+	 */
+	i32 (*push_id)(sk_ui_context_t* ctx, const_chr_t id);
+	i32 (*push_id_int)(sk_ui_context_t* ctx, i32 id);
+	i32 (*push_id_ptr)(sk_ui_context_t* ctx, const void* ptr);
+	i32 (*pop_id)(sk_ui_context_t* ctx);
+
+	/**
+	 * SetNextItemWidth. Applied to the next factory-created widget, then
+	 * consumed. @p width of SK_UI_ITEM_WIDTH_FILL (-1) is flex-grow fill.
+	 * width > 0 is an explicit point width.
+	 */
+	i32 (*set_next_item_width)(sk_ui_context_t* ctx, f32 width);
+
+	/**
+	 * Indent / Unindent. Subsequent factories get extra left margin.
+	 * @p width of 0 uses SK_UI_INDENT_DEFAULT.
+	 */
+	i32 (*indent)(sk_ui_context_t* ctx, f32 width);
+	i32 (*unindent)(sk_ui_context_t* ctx, f32 width);
+
+	/**
+	 * BeginGroup / EndGroup: shrink-wrap box. Extents after layout are the
+	 * group's border box (union of children plus padding).
+	 */
+	sk_ui_node_t (*widget_group)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	i32 (*group_get_extents)(const sk_ui_context_t* ctx, sk_ui_node_t group, sk_ui_rect_t* out);
+
+	/**
+	 * Horizontal / vertical stack (imgui_stacklayout BeginHorizontal /
+	 * BeginVertical). Flex row / column.
+	 */
+	sk_ui_node_t (*widget_horizontal)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	sk_ui_node_t (*widget_vertical)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	/**
+	 * Spring: empty spacer with flex_grow = @p weight (default 1). Maps
+	 * imgui_stacklayout Spring(weight) onto Clay GROW. Clay GROW is
+	 * unweighted, so every live spring shares leftover space equally.
+	 */
+	sk_ui_node_t (*widget_spring)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 weight, const_chr_t id);
+
+	/* ---- menu family (APX-346; editor BeginMenuBar / BeginMenu / MenuItem) ---- */
+
+	/**
+	 * BeginMenu(label, enabled). Disabled menus do not open. Applies to
+	 * widget_menu / widget_submenu / widget_dropdown.
+	 */
+	i32 (*menu_set_enabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+	i32 (*menu_get_enabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * MenuItem(..., enabled). Disabled items never activate. Same MenuItem
+	 * works in a menu_popup / context_menu, not only the bar.
+	 */
+	i32 (*menu_item_set_enabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 enabled);
+	i32 (*menu_item_get_enabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Optional right-aligned shortcut. The editor builds the string
+	 * (`Ctrl+S`); the widget only displays it. NULL / empty clears.
+	 */
+	i32 (*menu_item_set_shortcut)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t shortcut);
+	const_chr_t (*menu_item_get_shortcut)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Logical width used to place the shortcut column (0 if none). */
+	f32 (*menu_item_measure_shortcut)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** After layout: shortcut column in absolute logical units. */
+	i32 (*menu_item_get_shortcut_rect)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out);
+
+	/**
+	 * Caller-owned checked mark (MenuItem selected=true). Not the unused
+	 * `bool* p_selected` overload.
+	 */
+	i32 (*menu_item_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*menu_item_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Horizontal rule between menu priority groups (ImGui Separator). */
+	sk_ui_node_t (*widget_menu_separator)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Edge-triggered item activation: 1 once after a press+release over an
+	 * enabled MenuItem, then clears. Disabled → 0.
+	 */
+	i32 (*menu_item_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- popup / modal family (APX-347; manifest §12) ---- */
+
+	/**
+	 * Styled 300px context menu (ImGuiBeginPopupMenu). widget=popup_menu.
+	 * Closed until popup_open / menu_set_open. Click-outside or
+	 * popup_close_current dismisses. Host a right-click by parenting this
+	 * under the hit target (or call popup_open).
+	 */
+	sk_ui_node_t (*widget_popup_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Modal dialog (BeginPopupModal). Title, optional caller-owned @p p_open,
+	 * fullscreen dim that blocks input behind. ALWAYS_AUTO_RESIZE shrink-wraps
+	 * the dialog; otherwise the body is a fixed child (Save Content /
+	 * NoScrollbar). Default-closed until popup_open unless @p p_open is 1.
+	 */
+	sk_ui_node_t (*widget_modal)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id, i32* p_open, u32 flags);
+
+	/** Title-bar child (widget=modal_title). */
+	sk_ui_node_t (*modal_title_bar)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Body child (widget=modal_body). Auto-size or fixed child+table host. */
+	sk_ui_node_t (*modal_body)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Footer button row (widget=modal_buttons). Caller adds Button children. */
+	sk_ui_node_t (*modal_button_row)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Dialog card child (widget=modal_dialog). */
+	sk_ui_node_t (*modal_dialog)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Dim overlay child (widget=modal_dim). */
+	sk_ui_node_t (*modal_dim)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+
+	i32 (*modal_set_open)(sk_ui_context_t* ctx, sk_ui_node_t modal, i32 open);
+	i32 (*modal_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close X). */
+	i32 (*modal_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t modal, i32* p_open);
+	u32 (*modal_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t modal);
+	i32 (*modal_set_title)(sk_ui_context_t* ctx, sk_ui_node_t modal, const_chr_t title);
+
+	/**
+	 * Edge-triggered OpenPopup. Opens @p node (popup_menu / context_menu /
+	 * menu_popup / modal, or a menu owner). A second call while already open
+	 * is a no-op. Newly opened surfaces push the popup stack.
+	 */
+	i32 (*popup_open)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * CloseCurrentPopup: close the top of the popup stack. Writes 0 through
+	 * a bound p_open on modals.
+	 */
+	i32 (*popup_close_current)(sk_ui_context_t* ctx);
+	/** Non-zero if @p node (or its popup child) is open. */
+	i32 (*popup_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * SetItemDefaultFocus. When the owning popup / modal opens, focus moves
+	 * to @p node (typically the primary button).
+	 */
+	i32 (*set_item_default_focus)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- tab bar family (APX-348; manifest §10) ---- */
+
+	/**
+	 * BeginTabItem. Named page tab. Close chrome appears only when @p p_open
+	 * is non-NULL; clicking it writes 0. @p flags is SK_UI_TAB_ITEM_FLAG_*.
+	 * SET_SELECTED selects this tab and blocks user select while set.
+	 */
+	sk_ui_node_t (*widget_tab_item)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, i32* p_open, u32 flags);
+
+	/**
+	 * TabItemButton (workspace '+'). Clickable, not a selectable page.
+	 * tab_clicked / button_clicked is edge-triggered; selection is unchanged.
+	 */
+	sk_ui_node_t (*widget_tab_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/** Page body. Hidden unless this tab is the selected page. */
+	sk_ui_node_t (*tab_body)(sk_ui_context_t* ctx, sk_ui_node_t tab);
+	/** Close button child, or SK_UI_NODE_INVALID when no p_open. */
+	sk_ui_node_t (*tab_close_button)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/** Bind / query the close flag (bool* p_open). NULL unbinds (no close). */
+	i32 (*tab_bind_open)(sk_ui_context_t* ctx, sk_ui_node_t tab, i32* p_open);
+	i32 (*tab_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	i32 (*tab_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t tab, u32 flags);
+	u32 (*tab_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/**
+	 * Bind the selected page index (0..n-1 of visible page tabs, -1 if none).
+	 * Workspace list is editor-owned; do not rebuild the bar each frame.
+	 */
+	i32 (*tab_bar_bind_selected)(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32* selected);
+	i32 (*tab_bar_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t tab_bar);
+	i32 (*tab_bar_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, i32 index);
+
+	/** Edge-triggered click on a TabItemButton ('+'), then clears. */
+	i32 (*tab_clicked)(sk_ui_context_t* ctx, sk_ui_node_t tab);
+
+	/* ---- separator / spacing / same-line family (APX-349; manifest §19) ---- */
+
+	/**
+	 * ImGui Separator. Horizontal rule; renders VERTICAL when the parent is a
+	 * horizontal layout / menu bar, or when SameLine was called immediately
+	 * before it (toolbar divider pattern SameLine(); Separator(); SameLine(),
+	 * ConsoleWindow.cpp:44-70). @p id optional stable test id.
+	 */
+	sk_ui_node_t (*widget_separator)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/** Non-zero when @p node renders the vertical (toolbar / menu bar) form. */
+	i32 (*separator_get_vertical)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * ImGui Spacing: fixed-height vertical spacer (SK_UI_SPACING_DEFAULT).
+	 * Transparent; only occupies layout height.
+	 */
+	sk_ui_node_t (*widget_spacing)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * ImGui Dummy: explicit-size box with no chrome. Zero on an axis is legal
+	 * (SceneViewWindow.cpp:870 Dummy(0, 2) toolbar spacer).
+	 */
+	sk_ui_node_t (*widget_dummy)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 width, f32 height, const_chr_t id);
+
+	/**
+	 * ImGui SameLine. Positional command: the NEXT widget created under
+	 * @p parent joins the previous item's row (offset_from_start_x == 0 →
+	 * after the previous item plus @p spacing, default SK_UI_SAMELINE_DEFAULT_GAP;
+	 * non-zero → aligned to row start + offset, plus @p spacing when >= 0).
+	 * SameLine before the first item is a no-op; an unconsumed SameLine is
+	 * cleared at the next layout. @return 0 on success.
+	 */
+	i32 (*widget_same_line)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 offset_from_start_x, f32 spacing);
+
+	/* ---- tree / collapsing header family (APX-350; manifest §8) ---- */
+
+	/**
+	 * SetNextItemOpen. Consumed by the next widget_collapsing_header or the
+	 * next item_bind_set_open. SK_UI_COND_ONCE applies only if that id has
+	 * not been seeded (ancestors of a selection, settings root).
+	 */
+	i32 (*set_next_item_open)(sk_ui_context_t* ctx, i32 is_open, u32 cond);
+
+	/**
+	 * CollapsingHeader (Properties / Settings sections). Framed full-width
+	 * header; no indent push. TRAILING_BUTTON adds ImGuiCollapsingHeaderProps
+	 * '...'. Body is hidden while closed. @p flags is SK_UI_TREE_NODE_FLAG_*.
+	 */
+	sk_ui_node_t (*widget_collapsing_header)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id, u32 flags);
+	i32 (*collapsing_header_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+	i32 (*collapsing_header_set_open)(sk_ui_context_t* ctx, sk_ui_node_t header, i32 open);
+	/** Content host under the header (hidden when closed). */
+	sk_ui_node_t (*collapsing_header_body)(sk_ui_context_t* ctx, sk_ui_node_t header);
+	/** Trailing '...' button, or SK_UI_NODE_INVALID when the flag is off. */
+	sk_ui_node_t (*collapsing_header_button)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+	/** Edge-triggered click on the trailing button, then clears. */
+	i32 (*collapsing_header_button_clicked)(sk_ui_context_t* ctx, sk_ui_node_t header);
+	u32 (*collapsing_header_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t header);
+
+	/* ---- table family (APX-351; manifest §9) ---- */
+
+	/**
+	 * BeginTable. Retained N-column table. @p columns is 1..SK_UI_TABLE_MAX_COLUMNS.
+	 * @p flags is SK_UI_TABLE_FLAG_*. Zero on an outer_size axis is leftover /
+	 * auto (Packages / profiler fill leftover height when ScrollY).
+	 */
+	sk_ui_node_t (*widget_table)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id, i32 columns, u32 flags, f32 outer_width, f32 outer_height);
+	/** EndTable: resolve column widths, apply borders / row-bg, finish layout. */
+	i32 (*table_end)(sk_ui_context_t* ctx, sk_ui_node_t table);
+
+	/**
+	 * TableSetupColumn. Call once per column before the first row. @p flags is
+	 * SK_UI_TABLE_COLUMN_FLAG_*. @p init_width_or_weight is a fixed width
+	 * (WidthFixed) or stretch weight (WidthStretch); 0 uses the sizing policy.
+	 */
+	i32 (*table_setup_column)(sk_ui_context_t* ctx, sk_ui_node_t table, const_chr_t label, u32 flags, f32 init_width_or_weight);
+	/** TableHeadersRow. Emits a header row from setup-column labels. */
+	i32 (*table_headers_row)(sk_ui_context_t* ctx, sk_ui_node_t table);
+	/** TableNextRow. Advances the cell cursor to a new row. */
+	i32 (*table_next_row)(sk_ui_context_t* ctx, sk_ui_node_t table, u32 row_flags, f32 min_row_height);
+	/**
+	 * TableNextColumn. Advances to the next cell (wraps to the next row).
+	 * @return 1 if the cell is visible, 0 otherwise.
+	 */
+	i32 (*table_next_column)(sk_ui_context_t* ctx, sk_ui_node_t table);
+	/**
+	 * TableSetColumnIndex. Jumps to @p column_n on the current row.
+	 * @return 1 if the column exists.
+	 */
+	i32 (*table_set_column_index)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column_n);
+	/** Current cell host (parent widgets into this). */
+	sk_ui_node_t (*table_current_cell)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	sk_ui_node_t (*table_get_cell)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row, i32 column);
+	sk_ui_node_t (*table_get_row)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 row);
+	i32 (*table_get_current_row)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_get_current_column)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+
+	/** TableGetColumnCount. */
+	i32 (*table_get_column_count)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	u32 (*table_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t table, u32 flags);
+	u32 (*table_get_column_flags)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column);
+	i32 (*table_get_column_width)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32* out_width);
+	i32 (*table_set_column_width)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 column, f32 width);
+	/** Resolve widths for @p avail_width (tests + EndTable). */
+	i32 (*table_resolve_column_widths)(sk_ui_context_t* ctx, sk_ui_node_t table, f32 avail_width);
+
+	/**
+	 * TableSetBgColor. CellBg + column_n < 0 fills the whole current row
+	 * (EntityTree). ROW_BG0 / ROW_BG1 override the alternating stripe.
+	 */
+	i32 (*table_set_bg_color)(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_table_bg_target_t target, sk_ui_color_t color, i32 column_n);
+
+	/** TableSetupScrollFreeze. First @p cols / @p rows stay put when scrolling. */
+	i32 (*table_setup_scroll_freeze)(sk_ui_context_t* ctx, sk_ui_node_t table, i32 cols, i32 rows);
+	i32 (*table_get_scroll_freeze)(const sk_ui_context_t* ctx, sk_ui_node_t table, i32* out_cols, i32* out_rows);
+
+	/** Scroll body (ScrollX / ScrollY). Invalid when the table does not scroll. */
+	sk_ui_node_t (*table_body)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	sk_ui_node_t (*table_header)(const sk_ui_context_t* ctx, sk_ui_node_t table);
+	i32 (*table_get_scroll)(const sk_ui_context_t* ctx, sk_ui_node_t table, f32* out_x, f32* out_y);
+	i32 (*table_set_scroll)(sk_ui_context_t* ctx, sk_ui_node_t table, f32 scroll_x, f32 scroll_y);
+
+	/**
+	 * Bind a caller-owned item array as table rows (§21). Diffs by id; the
+	 * table host is not rebuilt. Label goes in column 0.
+	 */
+	i32 (*table_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t table, sk_ui_item_array_t* items);
+
+	/* ---- selectable family (APX-352; manifest §18) ---- */
+
+	/**
+	 * ImGui Selectable: clickable full-row item with a label. @p selected is
+	 * a caller-owned look (does not toggle itself). @p flags is
+	 * SK_UI_SELECTABLE_FLAG_*. Zero on a size axis is auto. Explicit size is
+	 * the project-launcher tile; SpanAvailWidth / SpanAllColumns expand the
+	 * hit / highlight rect.
+	 */
+	sk_ui_node_t (*widget_selectable)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32 selected, u32 flags, const_chr_t id, f32 width, f32 height);
+
+	/** Caller-owned selected look. Does not own the mode. */
+	i32 (*selectable_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 selected);
+	i32 (*selectable_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Visible but not clickable (flag or explicit). */
+	i32 (*selectable_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	i32 (*selectable_get_disabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	i32 (*selectable_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*selectable_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Explicit size. Zero on an axis means auto (ImGui ImVec2 convention). */
+	i32 (*selectable_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Consume-on-read activate (ImGui Selectable return / "changed").
+	 * True once after a press+release over the row. Disabled swallows input.
+	 */
+	i32 (*selectable_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Consume-on-read double-click. Only set when ALLOW_DOUBLE_CLICK is on
+	 * and the second click lands on the same row.
+	 */
+	i32 (*selectable_double_clicked)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*selectable_is_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*selectable_is_active)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- combo / list box family (APX-353; manifest §7) ---- */
+
+	/**
+	 * Combo(label, int* current_item, items_separated_by_zeros, popup_max_height_in_items).
+	 * Zero-separated items: "A\\0B\\0C\\0" (ImGui walk; empty / trailing entries
+	 * via combo_set_items_n). Binds @p current_item. Preview is the selected
+	 * item, or empty when the index is out of range.
+	 */
+	sk_ui_node_t (*widget_combo)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, i32* current_item, const_chr_t items_separated_by_zeros,
+								 i32 popup_max_height_in_items, const_chr_t id);
+
+	/**
+	 * BeginCombo(label, preview_value, flags): preview chrome + custom popup body.
+	 * Parent selectables under combo_popup(). Clicking a row closes the popup.
+	 */
+	sk_ui_node_t (*widget_begin_combo)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t preview_value, u32 flags, const_chr_t id);
+
+	/** Popup body under a combo (menu_popup child). */
+	sk_ui_node_t (*combo_popup)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_open)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 open);
+	i32 (*combo_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+
+	/** Bind / replace the caller int*. NULL unbinds. */
+	i32 (*combo_bind)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32* current_item);
+	/** Replace zero-separated items (C-string walk until a double-NUL). */
+	i32 (*combo_set_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items_separated_by_zeros);
+	/**
+	 * Replace items from an explicit blob of @p nbytes. Splits on NUL and
+	 * keeps empty and trailing entries (unit-test / packed buffers).
+	 */
+	i32 (*combo_set_items_n)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t items, u32 nbytes);
+	u32 (*combo_item_count)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	const_chr_t (*combo_item_text)(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+	/** Selectable row for a zero-separated item, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*combo_item_at)(const sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+
+	i32 (*combo_get_selected)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_selected)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 index);
+	/** Consume-on-read; true once when the bound index changes from a pick. */
+	i32 (*combo_changed)(sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_preview)(sk_ui_context_t* ctx, sk_ui_node_t combo, const_chr_t preview);
+	const_chr_t (*combo_get_preview)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_max_height_in_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 n);
+	/** Non-zero when the open popup was flipped above the preview (clipped). */
+	i32 (*combo_get_popup_flipped)(const sk_ui_context_t* ctx, sk_ui_node_t combo);
+	i32 (*combo_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t combo, i32 disabled);
+	/**
+	 * Bind a caller-owned item array as the popup rows (§21 COMBO). Diffs by
+	 * id; the combo chrome is not rebuilt.
+	 */
+	i32 (*combo_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t combo, sk_ui_item_array_t* items);
+
+	/**
+	 * BeginListBox(label, size) with height from @p height_in_items when
+	 * @p height is 0. Negative item count uses SK_UI_COMBO_DEFAULT_HEIGHT_IN_ITEMS.
+	 */
+	sk_ui_node_t (*widget_list_box)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32 width, f32 height, i32 height_in_items, const_chr_t id);
+	/** Content host — parent selectables or an item-bind list here. */
+	sk_ui_node_t (*list_box_content)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	i32 (*list_box_set_height_in_items)(sk_ui_context_t* ctx, sk_ui_node_t list_box, i32 n);
+	i32 (*list_box_get_height_in_items)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	/** Resolved height in logical px (item-count * SK_UI_COMBO_ITEM_HEIGHT). */
+	f32 (*list_box_get_height)(const sk_ui_context_t* ctx, sk_ui_node_t list_box);
+	/**
+	 * Bind a caller-owned item array as list rows (§21 LIST). Diffs by id;
+	 * the list-box chrome is not rebuilt.
+	 */
+	i32 (*list_box_bind_items)(sk_ui_context_t* ctx, sk_ui_node_t list_box, sk_ui_item_array_t* items);
+
+	/* ---- tooltip family (APX-354; manifest §20) ---- */
+
+	/**
+	 * BeginTooltip / EndTooltip. Floating surface shown while the previous
+	 * sibling (or tooltip_set_anchor) is hovered. Default delay is
+	 * SK_UI_TOOLTIP_DELAY_NORMAL (Project Browser DelayNormal). Parent any
+	 * children (text, coloured duration, small table) into the returned node.
+	 * The surface follows the cursor, clamps to the viewport, and does not
+	 * capture hover or click.
+	 */
+	sk_ui_node_t (*widget_tooltip)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+	/** Non-zero while the tooltip is open (after delay, or tooltip_set_visible). */
+	i32 (*tooltip_get_visible)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Force open / close (sandbox review). Forced-open skips hover tracking. */
+	i32 (*tooltip_set_visible)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 visible);
+	/** Hover seconds before show. 0 = next hover tick. Negative is treated as 0. */
+	i32 (*tooltip_set_delay)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 seconds);
+	f32 (*tooltip_get_delay)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Override the hover item. SK_UI_NODE_INVALID restores previous-sibling. */
+	i32 (*tooltip_set_anchor)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_t item);
+	sk_ui_node_t (*tooltip_get_anchor)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- drag-drop payload (APX-356; manifest §17) ---- */
+
+	/**
+	 * BeginDragDropSource + SetDragDropPayload on @p item (tree row / field).
+	 * @p data is copied. Empty payload: data == NULL && size == 0
+	 * (SK_ENTITY_PAYLOAD; selection is implicit).
+	 */
+	i32 (*drag_drop_source)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, const void* data, u32 size, u32 flags);
+	/** Preview tooltip text while this source is dragged. */
+	i32 (*drag_drop_set_preview)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t text);
+	/** BeginDragDropTarget on @p item (previous item / tree row / field). */
+	i32 (*drag_drop_target)(sk_ui_context_t* ctx, sk_ui_node_t item, const_chr_t type, u32 flags);
+	/**
+	 * BeginDragDropTargetCustom: caller-supplied rect + id (Entity Tree
+	 * between-row reparent, Scene View full-viewport drop).
+	 */
+	i32 (*drag_drop_target_custom)(sk_ui_context_t* ctx, const sk_ui_rect_t* bb, const_chr_t id, const_chr_t type, u32 flags);
+	i32 (*drag_drop_target_custom_clear)(sk_ui_context_t* ctx, const_chr_t id);
+	/**
+	 * AcceptDragDropPayload on the hovered node target. Type must match.
+	 * Drop-on-self is rejected. Consume-on-read (one delivery).
+	 */
+	const sk_ui_payload_t* (*drag_drop_accept)(sk_ui_context_t* ctx, const_chr_t type, u32 flags);
+	/** Accept on a hovered custom-rect target. */
+	const sk_ui_payload_t* (*drag_drop_accept_custom)(sk_ui_context_t* ctx, const_chr_t id, const_chr_t type, u32 flags);
+	/** GetDragDropPayload: peek the active payload without accepting. */
+	const sk_ui_payload_t* (*drag_drop_get_payload)(const sk_ui_context_t* ctx);
+	/** Non-zero while a payload is live (until mouse release). */
+	i32 (*drag_drop_is_active)(const sk_ui_context_t* ctx);
+	sk_ui_node_t (*drag_drop_get_source)(const sk_ui_context_t* ctx);
+	sk_ui_node_t (*drag_drop_get_hovered_target)(const sk_ui_context_t* ctx);
+	const_chr_t (*drag_drop_get_hovered_custom_id)(const sk_ui_context_t* ctx);
+	/** Peek highlight: @p item is the hovered node target (before accept). */
+	i32 (*drag_drop_target_hovered)(const sk_ui_context_t* ctx, sk_ui_node_t item);
+	/** Preview overlay node (tooltip text while dragging). */
+	sk_ui_node_t (*drag_drop_preview)(const sk_ui_context_t* ctx);
+	/** Force-start a drag from an attached source (sandbox / tests). */
+	i32 (*drag_drop_begin)(sk_ui_context_t* ctx, sk_ui_node_t item);
+	/** Cancel / expire the active payload. */
+	i32 (*drag_drop_cancel)(sk_ui_context_t* ctx);
+
+	/* ---- ColorEdit / ColorPicker family (APX-357; manifest §15) ---- */
+
+	/**
+	 * ColorButton: swatch sized to the property column (width <= 0 fills the
+	 * leftover / SetNextItemWidth(-1) column; height <= 0 is
+	 * SK_UI_COLOR_BUTTON_HEIGHT). Click opens a §12 popup_menu hosting
+	 * ColorPicker4 unless NoPicker. @p col may be NULL (defaults to white).
+	 */
+	sk_ui_node_t (*widget_color_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], u32 flags, f32 width, f32 height, const_chr_t id);
+
+	/**
+	 * ColorPicker4: HSV/RGB picker with optional alpha bar and half-alpha
+	 * preview. Binds @p col (4 floats; 3 when NoAlpha). Default flags are
+	 * SK_UI_COLOR_FLAG_PICKER_DEFAULT when @p flags is 0.
+	 */
+	sk_ui_node_t (*widget_color_picker4)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+
+	/**
+	 * ColorEdit3: compact RGB row bound to float[3] (material colour).
+	 * Small swatch + three 0..1 drag fields. NoAlpha is implied.
+	 */
+	sk_ui_node_t (*widget_color_edit3)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, f32* col, u32 flags, const_chr_t id);
+
+	/**
+	 * Read-only swatch (ResourceDebugger ColorButton NoTooltip|NoPicker).
+	 * Width/height <= 0 → SK_UI_COLOR_SWATCH_SIZE (14×14). Never writes
+	 * through a bind and never opens a picker.
+	 */
+	sk_ui_node_t (*widget_color_swatch)(sk_ui_context_t* ctx, sk_ui_node_t parent, const f32 col[4], f32 width, f32 height, const_chr_t id);
+
+	/** Bind a caller float[3] or float[4]. NULL unbinds. Components is 3 or 4. */
+	i32 (*color_bind)(sk_ui_context_t* ctx, sk_ui_node_t node, f32* col, i32 components);
+	/** Bind a caller sk_ui_color_t*. NULL unbinds. */
+	i32 (*color_bind_color)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_color_t* col);
+
+	i32 (*color_set_values)(sk_ui_context_t* ctx, sk_ui_node_t node, const f32* col, i32 count);
+	i32 (*color_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out, i32 count);
+	i32 (*color_set_rgba)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 r, f32 g, f32 b, f32 a);
+	i32 (*color_get_rgba)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32 out[4]);
+
+	i32 (*color_set_flags)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
+	u32 (*color_get_flags)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*color_set_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	/**
+	 * Consume-on-read: 1 once after a user edit that changed the value
+	 * (SV/hue/alpha drag, component type, or ColorEdit3 drag).
+	 */
+	i32 (*color_changed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * Consume-on-read deactivate-after-edit: 1 once on pointer-up after a
+	 * drag, component commit, or picker popup close after an edit.
+	 */
+	i32 (*color_committed)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	i32 (*color_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*color_set_open)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+	/** §12 popup_menu hosting the picker, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*color_popup)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_sv_square)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_hue_bar)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_alpha_bar)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	sk_ui_node_t (*color_preview)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** RGB (0..2) or A (3) component field. */
+	i32 (*color_component)(const sk_ui_context_t* ctx, sk_ui_node_t node, i32 index, sk_ui_node_t* out_field);
+
+	void (*color_rgb_to_hsv)(f32 r, f32 g, f32 b, f32* h, f32* s, f32* v);
+	void (*color_hsv_to_rgb)(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b);
+
+	/* ---- content-item thumbnail grid (APX-358; manifest §16 grid half) ---- */
+
+	/**
+	 * ImGuiBeginContentTable + ImGuiContentItem grid. Binds @p items with
+	 * SK_UI_ITEM_BIND_LIST (stable ids, no per-frame node churn). Column
+	 * count is floor(available_width / (thumbnail_scale * 112)). Item
+	 * `icon` != 0 is a texture id; 0 draws a glyph icon. ERROR flag paints
+	 * the error mark. Selection / rename are keyed on item id.
+	 */
+	sk_ui_node_t (*widget_content_grid)(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_item_array_t* items, f32 thumbnail_scale, const_chr_t id);
+	i32 (*content_grid_set_scale)(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 thumbnail_scale);
+	f32 (*content_grid_get_scale)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	/** Override available width used for column count (tests; 0 = last layout). */
+	i32 (*content_grid_set_available_width)(sk_ui_context_t* ctx, sk_ui_node_t grid, f32 width);
+	i32 (*content_grid_get_column_count)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	f32 (*content_grid_get_thumb_size)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+
+	i32 (*content_grid_begin_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	i32 (*content_grid_commit_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid);
+	i32 (*content_grid_cancel_rename)(sk_ui_context_t* ctx, sk_ui_node_t grid);
+	u64 (*content_grid_rename_id)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+
+	/**
+	 * Live hover / rect plus consume-on-read click / release / enter /
+	 * right-click / rename-finish for @p item_id.
+	 */
+	i32 (*content_grid_item_state)(sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id, sk_ui_content_item_state_t* out);
+	u64 (*content_grid_last_enter)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	u64 (*content_grid_last_right_click)(const sk_ui_context_t* ctx, sk_ui_node_t grid);
+	sk_ui_node_t (*content_grid_thumb)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_icon)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_error)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
+	sk_ui_node_t (*content_grid_rename_input)(const sk_ui_context_t* ctx, sk_ui_node_t grid, u64 item_id);
 } sk_ui_api_t;
 
 #ifdef __cplusplus

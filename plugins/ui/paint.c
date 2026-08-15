@@ -492,6 +492,124 @@ static f32 ui_paint_prop_f32_or(const ui_node_slot_t* slot, const_chr_t key, f32
 	return fallback;
 }
 
+static void ui_paint_hsv_to_rgb(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b) {
+	f32 i;
+	f32 f;
+	f32 p;
+	f32 q;
+	f32 t;
+	i32 sector;
+	if (h < 0.0f) {
+		h = 0.0f;
+	}
+	if (h >= 1.0f) {
+		h = 0.0f;
+	}
+	if (s < 0.0f) {
+		s = 0.0f;
+	}
+	if (s > 1.0f) {
+		s = 1.0f;
+	}
+	if (v < 0.0f) {
+		v = 0.0f;
+	}
+	if (v > 1.0f) {
+		v = 1.0f;
+	}
+	if (s <= 0.000001f) {
+		*r = v;
+		*g = v;
+		*b = v;
+		return;
+	}
+	i = h * 6.0f;
+	sector = (i32)i;
+	if (sector > 5) {
+		sector = 5;
+	}
+	f = i - (f32)sector;
+	p = v * (1.0f - s);
+	q = v * (1.0f - f * s);
+	t = v * (1.0f - (1.0f - f) * s);
+	switch (sector) {
+	case 0:
+		*r = v;
+		*g = t;
+		*b = p;
+		break;
+	case 1:
+		*r = q;
+		*g = v;
+		*b = p;
+		break;
+	case 2:
+		*r = p;
+		*g = v;
+		*b = t;
+		break;
+	case 3:
+		*r = p;
+		*g = q;
+		*b = v;
+		break;
+	case 4:
+		*r = t;
+		*g = p;
+		*b = v;
+		break;
+	default:
+		*r = v;
+		*g = p;
+		*b = q;
+		break;
+	}
+}
+
+static i32 ui_paint_checker(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, f32 cell, f32 opacity) {
+	i32 row;
+	i32 col;
+	i32 rows;
+	i32 cols;
+	f32 w = x1 - x0;
+	f32 h = y1 - y0;
+	u32 light = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.78f, 0.78f, 0.80f, 1.0f), opacity));
+	u32 dark = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.42f, 0.43f, 0.46f, 1.0f), opacity));
+	if (cell < 3.0f) {
+		cell = 3.0f;
+	}
+	if (w < 0.5f || h < 0.5f) {
+		return 0;
+	}
+	cols = (i32)(w / cell) + 1;
+	rows = (i32)(h / cell) + 1;
+	for (row = 0; row < rows; ++row) {
+		f32 y = y0 + cell * (f32)row;
+		f32 ye = y + cell;
+		if (y >= y1) {
+			break;
+		}
+		if (ye > y1) {
+			ye = y1;
+		}
+		for (col = 0; col < cols; ++col) {
+			f32 x = x0 + cell * (f32)col;
+			f32 xe = x + cell;
+			u32 c = ((row + col) & 1) != 0 ? dark : light;
+			if (x >= x1) {
+				break;
+			}
+			if (xe > x1) {
+				xe = x1;
+			}
+			if (ui_paint_add_solid_quad(em, x, y, xe, ye, c) != 0) {
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
 static i32 ui_paint_utf8_next(const u8** pp, u32* out_cp) {
 	const u8* p = *pp;
 	if (*p == 0u) {
@@ -714,7 +832,8 @@ static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font
  * vertical_align (0=top 1=center 2=bottom), content_w/h from layout for wrap/align.
  * Caret/selection when props caret/sel_start/sel_end are set (text input).
  */
-static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot, f32 content_x, f32 content_y, f32 content_w, f32 content_h, f32 opacity) {
+static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot, f32 content_x, f32 content_y, f32 content_w, f32 content_h, f32 opacity, const_chr_t text_src,
+							  const sk_ui_color_t* color_src) {
 	const_chr_t text;
 	sk_ui_font_system_t* sys;
 	sk_ui_font_t* font;
@@ -743,6 +862,8 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	u32 li;
 	const u8* text_bytes;
 	const u8* line_begin;
+	char password_stars[128];
+	i32 using_hint = 0;
 
 	if (em->params == NULL) {
 		return 0;
@@ -752,7 +873,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	if (sys == NULL || font == NULL) {
 		return 0;
 	}
-	text = ui_paint_prop_str(slot, "text");
+	text = text_src != NULL ? text_src : ui_paint_prop_str(slot, "text");
 	if (text == NULL) {
 		text = "";
 	}
@@ -779,7 +900,50 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			sel_b = v;
 		}
 	}
-	/* Disabled fields: no caret/selection chrome (dimmed text only) — APX-253. */
+	/* Hint when the field is empty (InputTextWithHint / Search). */
+	if (text[0] == '\0') {
+		const_chr_t hint = ui_paint_prop_str(slot, "hint");
+		if (hint != NULL && hint[0] != '\0') {
+			text = hint;
+			using_hint = 1;
+			sel_a = -1;
+			sel_b = -1;
+		}
+	}
+	/* Password: paint bullets, keep caret/selection on the real length. */
+	{
+		i32 pw = 0;
+		(void)ui_paint_prop_i32(slot, "password", &pw);
+		if (pw != 0 && using_hint == 0 && text[0] != '\0') {
+			u32 n = 0u;
+			const u8* src = (const u8*)ui_paint_prop_str(slot, "text");
+			if (src == NULL) {
+				src = (const u8*)"";
+			}
+			while (*src != 0u && n + 1u < sizeof(password_stars)) {
+				u32 adv = 1u;
+				if ((*src & 0xE0u) == 0xC0u && src[1] != 0u) {
+					adv = 2u;
+				} else if ((*src & 0xF0u) == 0xE0u && src[1] != 0u && src[2] != 0u) {
+					adv = 3u;
+				} else if ((*src & 0xF8u) == 0xF0u && src[1] != 0u && src[2] != 0u && src[3] != 0u) {
+					adv = 4u;
+				}
+				src += adv;
+				password_stars[n++] = '*';
+			}
+			password_stars[n] = '\0';
+			text = password_stars;
+		}
+	}
+	/* Caret/selection only while focused. Disabled: dimmed text only. */
+	if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u || (slot->state_flags & (u32)SK_UI_STATE_FOCUSED) == 0u) {
+		draw_caret = 0;
+		if ((slot->state_flags & (u32)SK_UI_STATE_FOCUSED) == 0u) {
+			sel_a = -1;
+			sel_b = -1;
+		}
+	}
 	if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		draw_caret = 0;
 		sel_a = -1;
@@ -807,7 +971,13 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		return 0;
 	}
 
-	color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+	if (color_src != NULL) {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(*color_src, opacity));
+	} else if (using_hint != 0) {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.50f, 0.52f, 0.55f, 1.0f), opacity));
+	} else {
+		color = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+	}
 	text_bytes = (const u8*)text;
 
 	/* Break into lines (hard \n + optional soft wrap at spaces). */
@@ -1094,6 +1264,21 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		return -1;
 	}
 
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 hidden = 0;
+		i32 open = 1;
+		(void)ui_paint_prop_i32(slot, "hidden", &hidden);
+		(void)ui_paint_prop_i32(slot, "open", &open);
+		if (hidden != 0) {
+			return 0;
+		}
+		if (wtype != NULL && (strcmp(wtype, "menu_popup") == 0 || strcmp(wtype, "context_menu") == 0 || strcmp(wtype, "popup_menu") == 0 || strcmp(wtype, "modal") == 0) &&
+			open == 0) {
+			return 0;
+		}
+	}
+
 	/* Absolute logical → physical (scale applied once). */
 	ox = (origin_x_log + slot->layout_border.x) * em->scale_x;
 	oy = (origin_y_log + slot->layout_border.y) * em->scale_y;
@@ -1117,7 +1302,14 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		 * border strips square-off the rounded fill and make hover-off look
 		 * like a lone scalloped circle to vision (D2). */
 		const_chr_t box_wtype = ui_paint_prop_str(slot, "widget");
+		i32 labeled = 0;
 		i32 skip_box_chrome = (box_wtype != NULL && strcmp(box_wtype, "toggle") == 0) ? 1 : 0;
+		if (box_wtype != NULL && (strcmp(box_wtype, "checkbox") == 0 || strcmp(box_wtype, "radio") == 0)) {
+			(void)ui_paint_prop_i32(slot, "labeled", &labeled);
+			if (labeled != 0) {
+				skip_box_chrome = 1;
+			}
+		}
 
 		/* Background */
 		if (skip_box_chrome == 0 && ui_paint_color_visible(slot->computed.background_color)) {
@@ -1144,12 +1336,51 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
-	/* Image: full content box textured quad. */
+	/* Image: textured quad over the content box with UV rect, tint and border.
+	 * Editor ImGui::Image passes explicit size (layout width/height), uv0/uv1
+	 * (sub-rect or flipped), tint_col and border_col. tex_id == 0 skips the
+	 * quad (invalid/empty host texture); a non-transparent border still draws
+	 * (AddRect does not sample the texture), with the quad inset by 1px. */
 	if ((sk_ui_node_kind_t)slot->kind == SK_UI_NODE_KIND_IMAGE) {
 		i32 tex_id = 0;
+		f32 u0 = ui_paint_prop_f32_or(slot, "uv0_x", 0.0f);
+		f32 v0 = ui_paint_prop_f32_or(slot, "uv0_y", 0.0f);
+		f32 u1 = ui_paint_prop_f32_or(slot, "uv1_x", 1.0f);
+		f32 v1 = ui_paint_prop_f32_or(slot, "uv1_y", 1.0f);
+		sk_ui_color_t tint;
+		sk_ui_color_t border_col;
+
+		tint.r = ui_paint_prop_f32_or(slot, "tint_r", 1.0f);
+		tint.g = ui_paint_prop_f32_or(slot, "tint_g", 1.0f);
+		tint.b = ui_paint_prop_f32_or(slot, "tint_b", 1.0f);
+		tint.a = ui_paint_prop_f32_or(slot, "tint_a", 1.0f);
+		border_col.r = ui_paint_prop_f32_or(slot, "border_r", 0.0f);
+		border_col.g = ui_paint_prop_f32_or(slot, "border_g", 0.0f);
+		border_col.b = ui_paint_prop_f32_or(slot, "border_b", 0.0f);
+		border_col.a = ui_paint_prop_f32_or(slot, "border_a", 0.0f);
 		if (ui_paint_prop_i32(slot, "texture_id", &tex_id) == 0 && tex_id != 0) {
-			u32 col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
-			if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_IMAGE, (u32)tex_id, cx, cy, cx + cw, cy + ch, 0.0f, 0.0f, 1.0f, 1.0f, col) != 0) {
+			u32 col = sk_ui_pack_color(ui_paint_mul_opacity(tint, opacity));
+			f32 ix0 = cx;
+			f32 iy0 = cy;
+			f32 ix1 = cx + cw;
+			f32 iy1 = cy + ch;
+			if (border_col.a > 0.0f && cw > 2.0f && ch > 2.0f) {
+				u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(border_col, opacity));
+				if (ui_paint_add_border(em, bx, by, bw, bh, 1.0f, 1.0f, 1.0f, 1.0f, bd) != 0) {
+					return -1;
+				}
+				ix0 += 1.0f;
+				iy0 += 1.0f;
+				ix1 -= 1.0f;
+				iy1 -= 1.0f;
+			}
+			if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_IMAGE, (u32)tex_id, ix0, iy0, ix1, iy1, u0, v0, u1, v1, col) != 0) {
+				return -1;
+			}
+		} else if (border_col.a > 0.0f && cw > 2.0f && ch > 2.0f) {
+			/* Invalid / zero texture: border rect still paints (ImGui AddRect). */
+			u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(border_col, opacity));
+			if (ui_paint_add_border(em, bx, by, bw, bh, 1.0f, 1.0f, 1.0f, 1.0f, bd) != 0) {
 				return -1;
 			}
 		}
@@ -1161,22 +1392,71 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 	 */
 	{
 		i32 checked = 0;
+		i32 mixed = 0;
+		i32 labeled = 0;
 		i32 on = 0;
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "checkbox") == 0 && ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
-			/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
-			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
-			f32 m = (cw < ch ? cw : ch) * 0.22f;
-			f32 thick = (cw < ch ? cw : ch) * 0.16f;
+		(void)ui_paint_prop_i32(slot, "checked", &checked);
+		(void)ui_paint_prop_i32(slot, "mixed", &mixed);
+		(void)ui_paint_prop_i32(slot, "labeled", &labeled);
+		if (wtype != NULL && strcmp(wtype, "checkbox") == 0) {
 			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
-			if (thick < 1.5f * avg) {
-				thick = 1.5f * avg;
+			f32 box_s = 18.0f * avg;
+			f32 box_x = bx;
+			f32 box_y = by;
+			f32 mx;
+			f32 my;
+			f32 mw;
+			f32 mh;
+			if (labeled != 0) {
+				if (box_s > bh) {
+					box_s = bh;
+				}
+				box_y = by + (bh - box_s) * 0.5f;
+				{
+					u32 face = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
+					u32 bd = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.border_color, opacity));
+					f32 r = slot->computed.corner_radius * avg;
+					f32 t = 2.0f * avg;
+					if (ui_paint_add_rounded_rect_filled(em, box_x, box_y, box_s, box_s, r, face) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_border(em, box_x, box_y, box_s, box_s, t, t, t, t, bd) != 0) {
+						return -1;
+					}
+				}
+				mx = box_x + 2.0f * avg;
+				my = box_y + 2.0f * avg;
+				mw = box_s - 4.0f * avg;
+				mh = box_s - 4.0f * avg;
+			} else {
+				mx = cx;
+				my = cy;
+				mw = cw;
+				mh = ch;
 			}
-			if (ui_paint_add_thick_line(em, cx + m, cy + m, cx + cw - m, cy + ch - m, thick, mk) != 0) {
-				return -1;
-			}
-			if (ui_paint_add_thick_line(em, cx + cw - m, cy + m, cx + m, cy + ch - m, thick, mk) != 0) {
-				return -1;
+			if (mixed != 0) {
+				/* Indeterminate: filled inner square (not an X, not empty). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 inset = (mw < mh ? mw : mh) * 0.22f;
+				f32 rr = 1.5f * avg;
+				if (ui_paint_add_rounded_rect_filled(em, mx + inset, my + inset, mw - inset * 2.0f, mh - inset * 2.0f, rr, mk) != 0) {
+					return -1;
+				}
+			} else if (checked != 0) {
+				/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 m = (mw < mh ? mw : mh) * 0.22f;
+				f32 thick = (mw < mh ? mw : mh) * 0.16f;
+				if (thick < 1.5f * avg) {
+					thick = 1.5f * avg;
+				}
+				if (ui_paint_add_thick_line(em, mx + m, my + m, mx + mw - m, my + mh - m, thick, mk) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, mx + mw - m, my + m, mx + m, my + mh - m, thick, mk) != 0) {
+					return -1;
+				}
 			}
 		}
 		if (wtype != NULL && strcmp(wtype, "radio") == 0) {
@@ -1184,22 +1464,39 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			 * Circular ring: outer disc (ring color) minus inner hole (dark face).
 			 * When checked, a smaller filled disc sits in the center.
 			 * Uses border-box so the control is round even without layout border.
+			 * Labeled radios paint the ring in the left 18px padding.
 			 */
 			u32 ring_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
 			u32 hole_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f), opacity));
-			f32 side = bw < bh ? bw : bh;
-			f32 rx = bx + (bw - side) * 0.5f;
-			f32 ry = by + (bh - side) * 0.5f;
-			f32 hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
-			f32 hx = rx + (side - hole) * 0.5f;
-			f32 hy = ry + (side - hole) * 0.5f;
+			f32 side;
+			f32 rx;
+			f32 ry;
+			f32 hole;
+			f32 hx;
+			f32 hy;
+			if (labeled != 0) {
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				side = 18.0f * avg;
+				if (side > bh) {
+					side = bh;
+				}
+				rx = bx;
+				ry = by + (bh - side) * 0.5f;
+			} else {
+				side = bw < bh ? bw : bh;
+				rx = bx + (bw - side) * 0.5f;
+				ry = by + (bh - side) * 0.5f;
+			}
+			hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
+			hx = rx + (side - hole) * 0.5f;
+			hy = ry + (side - hole) * 0.5f;
 			if (ui_paint_add_rounded_rect_filled(em, rx, ry, side, side, side * 0.5f, ring_col) != 0) {
 				return -1;
 			}
 			if (ui_paint_add_rounded_rect_filled(em, hx, hy, hole, hole, hole * 0.5f, hole_col) != 0) {
 				return -1;
 			}
-			if (ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+			if (checked != 0) {
 				/* Solid disc clearly smaller than the outer ring; dim when disabled. */
 				i32 radio_disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
 				/* Disabled: still a solid light disc (must read as filled), just less bright. */
@@ -1262,15 +1559,35 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				}
 			}
 		}
+		if (wtype != NULL && strcmp(wtype, "tree_arrow") == 0) {
+			/* ImGui-style filled triangle: right when closed, down when open. */
+			i32 open = 0;
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			f32 s = 4.6f * avg;
+			f32 ax = bx + bw * 0.5f;
+			f32 ay = by + bh * 0.5f;
+			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			(void)ui_paint_prop_i32(slot, "open", &open);
+			if (open != 0) {
+				if (ui_paint_add_triangle(em, ax - s, ay - s * 0.45f, ax + s, ay - s * 0.45f, ax, ay + s * 0.75f, mk) != 0) {
+					return -1;
+				}
+			} else if (ui_paint_add_triangle(em, ax - s * 0.45f, ay - s, ax - s * 0.45f, ay + s, ax + s * 0.75f, ay, mk) != 0) {
+				return -1;
+			}
+		}
 	}
 
-	/* Slider fill + thumb from value/min/max props. */
+	/* Slider / Drag fill + grab + optional text-entry inset. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "slider") == 0) {
+		i32 is_slider = (wtype != NULL && strcmp(wtype, "slider") == 0) ? 1 : 0;
+		i32 is_drag = (wtype != NULL && strcmp(wtype, "drag") == 0) ? 1 : 0;
+		if (is_slider != 0 || is_drag != 0) {
 			f32 vmin = ui_paint_prop_f32_or(slot, "min", 0.0f);
 			f32 vmax = ui_paint_prop_f32_or(slot, "max", 1.0f);
 			f32 val = ui_paint_prop_f32_or(slot, "value", 0.0f);
+			f32 span = vmax - vmin;
 			f32 t;
 			f32 track_h;
 			f32 track_y;
@@ -1282,54 +1599,79 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			u32 fill_col;
 			u32 thumb_col;
 			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+			i32 text_mode = 0;
+			i32 active = ((slot->state_flags & (u32)SK_UI_STATE_ACTIVE) != 0u) ? 1 : 0;
 			sk_ui_color_t fill_c;
 			sk_ui_color_t thumb_c;
-			if (vmax <= vmin) {
-				vmax = vmin + 1.0f;
+			(void)ui_paint_prop_i32(slot, "text_input", &text_mode);
+			if (span > -0.0000001f && span < 0.0000001f) {
+				t = 0.0f;
+			} else {
+				t = (val - vmin) / span;
 			}
-			if (val < vmin) {
-				val = vmin;
+			if (t < 0.0f) {
+				t = 0.0f;
 			}
-			if (val > vmax) {
-				val = vmax;
+			if (t > 1.0f) {
+				t = 1.0f;
 			}
-			t = (val - vmin) / (vmax - vmin);
-			/* Thin track so the grab knob is clearly thicker (vision: not a bare bar). */
-			track_h = ch * 0.22f;
-			if (track_h < 2.0f) {
-				track_h = 2.0f;
-			}
-			track_y = cy + (ch - track_h) * 0.5f;
-			fill_w = cw * t;
-			/* Disabled: muted fill + thumb (vision grades dimming) — APX-253. */
-			fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
-			thumb_c = disabled != 0 ? sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f) : sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
-			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
-			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
-			if (fill_w > 0.0f) {
-				if (ui_paint_add_solid_quad(em, cx, track_y, cx + fill_w, track_y + track_h, fill_col) != 0) {
+			if (text_mode != 0) {
+				/* Ctrl-click text-entry: inset field, hide the grab. */
+				u32 inset_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.08f, 0.09f, 0.11f, 1.0f), opacity));
+				f32 inset = 2.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				if (ui_paint_add_solid_quad(em, cx + inset, cy + inset, cx + cw - inset, cy + ch - inset, inset_col) != 0) {
 					return -1;
 				}
-			}
-			/* Distinct rounded grab handle — taller than the track, not an end-cap. */
-			thumb_w = ch * 0.55f;
-			thumb_h = ch * 0.90f;
-			if (thumb_w < 8.0f) {
-				thumb_w = 8.0f;
-			}
-			if (thumb_h < 10.0f) {
-				thumb_h = 10.0f;
-			}
-			thumb_x = cx + fill_w - thumb_w * 0.5f;
-			if (thumb_x < cx) {
-				thumb_x = cx;
-			}
-			if (thumb_x + thumb_w > cx + cw) {
-				thumb_x = cx + cw - thumb_w;
-			}
-			thumb_y = cy + (ch - thumb_h) * 0.5f;
-			if (ui_paint_add_rounded_rect_filled(em, thumb_x, thumb_y, thumb_w, thumb_h, thumb_w * 0.35f, thumb_col) != 0) {
-				return -1;
+			} else if (is_slider != 0) {
+				track_h = ch * 0.22f;
+				if (track_h < 2.0f) {
+					track_h = 2.0f;
+				}
+				track_y = cy + (ch - track_h) * 0.5f;
+				fill_w = cw * t;
+				fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+				/* Blue grab (not white) so the centered format label stays readable. */
+				thumb_c = disabled != 0 ? sk_ui_rgba(0.40f, 0.44f, 0.50f, 1.0f) : (active != 0 ? sk_ui_rgba(0.72f, 0.86f, 1.0f, 1.0f) : sk_ui_rgba(0.42f, 0.64f, 0.98f, 1.0f));
+				fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
+				thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
+				if (fill_w > 0.0f) {
+					if (ui_paint_add_solid_quad(em, cx, track_y, cx + fill_w, track_y + track_h, fill_col) != 0) {
+						return -1;
+					}
+				}
+				thumb_w = ch * 0.38f;
+				thumb_h = ch * 0.78f;
+				if (thumb_w < 6.0f) {
+					thumb_w = 6.0f;
+				}
+				if (thumb_h < 8.0f) {
+					thumb_h = 8.0f;
+				}
+				if (active != 0) {
+					thumb_w += 2.0f;
+					thumb_h += 2.0f;
+				}
+				thumb_x = cx + fill_w - thumb_w * 0.5f;
+				if (thumb_x < cx) {
+					thumb_x = cx;
+				}
+				if (thumb_x + thumb_w > cx + cw) {
+					thumb_x = cx + cw - thumb_w;
+				}
+				thumb_y = cy + (ch - thumb_h) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, thumb_x, thumb_y, thumb_w, thumb_h, thumb_w * 0.35f, thumb_col) != 0) {
+					return -1;
+				}
+			} else if (span <= -0.0000001f || span >= 0.0000001f) {
+				/* Bounded drag: thin left-to-right fill so min/mid/max read. */
+				fill_w = cw * t;
+				fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 0.55f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 0.45f);
+				fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
+				if (fill_w > 0.0f) {
+					if (ui_paint_add_solid_quad(em, cx, cy, cx + fill_w, cy + ch, fill_col) != 0) {
+						return -1;
+					}
+				}
 			}
 		}
 		/*
@@ -1456,10 +1798,313 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
+	/* Color family (APX-357): swatch, SV square, hue/alpha bars, half-alpha preview. */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 is_swatch = (wtype != NULL && (strcmp(wtype, "color_button") == 0 || strcmp(wtype, "color_swatch") == 0)) ? 1 : 0;
+		i32 is_sv = (wtype != NULL && strcmp(wtype, "color_sv") == 0) ? 1 : 0;
+		i32 is_hue = (wtype != NULL && strcmp(wtype, "color_hue") == 0) ? 1 : 0;
+		i32 is_alpha = (wtype != NULL && strcmp(wtype, "color_alpha") == 0) ? 1 : 0;
+		i32 is_preview = (wtype != NULL && strcmp(wtype, "color_preview") == 0) ? 1 : 0;
+		if (is_swatch != 0 || is_sv != 0 || is_hue != 0 || is_alpha != 0 || is_preview != 0) {
+			f32 cr = ui_paint_prop_f32_or(slot, "r", 1.0f);
+			f32 cg = ui_paint_prop_f32_or(slot, "g", 1.0f);
+			f32 cb = ui_paint_prop_f32_or(slot, "b", 1.0f);
+			f32 ca = ui_paint_prop_f32_or(slot, "a", 1.0f);
+			f32 hh = ui_paint_prop_f32_or(slot, "h", 0.0f);
+			f32 ss = ui_paint_prop_f32_or(slot, "s", 0.0f);
+			f32 vv = ui_paint_prop_f32_or(slot, "v", 1.0f);
+			i32 flags = 0;
+			(void)ui_paint_prop_i32(slot, "flags", &flags);
+			if (is_swatch != 0) {
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				u32 fill = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, ca), opacity));
+				if (ca < 0.999f) {
+					if (ui_paint_checker(em, cx, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+						return -1;
+					}
+				}
+				if (ui_paint_add_solid_quad(em, cx, cy, cx + cw, cy + ch, fill) != 0) {
+					return -1;
+				}
+			} else if (is_sv != 0) {
+				const i32 steps = 16;
+				i32 iy;
+				i32 ix;
+				f32 cw_step = cw / (f32)steps;
+				f32 ch_step = ch / (f32)steps;
+				for (iy = 0; iy < steps; ++iy) {
+					for (ix = 0; ix < steps; ++ix) {
+						f32 s = ((f32)ix + 0.5f) / (f32)steps;
+						f32 v = 1.0f - ((f32)iy + 0.5f) / (f32)steps;
+						f32 rr, gg, bb;
+						u32 col;
+						f32 x0 = cx + cw_step * (f32)ix;
+						f32 y0 = cy + ch_step * (f32)iy;
+						ui_paint_hsv_to_rgb(hh, s, v, &rr, &gg, &bb);
+						col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(rr, gg, bb, 1.0f), opacity));
+						if (ui_paint_add_solid_quad(em, x0, y0, x0 + cw_step + 0.5f, y0 + ch_step + 0.5f, col) != 0) {
+							return -1;
+						}
+					}
+				}
+				{
+					f32 mx = cx + ss * cw;
+					f32 my = cy + (1.0f - vv) * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					u32 ink = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.05f, 0.05f, 0.06f, 1.0f), opacity));
+					f32 crd = 5.0f * ((em->scale_x + em->scale_y) * 0.5f);
+					if (ui_paint_add_solid_quad(em, mx - crd, my - 1.0f, mx + crd, my + 1.0f, ring) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_solid_quad(em, mx - 1.0f, my - crd, mx + 1.0f, my + crd, ring) != 0) {
+						return -1;
+					}
+					if (ui_paint_add_solid_quad(em, mx - crd + 1.0f, my, mx + crd - 1.0f, my + 1.0f, ink) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_hue != 0) {
+				const i32 steps = 24;
+				i32 iy;
+				f32 ch_step = ch / (f32)steps;
+				for (iy = 0; iy < steps; ++iy) {
+					f32 h0 = ((f32)iy + 0.5f) / (f32)steps;
+					f32 rr, gg, bb;
+					u32 col;
+					f32 y0 = cy + ch_step * (f32)iy;
+					ui_paint_hsv_to_rgb(h0, 1.0f, 1.0f, &rr, &gg, &bb);
+					col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(rr, gg, bb, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, y0, cx + cw, y0 + ch_step + 0.5f, col) != 0) {
+						return -1;
+					}
+				}
+				{
+					f32 my = cy + hh * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, my - 1.5f, cx + cw, my + 1.5f, ring) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_alpha != 0) {
+				const i32 steps = 16;
+				i32 iy;
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				f32 ch_step = ch / (f32)steps;
+				if (ui_paint_checker(em, cx, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+					return -1;
+				}
+				for (iy = 0; iy < steps; ++iy) {
+					f32 a = 1.0f - ((f32)iy + 0.5f) / (f32)steps;
+					u32 col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, a), opacity));
+					f32 y0 = cy + ch_step * (f32)iy;
+					if (ui_paint_add_solid_quad(em, cx, y0, cx + cw, y0 + ch_step + 0.5f, col) != 0) {
+						return -1;
+					}
+				}
+				{
+					f32 my = cy + (1.0f - ca) * ch;
+					u32 ring = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f), opacity));
+					if (ui_paint_add_solid_quad(em, cx, my - 1.5f, cx + cw, my + 1.5f, ring) != 0) {
+						return -1;
+					}
+				}
+			} else if (is_preview != 0) {
+				f32 mid = cx + cw * 0.5f;
+				f32 cell = 4.0f * ((em->scale_x + em->scale_y) * 0.5f);
+				u32 opaque = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, 1.0f), opacity));
+				u32 faded = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(cr, cg, cb, ca), opacity));
+				if (ui_paint_add_solid_quad(em, cx, cy, mid, cy + ch, opaque) != 0) {
+					return -1;
+				}
+				(void)flags;
+				if (ui_paint_checker(em, mid, cy, cx + cw, cy + ch, cell, opacity) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_solid_quad(em, mid, cy, cx + cw, cy + ch, faded) != 0) {
+					return -1;
+				}
+			}
+		}
+	}
+
+	/* Text family marks (APX-340): bullet disc, separator rule. */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+		if (wtype != NULL && strcmp(wtype, "bullet_text") == 0) {
+			/* Small filled disc centered in the left padding (class pad 18).
+			 * 8px diameter keeps a solid core after edge anti-aliasing. */
+			f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+			f32 d = 8.0f * avg;
+			f32 ddx;
+			f32 ddy;
+			u32 dot_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			if (ch > 0.0f && d > ch * 0.7f) {
+				d = ch * 0.7f;
+			}
+			if (d < 3.0f * avg) {
+				d = 3.0f * avg;
+			}
+			ddx = cx - pad_l * 0.5f - d * 0.5f;
+			ddy = cy + (ch - d) * 0.5f;
+			if (ui_paint_add_rounded_rect_filled(em, ddx, ddy, d, d, d * 0.5f, dot_col) != 0) {
+				return -1;
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "separator_text") == 0) {
+			/* Full-width rule with a gap that holds the label (ImGui SeparatorText). */
+			const_chr_t txt = ui_paint_prop_str(slot, "text");
+			const sk_ui_paint_params_t* params = em->params;
+			f32 px = slot->computed.font_size * avg;
+			f32 label_w = 0.0f;
+			f32 gap = 12.0f * avg;
+			f32 mid = cy + ch * 0.5f;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.42f, 0.45f, 0.50f, 1.0f), opacity));
+			if (px < 1.0f) {
+				px = 1.0f;
+			}
+			if (params != NULL && params->font_system != NULL && params->font != NULL && txt != NULL && txt[0] != '\0') {
+				label_w = ui_paint_measure_advance(params->font_system, params->font, px, (const u8*)txt, (const u8*)txt + strlen(txt));
+			}
+			if (txt == NULL || txt[0] == '\0') {
+				if (ui_paint_add_thick_line(em, cx, mid, cx + cw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			} else {
+				if (ui_paint_add_thick_line(em, cx, mid, cx + gap, mid, t, rule_col) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, cx + gap * 2.0f + label_w, mid, cx + cw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "separator") == 0) {
+			/* Bare rule (§19): horizontal by default, vertical (toolbar / menu
+			 * bar) spans the full row height. Matches the separator_text rule
+			 * colour so grouped dividers read consistently. */
+			i32 vertical = 0;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.40f, 0.43f, 0.48f, 1.0f), opacity));
+			(void)ui_paint_prop_i32(slot, "vertical", &vertical);
+			if (vertical == 0 && sk_ui_node_is_valid(slot->parent)) {
+				/* Resolved parent direction wins (inline-flipped row parents). */
+				const ui_node_slot_t* pslot = ui_slot(em->ctx, slot->parent);
+				if (pslot != NULL && (pslot->layout_style.flex_direction == SK_UI_FLEX_ROW || pslot->layout_style.flex_direction == SK_UI_FLEX_ROW_REVERSE)) {
+					vertical = 1;
+				}
+			}
+			if (vertical != 0) {
+				f32 mid = bx + bw * 0.5f;
+				if (ui_paint_add_thick_line(em, mid, by, mid, by + bh, t, rule_col) != 0) {
+					return -1;
+				}
+			} else {
+				f32 mid = by + bh * 0.5f;
+				if (ui_paint_add_thick_line(em, bx, mid, bx + bw, mid, t, rule_col) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && (strcmp(wtype, "table") == 0 || strcmp(wtype, "table_header") == 0 || strcmp(wtype, "table_row") == 0)) {
+			/* Extra 1px grid on top of style borders so header / body / cells
+			 * read as an ImGui table (Packages, pending-save, EntityTree). */
+			i32 flags = 0;
+			i32 inner_h = 0;
+			i32 inner_v = 0;
+			i32 no_body = 0;
+			f32 tline = 1.0f * avg;
+			u32 line_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.30f, 0.33f, 0.38f, 1.0f), opacity));
+			(void)ui_paint_prop_i32(slot, "table_flags", &flags);
+			(void)ui_paint_prop_i32(slot, "table_inner_h", &inner_h);
+			(void)ui_paint_prop_i32(slot, "table_inner_v", &inner_v);
+			(void)ui_paint_prop_i32(slot, "table_no_body_border", &no_body);
+			if (strcmp(wtype, "table") == 0 && (flags & (i32)SK_UI_TABLE_FLAG_BORDERS_OUTER) != 0) {
+				if (ui_paint_add_border(em, bx, by, bw, bh, tline, tline, tline, tline, line_col) != 0) {
+					return -1;
+				}
+			}
+			if (strcmp(wtype, "table") != 0) {
+				if (inner_h != 0 || strcmp(wtype, "table_header") == 0) {
+					if (ui_paint_add_thick_line(em, bx, by + bh - tline * 0.5f, bx + bw, by + bh - tline * 0.5f, tline, line_col) != 0) {
+						return -1;
+					}
+				}
+				if (inner_v != 0) {
+					u32 ci;
+					for (ci = 0u; ci < slot->children.count; ++ci) {
+						const ui_node_slot_t* cell = ui_slot(em->ctx, slot->children.items[ci]);
+						const_chr_t cwtype;
+						f32 cx1;
+						if (cell == NULL) {
+							continue;
+						}
+						cwtype = ui_paint_prop_str(cell, "widget");
+						if (cwtype == NULL || (strcmp(cwtype, "table_cell") != 0 && strcmp(cwtype, "table_header_cell") != 0)) {
+							continue;
+						}
+						if (ci + 1u >= slot->children.count) {
+							continue;
+						}
+						cx1 = bx + (cell->layout_border.x + cell->layout_border.width) * em->scale_x;
+						if (ui_paint_add_thick_line(em, cx1, by, cx1, by + bh, tline, line_col) != 0) {
+							return -1;
+						}
+					}
+				}
+			}
+			(void)no_body;
+		}
+		if (wtype != NULL && strcmp(wtype, "menu_separator") == 0) {
+			f32 mid = cy + ch * 0.5f;
+			f32 t = 1.0f * avg;
+			u32 rule_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.38f, 0.40f, 0.46f, 1.0f), opacity));
+			if (ui_paint_add_thick_line(em, bx + 6.0f * avg, mid, bx + bw - 6.0f * avg, mid, t, rule_col) != 0) {
+				return -1;
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "menu_item") == 0) {
+			i32 selected = 0;
+			(void)ui_paint_prop_i32(slot, "selected", &selected);
+			if (selected != 0) {
+				/* Tick mark in the left check column (ImGui MenuItem selected). */
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+				f32 col_w = pad_l > 1.0f ? pad_l : 22.0f * avg;
+				f32 s = col_w * 0.55f;
+				f32 tick_x = bx + (col_w - s) * 0.45f;
+				f32 tick_y = by + (bh - s) * 0.5f;
+				f32 thick = 1.8f * avg;
+				if (ui_paint_add_thick_line(em, tick_x + s * 0.12f, tick_y + s * 0.52f, tick_x + s * 0.38f, tick_y + s * 0.82f, thick, mk) != 0) {
+					return -1;
+				}
+				if (ui_paint_add_thick_line(em, tick_x + s * 0.38f, tick_y + s * 0.82f, tick_x + s * 0.90f, tick_y + s * 0.18f, thick, mk) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "submenu") == 0) {
+			/* Right-pointing chevron for nested menus. */
+			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			f32 s = 7.0f * avg;
+			f32 chv_x = bx + bw - 12.0f * avg;
+			f32 chv_y = by + (bh - s) * 0.5f;
+			f32 thick = 1.6f * avg;
+			if (ui_paint_add_thick_line(em, chv_x, chv_y, chv_x + s * 0.7f, chv_y + s * 0.5f, thick, mk) != 0) {
+				return -1;
+			}
+			if (ui_paint_add_thick_line(em, chv_x + s * 0.7f, chv_y + s * 0.5f, chv_x, chv_y + s, thick, mk) != 0) {
+				return -1;
+			}
+		}
+	}
+
 	/* Scrollbars for scroll_view when content overflows. */
 	{
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
-		if (wtype != NULL && strcmp(wtype, "scroll_view") == 0) {
+		if (wtype != NULL && (strcmp(wtype, "scroll_view") == 0 || strcmp(wtype, "text_input") == 0 || strcmp(wtype, "child") == 0)) {
 			f32 content_h = ui_paint_prop_f32_or(slot, "content_height", 0.0f);
 			f32 content_w = ui_paint_prop_f32_or(slot, "content_width", 0.0f);
 			f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f);
@@ -1527,12 +2172,146 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			emit = 1;
 		}
 		if (wtype != NULL &&
-			(strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "menu") == 0 ||
-			 strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "tab") == 0 || strcmp(wtype, "window_title_bar") == 0)) {
+			(strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "selectable") == 0 ||
+			 strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "menu") == 0 || strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0 || strcmp(wtype, "combo") == 0 ||
+			 strcmp(wtype, "tab") == 0 || strcmp(wtype, "tab_button") == 0 || strcmp(wtype, "tab_close") == 0 || strcmp(wtype, "window_title_bar") == 0 ||
+			 strcmp(wtype, "modal_title") == 0 || strcmp(wtype, "separator_text") == 0 || strcmp(wtype, "slider") == 0 || strcmp(wtype, "drag") == 0)) {
 			emit = 1;
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
-			if (ui_paint_emit_text(em, slot, cx, cy, cw, ch, opacity) != 0) {
+			f32 text_x = cx;
+			f32 text_y = cy;
+			f32 text_w = cw;
+			f32 text_h = ch;
+			i32 is_input = (wtype != NULL && strcmp(wtype, "text_input") == 0) ? 1 : 0;
+			if (wtype != NULL && strcmp(wtype, "separator_text") == 0) {
+				/* Label starts after the rule gap (vertical_align=1 centers it). */
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				text_x = cx + 12.0f * avg;
+				text_w = cw - 12.0f * avg;
+			}
+			if (wtype != NULL && strcmp(wtype, "combo") == 0) {
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				text_w = cw - 18.0f * avg;
+				if (text_w < 8.0f * avg) {
+					text_w = 8.0f * avg;
+				}
+			}
+			if (wtype != NULL && strcmp(wtype, "tab") == 0) {
+				i32 has_close = 0;
+				(void)ui_paint_prop_i32(slot, "has_close", &has_close);
+				if (has_close != 0) {
+					f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+					text_w = cw - 20.0f * avg;
+					if (text_w < 8.0f * avg) {
+						text_w = 8.0f * avg;
+					}
+				}
+			}
+			if (wtype != NULL && (strcmp(wtype, "menu_item") == 0 || strcmp(wtype, "submenu") == 0)) {
+				const_chr_t sc = ui_paint_prop_str(slot, "shortcut");
+				f32 sw = ui_paint_prop_f32_or(slot, "shortcut_w", 0.0f);
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				if (sc != NULL && sc[0] != '\0' && sw <= 0.0f) {
+					sw = (f32)strlen(sc) * 14.0f * 0.55f * avg;
+				} else {
+					sw *= avg;
+				}
+				if (sw > 0.0f) {
+					text_w = cw - sw - 8.0f * avg;
+					if (text_w < 8.0f * avg) {
+						text_w = 8.0f * avg;
+					}
+				}
+			}
+			if (is_input != 0) {
+				f32 scx = ui_paint_prop_f32_or(slot, "scroll_x", 0.0f) * em->scale_x;
+				f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f) * em->scale_y;
+				sk_ui_rect_t clip;
+				clip.x = cx;
+				clip.y = cy;
+				clip.width = cw;
+				clip.height = ch;
+				if (ui_paint_push_clip(em, clip) != 0) {
+					return -1;
+				}
+				text_x = cx - scx;
+				text_y = cy - scy;
+				if (ui_paint_emit_text(em, slot, text_x, text_y, text_w, text_h, opacity, NULL, NULL) != 0) {
+					return -1;
+				}
+				if (ui_paint_pop_clip(em) != 0) {
+					return -1;
+				}
+			} else if (ui_paint_emit_text(em, slot, text_x, cy, text_w, ch, opacity, NULL, NULL) != 0) {
+				return -1;
+			}
+			if (wtype != NULL && strcmp(wtype, "combo") == 0) {
+				/* Down-pointing triangle on the right of the preview frame. */
+				f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+				f32 s = 4.0f * avg;
+				f32 ax = cx + cw - 10.0f * avg;
+				f32 ay = cy + ch * 0.5f;
+				u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+				if (ui_paint_add_triangle(em, ax - s, ay - s * 0.35f, ax + s, ay - s * 0.35f, ax, ay + s * 0.70f, mk) != 0) {
+					return -1;
+				}
+			}
+			if (wtype != NULL && strcmp(wtype, "menu_item") == 0) {
+				const_chr_t sc = ui_paint_prop_str(slot, "shortcut");
+				if (sc != NULL && sc[0] != '\0') {
+					f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+					f32 sw = ui_paint_prop_f32_or(slot, "shortcut_w", 0.0f);
+					f32 pad_r = slot->layout_style.padding.right * em->scale_x;
+					sk_ui_color_t sc_col;
+					if (sw <= 0.0f) {
+						sw = (f32)strlen(sc) * 14.0f * 0.55f;
+					}
+					sw *= avg;
+					if (pad_r < 1.0f) {
+						pad_r = 8.0f * avg;
+					}
+					if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) {
+						sc_col = slot->computed.color;
+					} else {
+						sc_col = sk_ui_rgba(0.62f, 0.64f, 0.70f, 1.0f);
+					}
+					if (ui_paint_emit_text(em, slot, cx + cw - pad_r - sw, cy, sw + pad_r, ch, opacity, sc, &sc_col) != 0) {
+						return -1;
+					}
+				}
+			}
+		}
+	}
+
+	/* Search magnifier in the extra left pad (ImGuiSearchInputText). */
+	{
+		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
+		i32 search = 0;
+		(void)ui_paint_prop_i32(slot, "search", &search);
+		if (wtype != NULL && strcmp(wtype, "text_input") == 0 && search != 0) {
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			f32 pad_l = slot->layout_style.padding.left * em->scale_x;
+			f32 d = 8.0f * avg;
+			f32 rx;
+			f32 ry;
+			u32 ic = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.62f, 0.64f, 0.68f, 1.0f), opacity));
+			if (d > ch * 0.55f) {
+				d = ch * 0.55f;
+			}
+			rx = bx + (pad_l - d) * 0.45f;
+			ry = by + (bh - d) * 0.5f;
+			{
+				u32 hole = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.background_color, opacity));
+				f32 inset = 1.6f * avg;
+				if (ui_paint_add_rounded_rect_filled(em, rx, ry, d, d, d * 0.5f, ic) != 0) {
+					return -1;
+				}
+				if (d > inset * 2.0f && ui_paint_add_rounded_rect_filled(em, rx + inset, ry + inset, d - inset * 2.0f, d - inset * 2.0f, (d - inset * 2.0f) * 0.5f, hole) != 0) {
+					return -1;
+				}
+			}
+			if (ui_paint_add_thick_line(em, rx + d * 0.72f, ry + d * 0.72f, rx + d + 3.0f * avg, ry + d + 3.0f * avg, 1.6f * avg, ic) != 0) {
 				return -1;
 			}
 		}

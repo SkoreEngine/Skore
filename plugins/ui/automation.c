@@ -259,12 +259,18 @@ i32 ui_node_is_visible_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 i32 ui_node_is_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const sk_ui_api_t* ui = auto_api();
-	u32 st;
+	sk_ui_node_t cur;
 	if (ctx == NULL || !ui->node_alive(ctx, node)) {
 		return 0;
 	}
-	st = ui->node_get_state(ctx, node);
-	return (st & (u32)SK_UI_STATE_DISABLED) == 0u ? 1 : 0;
+	cur = node;
+	while (sk_ui_node_is_valid(cur)) {
+		if ((ui->node_get_state(ctx, cur) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+			return 0;
+		}
+		cur = ui->node_parent(ctx, cur);
+	}
+	return 1;
 }
 
 const_chr_t ui_node_get_visible_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -651,6 +657,12 @@ i32 ui_harness_step_impl(sk_ui_harness_t* harness, f32 delta_seconds) {
 	harness->time_sec += (f64)delta_seconds;
 	harness->last_delta = delta_seconds;
 	harness->frame_index += 1u;
+
+	ui_tooltip_tick_impl(harness->ctx, delta_seconds);
+	/* Expire a delivered payload after the accept frame (mouse already up). */
+	if ((harness->ctx->pointer_buttons & (1u << (u32)SK_UI_POINTER_BUTTON_LEFT)) == 0u) {
+		ui_drag_drop_on_pointer(harness->ctx, SK_UI_POINTER_BUTTON_LEFT, -1);
+	}
 
 	if (ui->style_resolve(harness->ctx) != 0) {
 		return -1;
