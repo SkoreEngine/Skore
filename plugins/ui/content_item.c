@@ -352,7 +352,11 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 		cg_set_hidden(ctx, icon_n, 1);
 	} else {
 		char glyph[8];
-		glyph[0] = (text[0] != '\0') ? text[0] : '#';
+		/* Avoid int→char narrowing (clang-tidy cppcoreguidelines-narrowing-conversions). */
+		glyph[0] = text[0];
+		if (glyph[0] == '\0') {
+			glyph[0] = "#"[0];
+		}
 		glyph[1] = '\0';
 		(void)ui->node_set_prop_str(ctx, icon_n, "text", glyph);
 		{
