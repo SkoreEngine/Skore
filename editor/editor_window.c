@@ -65,9 +65,13 @@ struct sk_editor_workspace_t {
 	SK_ARRAY(sk_editor_dock_slot_t) docks;
 
 	/* APX-330: workspace-owned sk-ui dockspace model (NULL until the ui API
-	 * is available and dockspace init/reset built the model). */
+	 * is available and dockspace init/reset built the model). APX-366: the
+	 * editor shell may bind a shared context with
+	 * sk_editor_workspace_set_dock_context; owns_dock_ctx stays 0 then, so
+	 * destroying the workspace never destroys the shell's context. */
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* dock_ctx;
+	i32 owns_dock_ctx; /* 1 when dockspace_build created dock_ctx itself */
 	sk_ui_dock_node_t dock_root;
 	sk_ui_dock_node_t zone_center;
 	sk_ui_dock_node_t zone_left;
@@ -238,8 +242,10 @@ void sk_editor_workspace_destroy(sk_editor_workspace_t* workspace) {
 	if (registry->active == workspace) {
 		registry->active = NULL;
 	}
-	/* Tear down the workspace-owned sk-ui dockspace (chrome, tabs, callback). */
-	if (workspace->ui != NULL && workspace->dock_ctx != NULL) {
+	/* Tear down the workspace-owned sk-ui dockspace (chrome, tabs, callback) —
+	 * but only when the workspace owns the context (a shell-bound shared
+	 * context survives the workspace, see set_dock_context). */
+	if (workspace->ui != NULL && workspace->dock_ctx != NULL && workspace->owns_dock_ctx != 0) {
 		workspace->ui->context_destroy(workspace->dock_ctx);
 	}
 	sk_array_free(&workspace->docks);
@@ -533,10 +539,13 @@ static void dockspace_build(sk_editor_workspace_t* workspace) {
 
 	/* APX-330: project the default layout onto the workspace's sk-ui
 	 * dockspace when the ui plugin is available (editor host / ui-loaded
-	 * tests). Without ui the workspace keeps the slot list only. */
+	 * tests). Without ui the workspace keeps the slot list only. A
+	 * shell-bound shared context (APX-366, set_dock_context) is reused;
+	 * otherwise each workspace creates (and owns) its own context. */
 	workspace->ui = (const sk_ui_api_t*)app_api->get_api(app_context, SK_UI_API_TYPE_ID);
 	if (workspace->ui != NULL && workspace->dock_ctx == NULL) {
 		workspace->dock_ctx = workspace->ui->context_create(NULL);
+		workspace->owns_dock_ctx = 1;
 	}
 	dockspace_dock_model_build(workspace);
 	workspace->initialized = 1;
@@ -652,6 +661,44 @@ void sk_editor_dockspace_reset(sk_editor_workspace_t* workspace) {
 
 struct sk_ui_context_t* sk_editor_workspace_dock_context(const sk_editor_workspace_t* workspace) {
 	return workspace->dock_ctx;
+}
+
+void sk_editor_workspace_set_dock_context(sk_editor_workspace_t* workspace, sk_ui_context_t* ctx) {
+	if (workspace == NULL || workspace->initialized != 0) {
+		return;
+	}
+	workspace->dock_ctx = ctx;
+	workspace->owns_dock_ctx = 0;
+}
+
+void sk_editor_workspace_clear_dockspace(sk_editor_workspace_t* workspace) {
+	if (workspace == NULL || workspace->ui == NULL || workspace->dock_ctx == NULL) {
+		return;
+	}
+	if (sk_ui_dock_node_is_valid(workspace->dock_root)) {
+		(void)workspace->ui->dockspace_destroy(workspace->dock_ctx, workspace->dock_space_id);
+		workspace->dock_root = SK_UI_DOCK_NODE_INVALID;
+	}
+	dockspace_zones_invalidate(workspace);
+	workspace->dock_built = 0;
+}
+
+sk_ui_dock_node_t sk_editor_workspace_dock_root(const sk_editor_workspace_t* workspace) {
+	return workspace != NULL ? workspace->dock_root : SK_UI_DOCK_NODE_INVALID;
+}
+
+i32 sk_editor_workspace_dock_window(sk_editor_workspace_t* workspace, sk_editor_window_t* window) {
+	sk_ui_dock_node_t zone;
+	if (workspace == NULL || window == NULL || workspace->ui == NULL || workspace->dock_ctx == NULL || workspace->dock_built == 0 || window->dock_id == NULL ||
+		window->dock_position == SK_EDITOR_DOCK_NONE) {
+		return -1;
+	}
+	zone = workspace_zone_for(workspace, window->dock_position);
+	if (!sk_ui_dock_node_is_valid(zone)) {
+		return -1;
+	}
+	(void)editor_dock_ensure_chrome(workspace, window);
+	return workspace->ui->dock_window_to_node(workspace->dock_ctx, window->dock_id, zone, SK_UI_DOCK_DIR_CENTER);
 }
 
 /* ------------------------------------------------------------------ */

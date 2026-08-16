@@ -29,6 +29,7 @@
 
 #include "app.h"
 #include "common.h"
+#include "ui.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -250,6 +251,44 @@ void sk_editor_dockspace_reset(sk_editor_workspace_t* workspace);
  * run against it.
  */
 struct sk_ui_context_t* sk_editor_workspace_dock_context(const sk_editor_workspace_t* workspace);
+
+/**
+ * Bind @p ctx as the sk-ui context this workspace's dockspace model is
+ * built on. Call before the first sk_editor_dockspace_init: the editor
+ * shell (APX-366) hosts the application frame and the active workspace's
+ * dockspace on one shared ui context, so workspaces built on it must not
+ * allocate their own context. Passing NULL (the default) restores the
+ * per-workspace context creation of the scaffolding.
+ *
+ * The workspace never owns a caller-provided context: destroying the
+ * workspace leaves @p ctx (and the shell that owns it) alive.
+ */
+void sk_editor_workspace_set_dock_context(sk_editor_workspace_t* workspace, struct sk_ui_context_t* ctx);
+
+/**
+ * Tear down @p workspace's live sk-ui dockspace model (chrome + model
+ * slot) without de-initializing the workspace; the default dock layout
+ * stays recorded and a later sk_editor_dockspace_init / _reset rebuilds
+ * the model. The editor shell uses this when switching the active
+ * workspace on a shared dock context (only one workspace's dockspace is
+ * live at a time; window chrome ids are process-global). No-op when no
+ * model is live.
+ */
+void sk_editor_workspace_clear_dockspace(sk_editor_workspace_t* workspace);
+
+/**
+ * Root dock node of @p workspace's live dockspace model
+ * (SK_UI_DOCK_NODE_INVALID when no model is live / ui is absent).
+ */
+sk_ui_dock_node_t sk_editor_workspace_dock_root(const sk_editor_workspace_t* workspace);
+
+/**
+ * Dock @p window into @p workspace's live dock model at the window's
+ * default zone (APX-366 shell path for opening a window that is open in the
+ * registry but not present in the active workspace's model). Ensures the
+ * window chrome exists first. @return 0 on success.
+ */
+i32 sk_editor_workspace_dock_window(sk_editor_workspace_t* workspace, sk_editor_window_t* window);
 
 #ifdef __cplusplus
 }

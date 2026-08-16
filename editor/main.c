@@ -15,6 +15,7 @@
 
 #include "app.h"
 #include "editor_api.h"
+#include "editor_shell.h"
 #include "editor_ui_host.h"
 #include "logger.h"
 #include "main_windows.h"
@@ -23,6 +24,7 @@
 #include "repository.h"
 #include "resource_assets_types.h"
 #include "ui.h"
+#include "windows/project_browser_window.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -32,15 +34,18 @@ static void print_usage(const_chr_t argv0) {
 			"Usage:\n"
 			"  %s <package_path> [--name <package_name>] [--import <path>]...\n"
 			"  %s --ui-migration\n"
+			"  %s --shell\n"
 			"\n"
 			"  package_path   Directory that contains Assets/\n"
 			"  --name         Package name for path ids (default: Game)\n"
 			"  --import       Import a source file or directory via core importers\n"
 			"  --ui-migration Dual-stack editor UI demo (sk-ui Console + ImGui shell)\n"
+			"  --shell        APX-366 v2 editor shell: frame + menu bar + toolbar +\n"
+			"                 dock host (window open/close/focus via the registries)\n"
 			"\n"
 			"Asset handlers/importers come from core (add_impl registration).\n"
 			"No editor-side ResourceAssetHandler hierarchy; no thumbnails.\n",
-			argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor");
+			argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor");
 }
 
 static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor) {
@@ -130,6 +135,160 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 	return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  APX-366 shell mode                                                */
+/* ------------------------------------------------------------------ */
+
+typedef struct shell_host_t {
+	sk_editor_shell_t* shell;
+	const sk_platform_window_api_t* win_api;
+	sk_window_t window;
+	f32 pointer_x;
+	f32 pointer_y;
+	i32 pointer_down;
+} shell_host_t;
+
+/* Platform key/mods values match sk-ui (shared ASCII + named 1000.. range), so
+ * the shell receives them unchanged (same pass-through as the player host). */
+static void shell_host_on_key(sk_window_t window, i32 key, i32 down, i32 repeat, u32 mods, void_ptr_t user_data) {
+	shell_host_t* host = (shell_host_t*)user_data;
+	(void)window;
+	(void)repeat;
+	if (host != NULL) {
+		sk_editor_shell_key(host->shell, key, down != 0 ? 1 : 0, mods);
+	}
+}
+
+static void shell_host_on_char(sk_window_t window, const_chr_t utf8, void_ptr_t user_data) {
+	shell_host_t* host = (shell_host_t*)user_data;
+	(void)window;
+	if (host != NULL) {
+		sk_editor_shell_text(host->shell, utf8);
+	}
+}
+
+static void shell_host_on_scroll(sk_window_t window, f32 offset_x, f32 offset_y, void_ptr_t user_data) {
+	shell_host_t* host = (shell_host_t*)user_data;
+	(void)window;
+	if (host != NULL) {
+		sk_editor_shell_scroll(host->shell, offset_x, offset_y);
+	}
+}
+
+/* Polled mouse -> shell pointer (move/press/release edges, player-style). */
+static void shell_host_dispatch_mouse(shell_host_t* host, const sk_platform_window_api_t* win_api, sk_window_t window) {
+	f32 x = 0.0f;
+	f32 y = 0.0f;
+	i32 down;
+	i32 moved;
+	i32 pressed;
+	i32 released;
+
+	if (win_api->get_cursor_pos == NULL || win_api->get_mouse_button == NULL) {
+		return;
+	}
+	win_api->get_cursor_pos(window, &x, &y);
+	down = win_api->get_mouse_button(window, SK_MOUSE_BUTTON_LEFT);
+	moved = (x > host->pointer_x + 1.0e-3f || x < host->pointer_x - 1.0e-3f || y > host->pointer_y + 1.0e-3f || y < host->pointer_y - 1.0e-3f) ? 1 : 0;
+	pressed = (down != 0 && host->pointer_down == 0) ? 1 : 0;
+	released = (down == 0 && host->pointer_down != 0) ? 1 : 0;
+
+	if (moved != 0) {
+		sk_editor_shell_pointer(host->shell, x, y, -1, 0);
+	}
+	if (pressed != 0) {
+		sk_editor_shell_pointer(host->shell, x, y, SK_MOUSE_BUTTON_LEFT, 1);
+	}
+	if (released != 0) {
+		sk_editor_shell_pointer(host->shell, x, y, SK_MOUSE_BUTTON_LEFT, 0);
+	}
+	host->pointer_x = x;
+	host->pointer_y = y;
+	host->pointer_down = down;
+}
+
+static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log) {
+	const sk_logger_api_t* logger_api = app_api->logger_api(app);
+	const sk_platform_window_api_t* win_api;
+	const sk_ui_api_t* ui;
+	shell_host_t host;
+	sk_window_t window;
+	u32 frames = 0u;
+
+	win_api = (const sk_platform_window_api_t*)app_api->get_api(app, SK_PLATFORM_WINDOW_API_TYPE_ID);
+	ui = (const sk_ui_api_t*)app_api->get_api(app, SK_UI_API_TYPE_ID);
+	if (win_api == NULL) {
+		sk_log_error(logger_api, log, "platform_window API missing (need sk-platform-window plugin)");
+		return 1;
+	}
+	if (ui == NULL) {
+		sk_log_error(logger_api, log, "ui API missing (need sk-ui plugin)");
+		return 1;
+	}
+
+	/* Project Browser first so its registered ops table / impl win window_open
+	 * (docs/editor/window-table-pattern.md); the 14 scaffolds follow. */
+	sk_editor_project_browser_register(app, app_api);
+	sk_editor_windows_register_impls(app, app_api);
+
+	if (win_api->init() != 0) {
+		sk_log_error(logger_api, log, "platform_window init failed");
+		return 1;
+	}
+
+	window = win_api->create_window("Skore Editor — v2 shell", 1280u, 720u, (u32)(SK_WINDOW_FLAG_RESIZABLE));
+	if (window == NULL) {
+		sk_log_error(logger_api, log, "create_window failed");
+		return 1;
+	}
+
+	memset(&host, 0, sizeof(host));
+	host.win_api = win_api;
+	host.window = window;
+	host.shell = sk_editor_shell_create(app, app_api, ui);
+	if (host.shell == NULL) {
+		sk_log_error(logger_api, log, "editor shell create failed");
+		return 1;
+	}
+	win_api->set_window_key_callback(window, shell_host_on_key, &host);
+	win_api->set_window_char_callback(window, shell_host_on_char, &host);
+	win_api->set_window_scroll_callback(window, shell_host_on_scroll, &host);
+
+	sk_log_info(logger_api, log, "APX-366 v2 editor shell: frame + menu bar + toolbar + dock host");
+	sk_log_info(logger_api, log, "Window menu entries toggle windows through the registered tables");
+	sk_log_info(logger_api, log, "Close the window to exit.");
+
+	while (sk_app_tick(app)) {
+		sk_extent_t logical;
+		sk_content_scale_t scale;
+		f32 sx;
+		f32 sy;
+
+		win_api->poll_events();
+		logical = win_api->get_window_size(window);
+		scale = win_api->get_window_content_scale(window);
+		sx = scale.x > 0.0f ? scale.x : 1.0f;
+		sy = scale.y > 0.0f ? scale.y : 1.0f;
+
+		shell_host_dispatch_mouse(&host, win_api, window);
+		(void)sk_editor_shell_frame(host.shell, (f32)logical.width, (f32)logical.height, sx, sy);
+
+		if ((frames++ % 120u) == 0u) {
+			const sk_ui_draw_list_t* dl = sk_editor_shell_context(host.shell) != NULL ? ui->get_draw_list(sk_editor_shell_context(host.shell)) : NULL;
+			u32 open = sk_editor_window_iterate(app, app_api, NULL, 0u);
+			sk_log_info(logger_api, log, "frame %u: verts=%u cmds=%u open_windows=%u", frames, dl != NULL ? dl->vertex_count : 0u, dl != NULL ? dl->command_count : 0u, open);
+		}
+
+		if (win_api->window_should_close(window)) {
+			app_api->request_shutdown(app);
+		}
+	}
+
+	sk_editor_shell_destroy(host.shell);
+	win_api->destroy_window(window);
+	return 0;
+}
+
 static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name,
 							const_chr_t* import_paths, u32 import_count) {
 	const sk_logger_api_t* logger_api = app_api->logger_api(app);
@@ -168,6 +327,7 @@ int main(int argc, char* argv[]) {
 	const_chr_t import_paths[64];
 	u32 import_count = 0u;
 	i32 ui_migration = 0;
+	i32 shell_mode = 0;
 	sk_app_context_t* app;
 	const sk_app_api_t* app_api;
 	const sk_editor_api_t* editor;
@@ -183,6 +343,10 @@ int main(int argc, char* argv[]) {
 		}
 		if (strcmp(argv[i], "--ui-migration") == 0) {
 			ui_migration = 1;
+			continue;
+		}
+		if (strcmp(argv[i], "--shell") == 0) {
+			shell_mode = 1;
 			continue;
 		}
 		if (strcmp(argv[i], "--name") == 0) {
@@ -218,7 +382,7 @@ int main(int argc, char* argv[]) {
 		package_path = argv[i];
 	}
 
-	if (!ui_migration && package_path == NULL) {
+	if (!ui_migration && !shell_mode && package_path == NULL) {
 		print_usage(argc > 0 ? argv[0] : "sk-editor");
 		return 1;
 	}
@@ -238,8 +402,13 @@ int main(int argc, char* argv[]) {
 	sk_editor_bind_tables(app, app_api);
 	/* APX-329: register the four built-in workspace types (Scene/Graph/Animator/Material). */
 	sk_editor_workspace_register_impls(app, app_api);
-	/* APX-330: register the 14 main editor windows (titles + dock metadata, empty Draw). */
-	sk_editor_windows_register_impls(app, app_api);
+	/* APX-330: register the 14 main editor windows (titles + dock metadata).
+	 * The shell mode registers the Project Browser ops table first so its real
+	 * impl wins window_open (see run_shell_mode); other modes keep the pure
+	 * scaffold set. */
+	if (shell_mode == 0) {
+		sk_editor_windows_register_impls(app, app_api);
+	}
 	editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
 
 	logger_api = app_api->logger_api(app);
@@ -247,6 +416,8 @@ int main(int argc, char* argv[]) {
 
 	if (ui_migration) {
 		rc = run_ui_migration(app, app_api, editor, log);
+	} else if (shell_mode) {
+		rc = run_shell_mode(app, app_api, log);
 	} else {
 		rc = run_package_mode(app, app_api, editor, log, package_path, package_name, import_paths, import_count);
 	}

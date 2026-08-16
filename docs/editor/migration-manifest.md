@@ -395,3 +395,30 @@ only. No event bus.
 Registration, lookup, ordering, and lifetime rules — and the Project Browser
 reference window later migrations copy — are in
 `docs/editor/window-table-pattern.md`.
+
+## 8. Editor shell (APX-366)
+
+The v2 shell that hosts every migrated window lives in
+`editor/editor_shell.h` / `.c` (plus the `--shell` host mode in
+`editor/main.c`):
+
+- **Application frame**: one sk-ui context with menu bar, toolbar, and the
+  docking host (active workspace's dockspace) — the workspace dock models are
+  bound to the shared context via `sk_editor_workspace_set_dock_context` and
+  only the active workspace's model is live at a time
+  (`sk_editor_workspace_clear_dockspace` on switch).
+- **Menu bar**: File / Edit / Build / Tools / Window / Help mirroring the C++
+  `MenuItemContext` surface. Window-toggling entries route through the
+  registered tables (`sk_editor_window_open` / the Project Browser ops
+  table), never direct calls. Not-yet-implemented features stay inert or
+  mocked (Save All, Export, Undo/Redo, Build C#, Tools…); graph node editor
+  menus are not ported (§4).
+- **Toolbar**: Save All / Undo / Redo / Play / Pause / Stop / Reset Layout.
+- **Workspace switcher**: tabs for open workspaces + "+" popup of the
+  registered workspace types.
+- Render check: `sandbox/editor_shell_sandbox.c` (`sk-sandbox-shell`) writes
+  `editor_shell.png`.
+- Known plugin limitation: an open menu popup is painted in sk-ui tree order
+  (painter's algorithm), so it renders under the later toolbar/dock siblings;
+  input still routes through Clay's floating z-index (menu clicks work and are
+  covered by tests). Fix lives in the ui plugin (paint floating nodes last).
