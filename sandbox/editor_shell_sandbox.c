@@ -3,9 +3,13 @@
  * Boots the editor registries + shell on a GPU capture context and writes a
  * frame showing the application frame: menu bar (File/Edit/Tools/Build/
  * Window/Help), workspace switcher (Scene tab + "+"), toolbar (Save All /
- * Undo / Redo / Play / Pause / Stop / Reset Layout), and the Scene
- * dockspace (console, debugger, project browser, ... chrome). Same offscreen
- * capture recipe as the dock preview (docs/widget-lavapipe-png-review.md).
+ * Undo / Redo / Play / Pause / Stop / Reset Layout), the Scene dockspace
+ * (console, debugger, project browser, ... chrome), and — APX-367 — the
+ * C++ editor icon set from Content/Images: an icon sample strip pinned
+ * under the frame plus the Project Browser's mock content grid, both drawn
+ * through sk_editor_icons_get (id → texture handle) and captured with the
+ * icon atlas bound as the host image (finfo.images). Same offscreen capture
+ * recipe as the dock preview (docs/widget-lavapipe-png-review.md).
  *
  * Note: an OPEN menu popup is painted in tree order (sk-ui painter's
  * algorithm), i.e. under the later toolbar/dock siblings — input still
@@ -23,6 +27,7 @@
 #include "app.h"
 #include "dxc_compiler.h"
 #include "editor_api.h"
+#include "editor_icons.h"
 #include "editor_shell.h"
 #include "filesystem.h"
 #include "main_windows.h"
@@ -53,6 +58,7 @@ typedef struct shell_sandbox_t {
 	sk_ui_font_system_t* fonts;
 	sk_ui_font_t* font;
 	sk_ui_capture_t* capture;
+	sk_editor_icons_t* icons;
 } shell_sandbox_t;
 
 static const_chr_t sandbox_arg_value(int argc, char* argv[], const_chr_t flag) {
@@ -116,6 +122,79 @@ static i32 sandbox_drive_shell(shell_sandbox_t* s) {
 	return 0;
 }
 
+/* APX-367 icon sample: one tile per icon id, drawn via the registry lookup
+ * (sk_editor_icons_get → widget_image_rect) into the shell frame, so the
+ * capture proves the Content/Images set renders end-to-end. The Project
+ * Browser window draws its own folder/file tiles through the same lookup. */
+static i32 sandbox_build_icon_strip(shell_sandbox_t* s) {
+	const sk_ui_api_t* ui = s->ui;
+	sk_ui_context_t* ctx = s->ctx;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t strip;
+	sk_ui_node_t title;
+	sk_ui_style_props_t p;
+	sk_editor_icon_id_t id;
+
+	s->icons = sk_editor_icons_create(s->rd, s->device);
+	if (s->icons == NULL) {
+		fprintf(stderr, "sk-sandbox: editor_icons_create failed (decode/atlas/upload)\n");
+		return -1;
+	}
+	/* Register so windows resolve the lookup (Project Browser content grid). */
+	sk_editor_icons_register(s->app, s->app_api, s->icons);
+
+	strip = ui->widget_view(ctx, root, "sandbox.icon_strip");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_WIDTH |
+			 SK_UI_SP_BORDER_COLOR | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.align_items = SK_UI_ALIGN_CENTER;
+	p.layout.column_gap = 16.0f;
+	p.layout.padding.left = 10.0f;
+	p.layout.padding.right = 10.0f;
+	p.layout.padding.top = 8.0f;
+	p.layout.padding.bottom = 8.0f;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(0.0f);
+	p.layout.top = sk_ui_pt((f32)SANDBOX_H - 80.0f); /* pinned above the overflowing dock host */
+	p.background_color = sk_ui_rgba(0.09f, 0.10f, 0.13f, 1.0f);
+	p.border_color = sk_ui_rgba(0.17f, 0.18f, 0.22f, 1.0f);
+	(void)ui->node_set_inline_style(ctx, strip, &p);
+
+	title = ui->widget_label(ctx, strip, "Editor icons (Content/Images):", "sandbox.icon_strip.title");
+	(void)title;
+	for (id = (sk_editor_icon_id_t)0; id < SK_EDITOR_ICON_COUNT; ++id) {
+		const sk_editor_icon_t* ic = sk_editor_icons_get(s->icons, id);
+		char idbuf[48];
+		sk_ui_node_t tile;
+		sk_ui_node_t icon_node;
+		sk_ui_node_t label;
+
+		if (ic == NULL) {
+			continue;
+		}
+		(void)snprintf(idbuf, sizeof(idbuf), "sandbox.icon.tile.%u", (u32)id);
+		tile = ui->widget_view(ctx, strip, idbuf);
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+		p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+		p.layout.align_items = SK_UI_ALIGN_CENTER;
+		p.layout.row_gap = 2.0f;
+		p.layout.width = sk_ui_pt(64.0f);
+		p.layout.height = sk_ui_pt(64.0f);
+		(void)ui->node_set_inline_style(ctx, tile, &p);
+
+		(void)snprintf(idbuf, sizeof(idbuf), "sandbox.icon.img.%u", (u32)id);
+		icon_node = ui->widget_image_rect(ctx, tile, (i32)ic->view_index, 40.0f, 40.0f, ic->uv0x, ic->uv0y, ic->uv1x, ic->uv1y, NULL, NULL, idbuf);
+		(void)icon_node;
+		(void)snprintf(idbuf, sizeof(idbuf), "sandbox.icon.label.%u", (u32)id);
+		label = ui->widget_label(ctx, tile, ic->name, idbuf);
+		(void)label;
+	}
+	return 0;
+}
+
 static i32 sandbox_paint_and_capture(shell_sandbox_t* s, const_chr_t png_path) {
 	sk_ui_paint_params_t paint;
 	sk_ui_capture_frame_info_t finfo;
@@ -142,6 +221,13 @@ static i32 sandbox_paint_and_capture(shell_sandbox_t* s, const_chr_t png_path) {
 	}
 	finfo.font_system = s->fonts;
 	finfo.font = s->font;
+	/* APX-367: bind the icon atlas as the host image so IMAGE draw commands
+	 * (icon tiles) sample real pixels instead of the white fallback. */
+	if (s->icons != NULL) {
+		u32 view_count = 0u;
+		finfo.images.views = sk_editor_icons_views(s->icons, &view_count);
+		finfo.images.count = view_count;
+	}
 	memset(&img, 0, sizeof(img));
 	if (s->ui->capture_frame(s->capture, &finfo, &img) != 0) {
 		fprintf(stderr, "sk-sandbox: capture_frame failed\n");
@@ -157,7 +243,11 @@ static i32 sandbox_paint_and_capture(shell_sandbox_t* s, const_chr_t png_path) {
 
 static void sandbox_shutdown(shell_sandbox_t* s) {
 	/* The shell owns the ui context + ui->init/shutdown; release everything
-	 * that depends on the live ui (capture/fonts) before destroying it. */
+	 * that depends on the live ui (capture/fonts/icons) before destroying it. */
+	if (s->icons != NULL) {
+		sk_editor_icons_destroy(s->icons);
+		s->icons = NULL;
+	}
 	if (s->ui != NULL && s->capture != NULL) {
 		s->ui->capture_destroy(s->capture);
 		s->capture = NULL;
@@ -242,6 +332,14 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	}
 	s->ui = ui;
 	s->ctx = sk_editor_shell_context(s->shell);
+
+	/* APX-367: load + atlas the C++ editor Content/Images icons and pin an
+	 * icon sample strip under the frame (the Project Browser window also
+	 * draws folder/file tiles through the same lookup). */
+	if (sandbox_build_icon_strip(s) != 0) {
+		fprintf(stderr, "sk-sandbox: icon strip build failed\n");
+		return -1;
+	}
 
 	memset(&cdesc, 0, sizeof(cdesc));
 	cdesc.device_api = s->rd;

@@ -19,7 +19,7 @@ target_include_directories(sk-editor-lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${SKORE_EDITOR_PLUGIN_INCLUDES}
 )
-target_link_libraries(sk-editor-lib PUBLIC sk-foundation)
+target_link_libraries(sk-editor-lib PUBLIC sk-foundation stb_image)
 set_target_properties(sk-editor-lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(sk-editor ${SKORE_EDITOR_MAIN})
@@ -36,6 +36,6 @@ if(BUILD_TESTING)
         ${SKORE_EDITOR_PLUGIN_INCLUDES}
     )
     target_compile_definitions(sk-editor-tests PRIVATE SK_TESTS)
-    target_link_libraries(sk-editor-tests PUBLIC sk-foundation-tests sk-test)
+    target_link_libraries(sk-editor-tests PUBLIC sk-foundation-tests sk-test stb_image)
     set_target_properties(sk-editor-tests PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()

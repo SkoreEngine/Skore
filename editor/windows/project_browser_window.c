@@ -10,6 +10,7 @@
 #include "project_browser_window.h"
 
 #include "allocator.h"
+#include "editor_icons.h"
 #include "notify.h"
 
 #include <stdio.h>
@@ -55,7 +56,10 @@ typedef struct pb_state_t {
 	u8 _pad0[4];
 	pb_item_t items[PB_ITEM_CAP];
 	u32 item_count;
-	u8 _pad1[4];
+	/* APX-367: mock content-grid node tree (folder/file icons via the icon
+	 * registry lookup). Zero when no ui context / icon registry is live. */
+	sk_ui_node_t grid;
+	u32 grid_item_count;
 	sk_editor_on_drop_file_t drop_observer;
 	char last_drop_path[PB_DROP_PATH_CAP];
 	char listing[PB_LISTING_CAP];
@@ -262,6 +266,108 @@ static void pb_rebuild_listing(pb_state_t* state) {
 	}
 }
 
+/* APX-367: mock content grid drawn with the C++ editor icons. One tile per
+ * item: folder tiles use FolderIcon.png, file tiles FileIcon.png — the exact
+ * per-window icon ids the migration manifest lists for ProjectBrowserWindow
+ * (§3.6). The tile set is rebuilt only when the item list changes (retained
+ * nodes, same pattern as the shell frame). Thumbnails stay mocked: every
+ * asset shows the generic file icon, never a thumbnail texture.
+ *
+ * The dock host overflows the shell frame (its dockspace auto-applies to the
+ * full context), so the mock grid pins absolute above the sandbox icon strip
+ * (640 - 56 - 8) until dock window content areas land. */
+#define PB_GRID_TOP_PX 576.0f
+
+static void pb_rebuild_grid(pb_state_t* state, const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_editor_icons_t* icons) {
+	sk_ui_style_props_t p;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t panel;
+	u32 i;
+
+	if (sk_ui_node_is_valid(state->grid)) {
+		(void)ui->node_destroy(ctx, state->grid);
+		state->grid = SK_UI_NODE_INVALID;
+	}
+
+	/* Compact strip pinned above the sandbox icon sample. */
+	panel = ui->widget_view(ctx, root, "pb.content_grid");
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_WIDTH |
+			 SK_UI_SP_BORDER_COLOR | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.align_items = SK_UI_ALIGN_CENTER;
+	p.layout.column_gap = 12.0f;
+	p.layout.padding.left = 8.0f;
+	p.layout.padding.right = 8.0f;
+	p.layout.padding.top = 6.0f;
+	p.layout.padding.bottom = 6.0f;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(0.0f);
+	p.layout.top = sk_ui_pt(PB_GRID_TOP_PX);
+	p.background_color = sk_ui_rgba(0.11f, 0.12f, 0.15f, 1.0f);
+	p.border_color = sk_ui_rgba(0.20f, 0.21f, 0.25f, 1.0f);
+	(void)ui->node_set_inline_style(ctx, panel, &p);
+
+	for (i = 0u; i < state->item_count; ++i) {
+		char idbuf[32];
+		sk_ui_node_t tile;
+		sk_editor_icon_id_t icon_id = state->items[i].is_directory != 0 ? SK_EDITOR_ICON_FOLDER : SK_EDITOR_ICON_FILE;
+		const sk_editor_icon_t* ic = sk_editor_icons_get(icons, icon_id);
+
+		(void)snprintf(idbuf, sizeof(idbuf), "pb.tile.%u", i);
+		tile = ui->widget_view(ctx, panel, idbuf);
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+		p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+		p.layout.align_items = SK_UI_ALIGN_CENTER;
+		p.layout.row_gap = 2.0f;
+		p.layout.width = sk_ui_pt(52.0f);
+		p.layout.height = sk_ui_pt(44.0f);
+		(void)ui->node_set_inline_style(ctx, tile, &p);
+
+		if (ic != NULL) {
+			(void)snprintf(idbuf, sizeof(idbuf), "pb.icon.%u", i);
+			(void)ui->widget_image_rect(ctx, tile, (i32)ic->view_index, 24.0f, 24.0f, ic->uv0x, ic->uv0y, ic->uv1x, ic->uv1y, NULL, NULL, idbuf);
+		}
+		(void)snprintf(idbuf, sizeof(idbuf), "pb.name.%u", i);
+		(void)ui->widget_label(ctx, tile, state->items[i].name, idbuf);
+	}
+
+	state->grid = panel;
+	state->grid_item_count = state->item_count;
+}
+
+/* Window-side icon lookup (APX-367): resolve the registry registered on the
+ * app context and rebuild the grid only when the ui context is live and the
+ * item set changed. No registry / no ui → listing-only (plain unit tests). */
+static void pb_sync_content_grid(pb_state_t* state) {
+	sk_editor_icons_t* icons;
+	sk_editor_workspace_t* ws;
+	sk_ui_context_t* ctx;
+	const sk_ui_api_t* ui;
+
+	icons = sk_editor_icons_resolve(state->app_context, state->app_api);
+	if (icons == NULL) {
+		return;
+	}
+	ws = sk_editor_workspace_active(state->app_context, state->app_api);
+	if (ws == NULL) {
+		return;
+	}
+	ctx = sk_editor_workspace_dock_context(ws);
+	if (ctx == NULL) {
+		return;
+	}
+	ui = (const sk_ui_api_t*)state->app_api->get_api(state->app_context, SK_UI_API_TYPE_ID);
+	if (ui == NULL) {
+		return;
+	}
+	if (!sk_ui_node_is_valid(state->grid) || state->grid_item_count != state->item_count) {
+		pb_rebuild_grid(state, ui, ctx, icons);
+	}
+}
+
 static void pb_init(sk_editor_window_t* window) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	pb_class_state_t* cls = (pb_class_state_t*)window->user_data;
@@ -285,6 +391,7 @@ static void pb_init(sk_editor_window_t* window) {
 static void pb_draw(sk_editor_window_t* window, i32* open) {
 	pb_state_t* state = (pb_state_t*)window->user_data;
 	pb_rebuild_listing(state);
+	pb_sync_content_grid(state); /* APX-367: folder/file icons from Content/Images */
 	/* Draw contract: the window may clear *open to request close. */
 	*open = 1;
 }
@@ -294,6 +401,19 @@ static void pb_destroy(sk_editor_window_t* window) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	if (state == NULL) {
 		return;
+	}
+	/* Tear down the content grid with the shell's ui context (valid while the
+	 * shell owns the frame; plain unit tests never build the grid). */
+	if (sk_ui_node_is_valid(state->grid)) {
+		sk_editor_workspace_t* ws = sk_editor_workspace_active(state->app_context, state->app_api);
+		sk_ui_context_t* ctx = ws != NULL ? sk_editor_workspace_dock_context(ws) : NULL;
+		if (ctx != NULL) {
+			const sk_ui_api_t* ui = (const sk_ui_api_t*)state->app_api->get_api(state->app_context, SK_UI_API_TYPE_ID);
+			if (ui != NULL) {
+				(void)ui->node_destroy(ctx, state->grid);
+			}
+		}
+		state->grid = SK_UI_NODE_INVALID;
 	}
 	state->app_api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_DROP_FILE, &state->drop_observer);
 	alloc->free(alloc->instance, state);
