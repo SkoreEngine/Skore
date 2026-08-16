@@ -356,6 +356,28 @@ static i32 sandbox_drive_on_demand_windows(shell_sandbox_t* s) {
 		fprintf(stderr, "sk-sandbox: Packages/Settings chrome missing\n");
 		return -1;
 	}
+	/* APX-389: the Debugger Statistics body scrolls. Scroll it a little past
+	 * the GPU memory section (60% of the overflow) so the recaptured frame
+	 * proves the Dedicated (VRAM) row is on screen instead of clipped off
+	 * the leaf bottom. */
+	{
+		sk_ui_node_t dgb_scroll = s->ui->find_by_id(s->ctx, "debugger.content.host");
+		sk_ui_layout_style_t dls;
+		sk_ui_rect_t hr;
+		f32 overflow = 0.0f;
+		if (!sk_ui_node_is_valid(dgb_scroll)) {
+			fprintf(stderr, "sk-sandbox: Debugger Statistics scroll host missing\n");
+			return -1;
+		}
+		if (s->ui->node_get_layout_style(s->ctx, s->ui->scroll_view_content(s->ctx, dgb_scroll), &dls) == 0 && s->ui->node_get_abs_rect(s->ctx, dgb_scroll, &hr, NULL) == 0 &&
+			dls.height.value > hr.height) {
+			overflow = dls.height.value - hr.height;
+		}
+		(void)s->ui->scroll_view_set_scroll(s->ctx, dgb_scroll, 0.0f, overflow * 0.6f);
+	}
+	if (sandbox_frame_passes(s, "on-demand-scrolled") != 0) {
+		return -1;
+	}
 	return 0;
 }
 

@@ -59,7 +59,7 @@ C++ InitDockSpace zones used as the layout oracle (manifest §1 / `editor_window
 atlas, Scene placeholder, and mock window bodies read as the C++ editor.
 
 The three chrome defects this wave targeted are gone on the new frames (see
-[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387)). Other
+[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387--389)). Other
 migrated chrome still clips or overlaps; those are listed with `file:line`
 below and are **not** accepted.
 
@@ -169,7 +169,7 @@ solid empty panel. Real scene rendering stays out of scope (manifest §2.3).
 | Entity Tree | Demo Scene / Main Camera / Directional Light / Player / Character Mesh | **Populated** on 01 — hierarchy is the selected RightTop tab (APX-379), not hidden behind History |
 | Console | logger ring | **Populated** on 01 — selected BottomRight tab; seeded Info lines (`Scene workspace ready`, mock Assets/Project/Renderer) are on screen |
 | Project Browser | folder tree + FolderIcon/FileIcon grid | **Populated** on 01 — Assets tree + four tiles (Scenes, Textures, Main.scene, Hero.png) using Content/Images icons |
-| Debugger Statistics | FPS, frame time, CPU, working set, VRAM | **Populated** on 04 — Statistics tab shows Frame / FPS 59.9 / Frame time 16.70 ms / Process CPU 12.5% / Working set / System memory / GPU memory. Console is the default tab (order 10); the host activates Debugger (order 20) on the Window-menu frame so the body is not judged while hidden behind its sibling |
+| Debugger Statistics | FPS, frame time, CPU, working set, VRAM | **Populated** on 04 — the Statistics tab shows System memory / GPU memory / Dedicated (VRAM) / Rendering drawcalls after APX-389 scrolls the body a little past the GPU memory section. Console is the default tab (order 10); the host activates Debugger (order 20) on the Window-menu frame so the body is not judged while hidden behind its sibling |
 | History | seeded undo/redo scopes | Sibling of Entity Tree (order 10); not required on the default tab |
 | Properties | empty-selection until an entity/asset is selected | **OK** — "Select something..." (not a blank dock) |
 
@@ -211,7 +211,7 @@ menu items):
 
 - **Packages** — floating window, Add Package + hint on separate rows, \
   Name/Path table of the two seeded mock folders (see \
-  [Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387)).
+  [Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387--389)).
 - **Editor Settings** — floating window, left tree (General / Rendering /
   Audio / Physics / Editor), right pane (Project Name, Company Name, Auto Save).
 - **Resource Debugger** — Center tab next to Scene Viewport (Types list
@@ -219,7 +219,7 @@ menu items):
 
 ---
 
-## Chrome-fix confirmation (APX-382 / 383 / 384 / 387)
+## Chrome-fix confirmation (APX-382 / 383 / 384 / 387 / 389)
 
 Judged on the recaptured 1280×720 frames (01 / 03 for Scene chrome; Console
 labels also on 02).
@@ -232,6 +232,7 @@ labels also on 02).
 | Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Fixed.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll. |
 | Scene Viewport tool button renders as `...` | 01, 03 | **Fixed.** The Grid–Play slot is `Scn`. The full row is `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
 | Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
+| Debugger Statistics `Dedicated (VRAM)` row clipped off the leaf bottom | 04 | **Fixed.** The statistics body is now a scroll host (`debugger.content.host` is a `scroll_view`); the stat rows keep `flex_shrink 0`, the scroll content is sized to the measured row stack, and the capture scrolls the body so `Dedicated (VRAM)` and the Rendering rows are on screen instead of cut at the `GPU memory` header. |
 
 ---
 
@@ -243,7 +244,6 @@ cited at the chrome that emits the string or sizes the box.
 | Frame | What is wrong | Source |
 | --- | --- | --- |
 | 01, 02, 03 | Project Browser tile caption `Main.scene` clips to `Main.scen`. `Scenes` / `Textures` / `Hero.png` are intact. | Seed name `editor/windows/project_browser_window.c:269`; grid host `:1696`. Caption is no-wrap + clip-children at `plugins/ui/content_item.c:410`–`:417` (`max_width` = thumb − pad). |
-| 04 | Debugger Statistics `Dedicated (VRAM)` value row is clipped off the bottom of the BottomRight leaf. Visible last line is the `GPU memory` section header. | Header + row `editor/windows/debugger_window.c:360`–`:363`; body is a non-scroll `content_host` at 100% height (`:654`–`:664`) filled by `dgb_build_statistics` (`:624`) with `flex_shrink 0` stat rows (`:264`–`:275`). |
 | 01, 02, 03 | Console WARN line is clipped at the panel edge (`…mapped via Clay floati`). Toolbar chrome is intact; this is the log body. | `editor/windows/console_window.c:369` (`widget_label` of the full line), `:374` (`label_set_wrap(..., 0)`), `:321` (width 100%). |
 
 No other migrated window chrome on these frames (menu bar, shell toolbar,

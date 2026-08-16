@@ -70,6 +70,10 @@ typedef struct debugger_state_t {
 	i32 selected_tab;
 	i32 last_built_tab;
 
+	/* Scroll content height for the tab body (APX-389): the statistics rows
+	 * overflow the BottomRight leaf and scroll; profiler tabs fill it. */
+	f32 content_height;
+
 	/* sk-ui handles; live only while a ui context hosts the window chrome. */
 	sk_ui_node_t root;
 	sk_ui_node_t tab_bar;
@@ -317,6 +321,7 @@ static void dgb_build_statistics(debugger_state_t* state, sk_ui_node_t content) 
 	f64 sys_total;
 	f64 vram_used;
 	f64 vram_total;
+	u32 stat_rows = 0u;
 	char buf[160];
 	char buf2[64];
 
@@ -339,6 +344,7 @@ static void dgb_build_statistics(debugger_state_t* state, sk_ui_node_t content) 
 		lbl = ui->widget_label(ctx, row, _label, NULL);         \
 		dgb_apply_stat_label_style(ui, ctx, lbl);               \
 		(void)ui->widget_label(ctx, row, _value, NULL);         \
+		stat_rows += 1u;                                        \
 	} while (0)
 
 	(void)ui->widget_text_colored(ctx, content, "Frame", sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f), NULL);
@@ -371,6 +377,13 @@ static void dgb_build_statistics(debugger_state_t* state, sk_ui_node_t content) 
 	DGB_STAT("Render pipelines", "17");
 
 #undef DGB_STAT
+
+	/* Size the scroll host's content so every row (incl. Dedicated (VRAM))
+	 * stays reachable: 4 section headers + @p stat_rows rows, each ~24px for
+	 * the 16px default font line box, 2px gaps, 4px panel padding. Rows keep
+	 * flex_shrink 0 so they never squash; the sync pass refines this to the
+	 * measured laid-out height once layout has run. */
+	state->content_height = 4.0f + 4.0f + (f32)(stat_rows + 4u) * 24.0f + (f32)(stat_rows + 4u - 1u) * 2.0f;
 }
 
 /* ------------------------------------------------------------------ */
@@ -616,16 +629,82 @@ static void dgb_build_selected_tab(debugger_state_t* state) {
 	if (sk_ui_node_is_valid(content) && ui->node_alive(ctx, content)) {
 		(void)ui->node_destroy(ctx, content);
 	}
-	content = ui->widget_view(ctx, state->content_host, "debugger.content");
+	/* Tab content lives inside the scroll host's content node so a body
+	 * taller than the leaf scrolls instead of clipping (APX-389). The
+	 * content node gets an explicit id: NULL-id scroll_content nodes from
+	 * several windows (console, debugger) would collide in the Clay id
+	 * space (same widget + sibling index). */
+	content = ui->widget_view(ctx, ui->scroll_view_content(ctx, state->content_host), "debugger.content");
+	(void)ui->node_set_id(ctx, ui->scroll_view_content(ctx, state->content_host), "debugger.content.host.content");
 	dgb_apply_panel_style(ui, ctx, content);
 	state->tree = SK_UI_NODE_INVALID;
 	state->chart = SK_UI_NODE_INVALID;
+	state->content_height = 0.0f;
 	if (state->selected_tab == 0) {
 		dgb_build_statistics(state, content);
 	} else {
 		dgb_build_profiler_tab(state, content, state->selected_tab == 2 ? 1 : 0);
 	}
 	state->last_built_tab = state->selected_tab;
+}
+
+/* Keep the scroll host sized to its tab body: the statistics body is taller
+ * than the BottomRight leaf (rows keep flex_shrink 0) so its content height
+ * is the laid-out row stack — every stat row stays reachable by scrolling.
+ * The profiler tabs instead fill the leaf exactly (no scrollbar). */
+static void dgb_sync_content_size(debugger_state_t* state) {
+	const sk_ui_api_t* ui = state->ui;
+	sk_ui_context_t* ctx = state->ui_ctx;
+	sk_ui_rect_t r;
+	f32 w = 400.0f;
+	f32 h = state->content_height > 1.0f ? state->content_height : 300.0f;
+	if (ui == NULL || !sk_ui_node_is_valid(state->content_host)) {
+		return;
+	}
+	if (ui->node_get_abs_rect(ctx, state->content_host, &r, NULL) == 0) {
+		if (r.width > 1.0f) {
+			w = r.width;
+		}
+		if (state->selected_tab != 0 && r.height > 1.0f) {
+			h = r.height; /* profiler: content exactly fills the leaf */
+		}
+	}
+	if (state->selected_tab == 0) {
+		/* Refine to the measured laid-out height once layout landed. */
+		sk_ui_node_t content = ui->find_by_id(ctx, "debugger.content");
+		if (sk_ui_node_is_valid(content) && ui->node_alive(ctx, content)) {
+			u32 n = ui->node_child_count(ctx, content);
+			if (n > 0u) {
+				sk_ui_node_t last = ui->node_child_at(ctx, content, n - 1u);
+				if (sk_ui_node_is_valid(last)) {
+					sk_ui_rect_t lr;
+					sk_ui_rect_t cr;
+					if (ui->node_get_abs_rect(ctx, last, &lr, NULL) == 0 && ui->node_get_abs_rect(ctx, content, &cr, NULL) == 0 && lr.height > 0.5f) {
+						f32 measured = (lr.y + lr.height) - cr.y + 4.0f; /* panel bottom padding */
+						if (measured > h) {
+							h = measured;
+						}
+					}
+				}
+			}
+		}
+	}
+	(void)ui->scroll_view_set_content_size(ctx, state->content_host, w, h);
+	/* scroll_view_set_content_size writes the content node's layout_style,
+	 * which style_resolve overwrites whenever a descendant turns style-dirty
+	 * (the profiler chart rebuilds rows every frame). Mirror the POINT size
+	 * into the content node's inline style so it survives re-resolution. */
+	{
+		sk_ui_node_t content = ui->scroll_view_content(ctx, state->content_host);
+		if (sk_ui_node_is_valid(content)) {
+			sk_ui_style_props_t p;
+			memset(&p, 0, sizeof(p));
+			p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+			p.layout.width = sk_ui_pt(w);
+			p.layout.height = sk_ui_pt(h);
+			(void)ui->node_merge_inline_style(ctx, content, &p);
+		}
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -651,13 +730,15 @@ static void dgb_build_ui(debugger_state_t* state, const sk_ui_api_t* ui, sk_ui_c
 	(void)ui->widget_tab(ctx, state->tab_bar, "CPU Profiler", "debugger.tab.cpu");
 	(void)ui->widget_tab(ctx, state->tab_bar, "GPU Profiler", "debugger.tab.gpu");
 
-	state->content_host = ui->widget_view(ctx, state->root, "debugger.content.host");
+	/* The tab body scrolls (APX-389): statistics rows overflow the leaf and
+	 * must stay reachable; profiler bodies fill the leaf exactly. */
+	state->content_host = ui->widget_scroll_view(ctx, state->root, "debugger.content.host");
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_HEIGHT;
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_BACKGROUND_COLOR;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_grow = 1.0f;
-	p.layout.height = sk_ui_percent(100.0f);
 	p.layout.min_height = sk_ui_pt(72.0f);
+	p.background_color = sk_ui_rgba(0.06f, 0.07f, 0.09f, 1.0f);
 	(void)ui->node_set_inline_style(ctx, state->content_host, &p);
 
 	state->last_built_tab = -1;
@@ -674,6 +755,8 @@ static i32 debugger_sync(debugger_state_t* state) {
 	if (state->selected_tab != state->last_built_tab) {
 		dgb_build_selected_tab(state);
 	}
+	/* Size the tab body's scroll host (statistics scroll; profiler fills). */
+	dgb_sync_content_size(state);
 	/* Refresh chart + tree only when new frames landed (avoid per-frame rebuilds). */
 	if (state->selected_tab != 0 && sk_ui_node_is_valid(state->tree)) {
 		if (sk_ui_node_is_valid(state->chart) && state->history_revision != state->last_chart_revision) {
@@ -994,6 +1077,8 @@ void sk_editor_debugger_shutdown(sk_app_context_t* app_context, const sk_app_api
 #ifdef SK_TESTS
 
 #include "editor_api.h"
+#include "filesystem.h"
+#include "path.h"
 #include "test.h"
 
 /* Ops-table path (no ui): seeded mock profiler, record/pause/clear, frame
@@ -1088,6 +1173,181 @@ SK_TEST(editor_debugger_window_ops_mock_profiler) {
 
 	sk_editor_debugger_shutdown(app, boot.api);
 	TEST_ASSERT_NULL(sk_editor_debugger_ops(app, boot.api));
+	sk_app_shutdown(app);
+}
+
+/* UI path (sk-ui plugin): the Statistics tab body is hosted by a scroll
+ * view, so the overflowing stat rows (incl. Dedicated (VRAM)) stay
+ * reachable at the BottomRight leaf height (APX-389). */
+SK_TEST(editor_debugger_window_ui_statistics_scrolls) {
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* app = boot.context;
+	const sk_editor_api_t* editor;
+	const sk_editor_debugger_ops_t* ops;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_editor_workspace_t* ws;
+	sk_editor_window_t* window;
+	sk_ui_node_t chrome;
+	sk_ui_node_t host;
+	sk_ui_node_t scroll_content;
+	sk_ui_node_t content;
+	sk_ui_node_t last_row;
+	sk_ui_layout_style_t ls;
+	sk_ui_rect_t hr;
+	sk_ui_rect_t cr;
+	sk_ui_rect_t lr;
+	sk_ui_style_props_t p;
+	const_chr_t plugin_name;
+	i32 open = 1;
+	u32 n;
+
+	TEST_ASSERT_NOT_NULL(app);
+	sk_editor_bind_tables(app, boot.api);
+	editor = (const sk_editor_api_t*)boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
+	/* Load the ui plugin (skipped when not built next to the tests). */
+	{
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
+		char base[SK_FS_PATH_MAX];
+		char plugin[SK_FS_PATH_MAX];
+		char path[SK_FS_PATH_MAX];
+#if defined(_WIN32)
+		plugin_name = "sk-ui.dll";
+#elif defined(__APPLE__)
+		plugin_name = "sk-ui.dylib";
+#else
+		plugin_name = "sk-ui.so";
+#endif
+		if (fs->current_dir(base, (u32)sizeof(base)) != 0) {
+			base[0] = '\0';
+		}
+		if (sk_path_join(sk_str_view_cstr(base), sk_str_view_cstr("plugins"), plugin, (u32)sizeof(plugin)) < 0) {
+			plugin[0] = '\0';
+		}
+		(void)sk_path_join(sk_str_view_cstr(plugin), sk_str_view_cstr(plugin_name), path, (u32)sizeof(path));
+		(void)boot.api->load_plugin(app, path);
+	}
+	ui = (const sk_ui_api_t*)boot.api->get_api(app, SK_UI_API_TYPE_ID);
+	if (ui == NULL) {
+		sk_app_shutdown(app);
+		TEST_IGNORE_MESSAGE("sk-ui plugin not available");
+		return;
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->init());
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	sk_editor_workspace_register_impls(app, boot.api);
+	sk_editor_debugger_register(app, boot.api);
+	ops = sk_editor_debugger_ops(app, boot.api);
+	TEST_ASSERT_NOT_NULL(ops);
+
+	/* Active workspace hosting the window chrome (no dockspace model). */
+	ws = editor->workspace_create(app, boot.api, SK_EDITOR_WORKSPACE_SCENE);
+	TEST_ASSERT_NOT_NULL(ws);
+	sk_editor_workspace_set_dock_context(ws, ctx);
+	sk_editor_workspace_switch(ws);
+
+	/* Leaf-like chrome: 340x240 leaves the Statistics rows taller than the
+	 * visible body — the BottomRight default the defect showed. */
+	chrome = ui->widget_editor_window(ctx, ui->context_root(ctx), "Debugger", "sk.editor_window.debugger");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(chrome));
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(30.0f);
+	p.layout.top = sk_ui_pt(40.0f);
+	p.layout.width = sk_ui_pt(340.0f);
+	p.layout.height = sk_ui_pt(240.0f);
+	p.layout.flex_grow = 0.0f;
+	p.layout.flex_shrink = 0.0f;
+	(void)ui->node_merge_inline_style(ctx, chrome, &p);
+
+	window = ops->open(app, boot.api);
+	TEST_ASSERT_NOT_NULL(window);
+	window->draw(window, &open);
+	TEST_ASSERT_EQUAL_INT(1, open);
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+	window->draw(window, &open);
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+
+	/* The Statistics body is a scroll view (not the old fixed 100% host). */
+	host = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "debugger.content.host");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(host));
+	scroll_content = ui->scroll_view_content(ctx, host);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(scroll_content));
+
+	content = ui->find_by_id(ctx, "debugger.content");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
+	n = ui->node_child_count(ctx, content);
+	TEST_ASSERT_TRUE(n >= 16u); /* 4 section headers + 12 stat rows */
+
+	/* The scroll content was sized to cover the row stack, so the last row
+	 * is reachable when scrolled (rows keep flex_shrink 0 — never squashed). */
+	last_row = ui->node_child_at(ctx, content, n - 1u);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(last_row));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, scroll_content, &ls));
+	TEST_ASSERT_TRUE(ls.height.value > 1.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, last_row, &lr, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, content, &cr, NULL));
+	{
+		f32 needed = (lr.y + lr.height) - cr.y + 4.0f; /* rows + panel bottom padding */
+		TEST_ASSERT_TRUE(ls.height.value + 1.0f >= needed);
+	}
+
+	/* At a leaf height the rows overflow, so the scroll view has range, and
+	 * scrolling to the bottom brings the last row into the viewport. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, host, &hr, NULL));
+	TEST_ASSERT_TRUE(ls.height.value > hr.height);
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_scroll_to_bottom(ctx, host));
+	window->draw(window, &open);
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, last_row, &lr, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, host, &hr, NULL));
+	TEST_ASSERT_TRUE(lr.y + lr.height <= hr.y + hr.height + 1.0f); /* scrolled into view */
+	TEST_ASSERT_TRUE(lr.y + lr.height > hr.y);					   /* still on screen */
+
+	/* Profiler tabs share the scroll host: switching to CPU Profiler fills
+	 * the leaf exactly (no scroll range) and the tree still builds. The
+	 * content size survives the style-dirty chart rebuilds (APX-389 keeps
+	 * the size in the inline style). */
+	{
+		sk_ui_node_t tab_bar = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "debugger.tabbar");
+		sk_ui_node_t tree;
+		sk_ui_rect_t host_r;
+		sk_ui_rect_t content_r;
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_bar));
+		TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_selected(ctx, tab_bar, 1));
+		window->draw(window, &open);
+		TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+		TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+		window->draw(window, &open); /* chart/tree rebuilds mark the tree style-dirty */
+		TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+		TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+		tree = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "debugger.tree");
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(tree));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, scroll_content, &ls));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, host, &host_r, NULL));
+		TEST_ASSERT_TRUE(ls.height.value > 1.0f);
+		TEST_ASSERT_TRUE(ls.height.value <= host_r.height + 1.0f); /* fills, no overflow */
+		/* The profiler body fills the leaf: the tree is visible. */
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tree, &content_r, NULL));
+		TEST_ASSERT_TRUE(content_r.height > 1.0f);
+		/* Back to Statistics: the scroll range (rows taller than leaf) returns. */
+		TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_selected(ctx, tab_bar, 0));
+		window->draw(window, &open);
+		TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+		TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1200.0f, 760.0f));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, scroll_content, &ls));
+		TEST_ASSERT_TRUE(ls.height.value > host_r.height + 1.0f); /* overflows again */
+	}
+
+	sk_editor_debugger_shutdown(app, boot.api);
 	sk_app_shutdown(app);
 }
 
