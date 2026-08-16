@@ -1809,9 +1809,17 @@ static void et_build_ui(et_state_t* state, const sk_ui_api_t* ui, sk_ui_context_
 	(void)ui->node_set_callbacks(ctx, state->add_btn, &cbs);
 	state->search_input = ui->widget_text_input_with_hint(ctx, state->toolbar, state->search, "Search entities", "et.search");
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_FLEX_GROW | SK_UI_SP_HEIGHT;
+	p.mask = SK_UI_SP_FLEX_GROW | SK_UI_SP_HEIGHT | SK_UI_SP_PADDING;
 	p.layout.flex_grow = 1.0f;
-	p.layout.height = sk_ui_pt(22.0f);
+	/* APX-384: the 22pt forced height with the class's 6pt top/bottom padding
+	 * left only ~8px of content for 14px text (line ~16.3px), so the hint's
+	 * descenders were sliced by the input's bottom edge. Fill the toolbar row
+	 * and slim the vertical padding so hint + typed text render fully. */
+	p.layout.height = sk_ui_pt(ET_TOOLBAR_H);
+	p.layout.padding.left = 6.0f;
+	p.layout.padding.top = 3.0f;
+	p.layout.padding.right = 6.0f;
+	p.layout.padding.bottom = 3.0f;
 	(void)ui->node_merge_inline_style(ctx, state->search_input, &p);
 
 	/* Tree region. */
