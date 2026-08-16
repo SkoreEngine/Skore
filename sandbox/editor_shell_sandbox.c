@@ -356,24 +356,48 @@ static i32 sandbox_drive_on_demand_windows(shell_sandbox_t* s) {
 		fprintf(stderr, "sk-sandbox: Packages/Settings chrome missing\n");
 		return -1;
 	}
-	/* APX-389: the Debugger Statistics body scrolls. Scroll it a little past
-	 * the GPU memory section (60% of the overflow) so the recaptured frame
-	 * proves the Dedicated (VRAM) row is on screen instead of clipped off
-	 * the leaf bottom. */
+	/* APX-394: reveal Dedicated (VRAM) with the smallest scroll that
+	 * covers it. APX-389 jumped 60% of the overflow and hid Frame/Process
+	 * (looked like deleted rows). VRAM sits one line below GPU memory, so
+	 * one line-box is enough; clamp to the real scroll range. */
 	{
 		sk_ui_node_t dgb_scroll = s->ui->find_by_id(s->ctx, "debugger.content.host");
+		sk_ui_node_t vram = s->ui->find_by_id(s->ctx, "debugger.stat.vram");
+		sk_ui_node_t scroll_content;
 		sk_ui_layout_style_t dls;
 		sk_ui_rect_t hr;
-		f32 overflow = 0.0f;
+		sk_ui_rect_t vr;
+		f32 sy = 0.0f;
+		f32 range = 0.0f;
 		if (!sk_ui_node_is_valid(dgb_scroll)) {
 			fprintf(stderr, "sk-sandbox: Debugger Statistics scroll host missing\n");
 			return -1;
 		}
-		if (s->ui->node_get_layout_style(s->ctx, s->ui->scroll_view_content(s->ctx, dgb_scroll), &dls) == 0 && s->ui->node_get_abs_rect(s->ctx, dgb_scroll, &hr, NULL) == 0 &&
-			dls.height.value > hr.height) {
-			overflow = dls.height.value - hr.height;
+		if (!sk_ui_node_is_valid(vram)) {
+			fprintf(stderr, "sk-sandbox: Dedicated (VRAM) row missing\n");
+			return -1;
 		}
-		(void)s->ui->scroll_view_set_scroll(s->ctx, dgb_scroll, 0.0f, overflow * 0.6f);
+		scroll_content = s->ui->scroll_view_content(s->ctx, dgb_scroll);
+		if (s->ui->node_get_abs_rect(s->ctx, dgb_scroll, &hr, NULL) == 0) {
+			if (sk_ui_node_is_valid(scroll_content) && s->ui->node_get_layout_style(s->ctx, scroll_content, &dls) == 0 && dls.height.value > hr.height) {
+				range = dls.height.value - hr.height;
+			}
+			if (s->ui->node_get_abs_rect(s->ctx, vram, &vr, NULL) == 0) {
+				f32 need = (vr.y + vr.height) - (hr.y + hr.height);
+				if (need > 0.5f) {
+					sy = need;
+				}
+			}
+		}
+		if (sy < 0.5f && range > 0.5f) {
+			sy = 18.0f; /* one 16px line past the GPU memory header */
+		}
+		if (range > 0.5f && sy > range) {
+			sy = range;
+		}
+		if (sy > 0.5f) {
+			(void)s->ui->scroll_view_set_scroll(s->ctx, dgb_scroll, 0.0f, sy);
+		}
 	}
 	if (sandbox_frame_passes(s, "on-demand-scrolled") != 0) {
 		return -1;

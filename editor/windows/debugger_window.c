@@ -253,6 +253,26 @@ static void dgb_apply_panel_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, s
 	(void)ui->node_set_inline_style(ctx, node, &p);
 }
 
+/* Statistics tab body: column of flex_shrink-0 rows. Height is *not* 100%
+ * of the leaf — that clipped Dedicated (VRAM) inside the scroll viewport
+ * (APX-394). dgb_sync_content_size writes an explicit POINT height for the
+ * full row stack onto this node and the scroll content. */
+static void dgb_apply_stats_body_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_style_props_t p;
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_PADDING | SK_UI_SP_ROW_GAP | SK_UI_SP_BACKGROUND_COLOR;
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.flex_shrink = 0.0f;
+	p.layout.padding.left = 6.0f;
+	p.layout.padding.top = 0.0f;
+	p.layout.padding.right = 6.0f;
+	p.layout.padding.bottom = 2.0f;
+	p.layout.row_gap = 2.0f;
+	p.background_color = sk_ui_rgba(0.08f, 0.09f, 0.11f, 0.96f);
+	(void)ui->node_set_inline_style(ctx, node, &p);
+}
+
 static void dgb_apply_row_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
 	sk_ui_style_props_t p;
 	memset(&p, 0, sizeof(p));
@@ -335,55 +355,55 @@ static void dgb_build_statistics(debugger_state_t* state, sk_ui_node_t content) 
 	vram_total = 8.0e9;
 	vram_used = 1.8e9 + 0.9e9 * (double)((dgb_rand(state) >> 8) & 0xFFu) / 255.0;
 
-#define DGB_STAT(_label, _value)                                \
-	do {                                                        \
-		sk_ui_node_t row = ui->widget_view(ctx, content, NULL); \
-		sk_ui_node_t lbl;                                       \
-		(void)row;                                              \
-		dgb_apply_stat_row_style(ui, ctx, row);                 \
-		lbl = ui->widget_label(ctx, row, _label, NULL);         \
-		dgb_apply_stat_label_style(ui, ctx, lbl);               \
-		(void)ui->widget_label(ctx, row, _value, NULL);         \
-		stat_rows += 1u;                                        \
+#define DGB_STAT(_label, _value, _id)                          \
+	do {                                                       \
+		sk_ui_node_t row = ui->widget_view(ctx, content, _id); \
+		sk_ui_node_t lbl;                                      \
+		(void)row;                                             \
+		dgb_apply_stat_row_style(ui, ctx, row);                \
+		lbl = ui->widget_label(ctx, row, _label, NULL);        \
+		dgb_apply_stat_label_style(ui, ctx, lbl);              \
+		(void)ui->widget_label(ctx, row, _value, NULL);        \
+		stat_rows += 1u;                                       \
 	} while (0)
 
 	(void)ui->widget_text_colored(ctx, content, "Frame", sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f), NULL);
 	(void)snprintf(buf, sizeof(buf), "%.1f", (double)fps);
-	DGB_STAT("FPS", buf);
+	DGB_STAT("FPS", buf, NULL);
 	(void)snprintf(buf, sizeof(buf), "%.2f ms", (double)state->frame_current_ms);
-	DGB_STAT("Frame time", buf);
+	DGB_STAT("Frame time", buf, NULL);
 
 	(void)ui->widget_text_colored(ctx, content, "Process", sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f), NULL);
 	(void)snprintf(buf, sizeof(buf), "%.1f%%  (%.2f/core, 4 cores)", (double)cpu_total, (double)(cpu_usage) / 4.0);
-	DGB_STAT("CPU", buf);
+	DGB_STAT("CPU", buf, NULL);
 	dgb_format_bytes(buf2, sizeof(buf2), working);
 	(void)snprintf(buf, sizeof(buf), "%s  (peak %s)", buf2, (dgb_format_bytes(buf2, sizeof(buf2), peak), buf2));
-	DGB_STAT("Working set", buf);
+	DGB_STAT("Working set", buf, NULL);
 	dgb_format_bytes(buf2, sizeof(buf2), sys_used);
 	(void)snprintf(buf, sizeof(buf), "%s / %s", buf2, (dgb_format_bytes(buf2, sizeof(buf2), sys_total), buf2));
-	DGB_STAT("System memory", buf);
+	DGB_STAT("System memory", buf, NULL);
 
 	(void)ui->widget_text_colored(ctx, content, "GPU memory", sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f), NULL);
 	dgb_format_bytes(buf2, sizeof(buf2), vram_used);
 	(void)snprintf(buf, sizeof(buf), "%s / %s", buf2, (dgb_format_bytes(buf2, sizeof(buf2), vram_total), buf2));
-	DGB_STAT("Dedicated (VRAM)", buf);
+	DGB_STAT("Dedicated (VRAM)", buf, "debugger.stat.vram");
 
 	(void)ui->widget_text_colored(ctx, content, "Rendering", sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f), NULL);
-	DGB_STAT("Opaque drawcalls", "312");
-	DGB_STAT("Transparent drawcalls", "24");
-	DGB_STAT("Shadow drawcalls", "48 (per cascade)");
-	DGB_STAT("Total drawcalls", "384");
-	DGB_STAT("Instances", "1500");
-	DGB_STAT("Render pipelines", "17");
+	DGB_STAT("Opaque drawcalls", "312", NULL);
+	DGB_STAT("Transparent drawcalls", "24", NULL);
+	DGB_STAT("Shadow drawcalls", "48 (per cascade)", NULL);
+	DGB_STAT("Total drawcalls", "384", NULL);
+	DGB_STAT("Instances", "1500", NULL);
+	DGB_STAT("Render pipelines", "17", "debugger.stat.pipelines");
 
 #undef DGB_STAT
 
 	/* Size the scroll host's content so every row (incl. Dedicated (VRAM))
 	 * stays reachable: 4 section headers + @p stat_rows rows, each ~24px for
-	 * the 16px default font line box, 2px gaps, 4px panel padding. Rows keep
-	 * flex_shrink 0 so they never squash; the sync pass refines this to the
-	 * measured laid-out height once layout has run. */
-	state->content_height = 4.0f + 4.0f + (f32)(stat_rows + 4u) * 24.0f + (f32)(stat_rows + 4u - 1u) * 2.0f;
+	 * the 16px default font line box, 2px gaps, 2px panel bottom padding.
+	 * Rows keep flex_shrink 0 so they never squash; the sync pass refines
+	 * this to the measured laid-out height once layout has run. */
+	state->content_height = 2.0f + (f32)(stat_rows + 4u) * 24.0f + (f32)(stat_rows + 4u - 1u) * 2.0f;
 }
 
 /* ------------------------------------------------------------------ */
@@ -636,13 +656,16 @@ static void dgb_build_selected_tab(debugger_state_t* state) {
 	 * space (same widget + sibling index). */
 	content = ui->widget_view(ctx, ui->scroll_view_content(ctx, state->content_host), "debugger.content");
 	(void)ui->node_set_id(ctx, ui->scroll_view_content(ctx, state->content_host), "debugger.content.host.content");
-	dgb_apply_panel_style(ui, ctx, content);
 	state->tree = SK_UI_NODE_INVALID;
 	state->chart = SK_UI_NODE_INVALID;
 	state->content_height = 0.0f;
 	if (state->selected_tab == 0) {
+		/* Auto-height body: rows keep flex_shrink 0 and must not be clipped
+		 * by a 100%-of-leaf inner host (APX-394). */
+		dgb_apply_stats_body_style(ui, ctx, content);
 		dgb_build_statistics(state, content);
 	} else {
+		dgb_apply_panel_style(ui, ctx, content);
 		dgb_build_profiler_tab(state, content, state->selected_tab == 2 ? 1 : 0);
 	}
 	state->last_built_tab = state->selected_tab;
@@ -693,16 +716,24 @@ static void dgb_sync_content_size(debugger_state_t* state) {
 	/* scroll_view_set_content_size writes the content node's layout_style,
 	 * which style_resolve overwrites whenever a descendant turns style-dirty
 	 * (the profiler chart rebuilds rows every frame). Mirror the POINT size
-	 * into the content node's inline style so it survives re-resolution. */
+	 * into the scroll content *and* the statistics inner panel so the row
+	 * stack is not clipped to the leaf (100%) or collapsed to auto. */
 	{
-		sk_ui_node_t content = ui->scroll_view_content(ctx, state->content_host);
-		if (sk_ui_node_is_valid(content)) {
-			sk_ui_style_props_t p;
-			memset(&p, 0, sizeof(p));
-			p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
-			p.layout.width = sk_ui_pt(w);
-			p.layout.height = sk_ui_pt(h);
-			(void)ui->node_merge_inline_style(ctx, content, &p);
+		sk_ui_style_props_t p;
+		sk_ui_node_t scroll_content = ui->scroll_view_content(ctx, state->content_host);
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_SHRINK;
+		p.layout.width = sk_ui_pt(w);
+		p.layout.height = sk_ui_pt(h);
+		p.layout.flex_shrink = 0.0f;
+		if (sk_ui_node_is_valid(scroll_content)) {
+			(void)ui->node_merge_inline_style(ctx, scroll_content, &p);
+		}
+		if (state->selected_tab == 0) {
+			sk_ui_node_t body = ui->find_by_id(ctx, "debugger.content");
+			if (sk_ui_node_is_valid(body) && ui->node_alive(ctx, body)) {
+				(void)ui->node_merge_inline_style(ctx, body, &p);
+			}
 		}
 	}
 }
@@ -1177,8 +1208,9 @@ SK_TEST(editor_debugger_window_ops_mock_profiler) {
 }
 
 /* UI path (sk-ui plugin): the Statistics tab body is hosted by a scroll
- * view, so the overflowing stat rows (incl. Dedicated (VRAM)) stay
- * reachable at the BottomRight leaf height (APX-389). */
+ * view with an auto-height inner panel, so the overflowing stat rows
+ * (incl. Dedicated (VRAM)) stay reachable at the BottomRight leaf height
+ * (APX-389 / APX-394). */
 SK_TEST(editor_debugger_window_ui_statistics_scrolls) {
 	sk_app_boot_t boot = sk_app_init(0, NULL);
 	sk_app_context_t* app = boot.context;
@@ -1285,6 +1317,14 @@ SK_TEST(editor_debugger_window_ui_statistics_scrolls) {
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
 	n = ui->node_child_count(ctx, content);
 	TEST_ASSERT_TRUE(n >= 16u); /* 4 section headers + 12 stat rows */
+
+	/* Dedicated (VRAM) is a real row in the stack (not deleted/shortened). */
+	{
+		sk_ui_node_t vram = ui->find_by_id(ctx, "debugger.stat.vram");
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(vram));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, vram, &lr, NULL));
+		TEST_ASSERT_TRUE(lr.height > 0.5f);
+	}
 
 	/* The scroll content was sized to cover the row stack, so the last row
 	 * is reachable when scrolled (rows keep flex_shrink 0 — never squashed). */
