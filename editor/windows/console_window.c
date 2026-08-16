@@ -71,6 +71,12 @@ typedef struct console_state_t {
 	u32 line_node_count;
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* ui_ctx;
+
+	/* Last scroll content box applied to the log body (APX-390): the rebuild
+	 * writes a per-row estimate, console_sync_scroll_size refines it from the
+	 * laid-out rows; only apply when it moved so steady frames stay clean. */
+	f32 last_content_w;
+	f32 last_content_h;
 } console_state_t;
 
 typedef struct console_class_state_t {
@@ -371,7 +377,11 @@ static void console_rebuild_lines(console_state_t* state) {
 				break;
 			}
 			console_apply_line_style(ui, ctx, node, ln->level);
-			(void)ui->label_set_wrap(ctx, node, 0);
+			/* APX-390: wrap long lines at the panel width so the tail of a long
+			 * message is readable (was cut at the panel edge, e.g. the Clay
+			 * limitation WARN). A row can now be taller than one line; the scroll
+			 * body height is refined after layout in console_sync_scroll_size. */
+			(void)ui->label_set_wrap(ctx, node, 1);
 			state->line_nodes[state->line_node_count++] = node;
 			content_h += 16.0f;
 			if (state->line_node_count >= SK_EDITOR_CONSOLE_MAX_LINES) {
@@ -399,7 +409,8 @@ static void console_rebuild_lines(console_state_t* state) {
 					break;
 				}
 				console_apply_line_style(ui, ctx, node, ln->level);
-				(void)ui->label_set_wrap(ctx, node, 0);
+				/* APX-390: wrap long lines at the panel width (see collapse path). */
+				(void)ui->label_set_wrap(ctx, node, 1);
 				state->line_nodes[state->line_node_count++] = node;
 				content_h += 16.0f;
 				if (state->line_node_count >= SK_EDITOR_CONSOLE_MAX_LINES) {
@@ -413,11 +424,78 @@ static void console_rebuild_lines(console_state_t* state) {
 	}
 
 	state->last_synced_version = state->version;
+	/* Per-row estimate (16px/line): the layout fonts are only bound during the
+	 * shell's layout pass, so wrapped row heights are not measurable here.
+	 * console_sync_scroll_size refines this box from the laid-out rows on the
+	 * next frames; auto-scroll is set to the estimate so the newest line is
+	 * reachable even before the first refinement lands. */
+	state->last_content_w = 400.0f;
+	state->last_content_h = content_h;
 	(void)ui->scroll_view_set_content_size(ctx, state->scroll, 400.0f, content_h);
 	if (state->autoscroll) {
 		(void)ui->scroll_view_set_scroll(ctx, state->scroll, 0.0f, content_h);
 	}
 	state->last_synced_version = state->version;
+}
+
+/* Keep the log body's scroll content sized to its laid-out rows (APX-390).
+ * Log lines wrap at the panel width, so a row can be taller than one line;
+ * rebuild writes a per-row estimate, this refines the content box from the
+ * previous frame's measured row stack (same pattern as the Debugger
+ * statistics host, APX-389) and, when Auto-scroll is on, lands on the newest
+ * line. Runs every frame; applies only when the box moved so steady-state
+ * frames don't re-dirty the subtree. */
+static void console_sync_scroll_size(console_state_t* state) {
+	const sk_ui_api_t* ui = state->ui;
+	sk_ui_context_t* ctx = state->ui_ctx;
+	sk_ui_node_t content;
+	sk_ui_rect_t r;
+	f32 w = 400.0f;
+	f32 h = 4.0f;
+	if (ui == NULL || !sk_ui_node_is_valid(state->scroll)) {
+		return;
+	}
+	content = ui->scroll_view_content(ctx, state->scroll);
+	/* Refine the height from the last laid-out row once layout landed.
+	 * Freshly rebuilt nodes have no rect until the next layout pass; before
+	 * that the rebuild's per-row estimate stands, so do not touch the box. */
+	if (state->line_node_count > 0u) {
+		sk_ui_node_t last = state->line_nodes[state->line_node_count - 1u];
+		sk_ui_rect_t lr;
+		sk_ui_rect_t cr;
+		if (!sk_ui_node_is_valid(last) || !sk_ui_node_is_valid(content) || ui->node_get_abs_rect(ctx, last, &lr, NULL) != 0 || lr.height <= 0.5f ||
+			ui->node_get_abs_rect(ctx, content, &cr, NULL) != 0) {
+			return;
+		}
+		h = (lr.y + lr.height) - cr.y + 4.0f; /* panel bottom padding */
+	}
+	/* Content width tracks the scroll viewport so wrapped lines break at the
+	 * panel edge instead of at the fixed 400px estimate (4px padding each
+	 * side of the log body). */
+	if (ui->node_get_abs_rect(ctx, state->scroll, &r, NULL) == 0 && r.width > 1.0f) {
+		w = r.width - 8.0f;
+	}
+	if (w >= state->last_content_w - 0.5f && w <= state->last_content_w + 0.5f && h >= state->last_content_h - 0.5f && h <= state->last_content_h + 0.5f) {
+		return;
+	}
+	(void)ui->scroll_view_set_content_size(ctx, state->scroll, w, h);
+	/* Mirror POINT sizes into the content node's inline style so style_resolve
+	 * (which runs whenever a descendant turns style-dirty) keeps the box. */
+	if (sk_ui_node_is_valid(content)) {
+		sk_ui_style_props_t p;
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+		p.layout.width = sk_ui_pt(w);
+		p.layout.height = sk_ui_pt(h);
+		(void)ui->node_merge_inline_style(ctx, content, &p);
+	}
+	state->last_content_w = w;
+	state->last_content_h = h;
+	if (state->autoscroll) {
+		/* Clamped to the bottom by ui_scroll_clamp: newest line fully on screen
+		 * even when the last row wraps to several lines. */
+		(void)ui->scroll_view_set_scroll(ctx, state->scroll, 0.0f, h);
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -578,6 +656,9 @@ static i32 console_sync(console_state_t* state) {
 	if (need_rebuild) {
 		console_rebuild_lines(state);
 	}
+	/* Refine the log body box from the laid-out rows (wrapped rows can be
+	 * taller than one line) and keep auto-scroll on the newest line. */
+	console_sync_scroll_size(state);
 	return 0;
 }
 
@@ -1149,6 +1230,85 @@ SK_TEST(editor_console_window_ui_dock_chrome_and_filter) {
 				TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, cb_ids[i + 1u]), &ncb, NULL));
 				TEST_ASSERT_TRUE(lbl.x + lbl.width <= ncb.x + 0.5f);
 			}
+		}
+
+		/* APX-390: long log lines wrap at the panel width (label_set_wrap 1)
+		 * instead of being cut at the panel edge, and the log body scroll box
+		 * is sized to the laid-out rows so Auto-scroll lands on the newest
+		 * line even when a row wraps to several lines (the vision gate reads
+		 * the full Clay-limitation WARN on frame 01).
+		 *
+		 * Note: this host drives raw ui->layout() cycles (sk_editor_shell_frame
+		 * on the sandbox drives identical steps plus per-frame font binds); the
+		 * wrap LAYOUT height can vary with the layout-font binding, so the
+		 * assertions here pin the contract that matters: wrap is enabled, the
+		 * scroll body reaches past the last laid-out row (nothing is cut at the
+		 * panel edge) and Auto-scroll lands the newest line fully on screen. */
+		{
+			sk_ui_node_t scroll = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-scroll");
+			sk_ui_node_t content;
+			sk_ui_node_t last;
+			sk_ui_rect_t cr;
+			sk_ui_rect_t lr;
+			sk_ui_rect_t hr;
+			sk_ui_prop_value_t pv;
+			u32 n;
+			u32 k;
+			f32 content_h = 0.0f;
+			f32 scroll_y = -1.0f;
+			TEST_ASSERT_TRUE(sk_ui_node_is_valid(scroll));
+			content = ui->scroll_view_content(ctx, scroll);
+			TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
+			/* Flush any late logger lines (the Clay limitation WARN fires once
+			 * per context on the first absolute-position layout), then seed a
+			 * body taller than the leaf so auto-scroll is exercised. */
+			ops->clear(app, boot.api);
+			window->draw(window, &open);
+			TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+			TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1280.0f, 720.0f));
+			ops->clear(app, boot.api);
+			for (k = 0u; k < 30u; ++k) {
+				char msg[300];
+				/* Copy of the real frame-01 WARN (clay_adapter): 'element' id varies
+				 * per row so collapse does not merge them. */
+				(void)snprintf(msg, sizeof(msg),
+							   "element 'sk.editor.dock.ws1/%u' Clay limitation: absolute positioning mapped via Clay floating; constraints may differ (kept best-effort mapping)",
+							   k);
+				ops->add_message(app, boot.api, SK_LOGGER_TYPE_WARN, "clay_adapter", msg);
+			}
+			/* Rebuild + refine converge over a few frames (rebuild writes the
+			 * per-row estimate; console_sync_scroll_size measures after layout). */
+			for (k = 0u; k < 3u; ++k) {
+				window->draw(window, &open);
+				TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+				TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1280.0f, 720.0f));
+				TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 1.0f, 1.0f));
+			}
+			n = ui->node_child_count(ctx, content);
+			TEST_ASSERT_TRUE(n >= 30u);
+			last = ui->node_child_at(ctx, content, n - 1u);
+			TEST_ASSERT_TRUE(sk_ui_node_is_valid(last));
+			/* Wrap is on for log rows (was hard-disabled, clipping the tail at
+			 * the panel edge). */
+			memset(&pv, 0, sizeof(pv));
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, last, "wrap", &pv));
+			TEST_ASSERT_EQUAL_INT(1, pv.data.i32_value);
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, last, &lr, NULL));
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, content, &cr, NULL));
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, scroll, &hr, NULL));
+			memset(&pv, 0, sizeof(pv));
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_prop(ctx, scroll, "content_height", &pv));
+			content_h = pv.data.f32_value;
+			/* The scroll body box reaches past the last laid-out row. */
+			TEST_ASSERT_TRUE(content_h >= (lr.y + lr.height) - cr.y - 0.5f);
+			TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, scroll, NULL, &scroll_y));
+			/* Body taller than the leaf: auto-scroll actually scrolled... */
+			TEST_ASSERT_TRUE(content_h > hr.height + 0.5f);
+			TEST_ASSERT_TRUE(scroll_y > 0.5f);
+			/* ...and pinned to the bottom so the newest (possibly wrapped) line
+			 * is fully on screen. */
+			TEST_ASSERT_TRUE(content_h - scroll_y <= hr.height + 1.5f);
+			TEST_ASSERT_TRUE((lr.y + lr.height) - cr.y - scroll_y <= hr.height + 1.5f);
 		}
 		ui->set_layout_fonts(ctx, NULL, NULL);
 		ui->font_system_destroy(lfonts);

@@ -244,9 +244,14 @@ cited at the chrome that emits the string or sizes the box.
 | Frame | What is wrong | Source |
 | --- | --- | --- |
 | 01, 02, 03 | Project Browser tile caption `Main.scene` clips to `Main.scen`. `Scenes` / `Textures` / `Hero.png` are intact. | Seed name `editor/windows/project_browser_window.c:269`; grid host `:1696`. Caption is no-wrap + clip-children at `plugins/ui/content_item.c:410`–`:417` (`max_width` = thumb − pad). |
-| 01, 02, 03 | Console WARN line is clipped at the panel edge (`…mapped via Clay floati`). Toolbar chrome is intact; this is the log body. | `editor/windows/console_window.c:369` (`widget_label` of the full line), `:374` (`label_set_wrap(..., 0)`), `:321` (width 100%). |
 
 No other migrated window chrome on these frames (menu bar, shell toolbar,
 workspace switcher, Scene Viewport tools, Entity Tree search / `V` `L`
 toggles, Properties `Select something...`, Settings tree + entries, tab
 titles) is clipped, wrapped mid-word, or overlapping.
+
+## Console log body — fixed (APX-390)
+
+| Frame | Defect | Verdict |
+| --- | --- | --- |
+| 01, 02, 03 | Console WARN line cut at the panel edge (`…mapped via Clay floati`), rest of the message unreachable | **Fixed.** Log rows wrap at the panel width (`label_set_wrap 1` at `editor/windows/console_window.c:384`/`:413`); the scroll body is sized from the laid-out rows (`console_sync_scroll_size`, same pattern as the Debugger statistics host) so Auto-scroll still lands on the newest line when a row is taller than one line. On the fresh frames the WARN row is two lines: line 1 ends on a word break before the panel edge and line 2 carries the remaining message (`...constraints may differ (kept best-effort mapping)`) fully inside the panel. |
