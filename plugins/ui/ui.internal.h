@@ -1092,6 +1092,12 @@ i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32
 void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font);
 
 /**
+ * Measure UTF-8 with the Clay layout font (same advances as wrap=0 FIT).
+ * @return 0 on success; -1 when no layout font is bound or px is not positive.
+ */
+i32 ui_clay_measure_text_extent(f32 px, const_chr_t utf8, f32* out_advance, f32* out_max_x);
+
+/**
  * Whether Clay has been initialized (used by the adapter to skip redundant
  * init work and by tests to assert lifecycle ordering).
  */

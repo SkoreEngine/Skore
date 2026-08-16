@@ -22,6 +22,8 @@
 
 #define CG_RENAME_CAP 160
 #define CG_LABEL_H 18.0f
+#define CG_CAPTION_SLACK 1.0f
+#define CG_ELLIPSIS "\xE2\x80\xA6"
 
 typedef struct ui_content_grid_data_t {
 	sk_ui_node_t host;
@@ -232,6 +234,62 @@ static void cg_size_box(sk_ui_context_t* ctx, sk_ui_node_t node, f32 w, f32 h) {
 	(void)ui->node_merge_inline_style(ctx, node, &p);
 }
 
+static f32 cg_caption_font_px(f32 thumbnail_scale) {
+	return thumbnail_scale < 0.75f ? 10.0f : 12.0f;
+}
+
+static size_t cg_utf8_prev(const char* s, size_t n) {
+	if (n == 0u) {
+		return 0u;
+	}
+	n -= 1u;
+	while (n > 0u && (((u8)s[n]) & 0xC0u) == 0x80u) {
+		n -= 1u;
+	}
+	return n;
+}
+
+static f32 cg_caption_box(f32 advance, f32 max_x) {
+	f32 w = advance;
+	if (max_x > w) {
+		w = max_x;
+	}
+	return w + CG_CAPTION_SLACK;
+}
+
+/* Size from real glyph advance. Names that fit the tile stay whole; names
+ * that do not are ellipsized so overflow reads as truncated, not as a
+ * shaved filename (APX-393). */
+static void cg_fit_caption(char* dst, size_t cap, const_chr_t src, f32 max_w, f32 px) {
+	f32 advance = 0.0f;
+	f32 max_x = 0.0f;
+	size_t n;
+	if (dst == NULL || cap == 0u) {
+		return;
+	}
+	if (src == NULL) {
+		src = "";
+	}
+	if (ui_clay_measure_text_extent(px, src, &advance, &max_x) != 0 || cg_caption_box(advance, max_x) <= max_w) {
+		(void)snprintf(dst, cap, "%s", src);
+		return;
+	}
+	n = strlen(src);
+	while (n > 0u) {
+		n = cg_utf8_prev(src, n);
+		if (n == 0u) {
+			break;
+		}
+		(void)snprintf(dst, cap, "%.*s%s", (int)n, src, CG_ELLIPSIS);
+		advance = 0.0f;
+		max_x = 0.0f;
+		if (ui_clay_measure_text_extent(px, dst, &advance, &max_x) == 0 && cg_caption_box(advance, max_x) <= max_w) {
+			return;
+		}
+	}
+	(void)snprintf(dst, cap, "%s", CG_ELLIPSIS);
+}
+
 static sk_ui_node_t cg_ensure_named(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t widget, const_chr_t class_name, const_chr_t id, i32 image) {
 	const sk_ui_api_t* ui = cg_api();
 	sk_ui_node_t n = cg_child_widget(ctx, parent, widget);
@@ -308,14 +366,13 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 	p.layout.max_height = sk_ui_pt(thumb + CG_LABEL_H);
 	p.layout.flex_grow = 0.0f;
 	p.layout.flex_shrink = 0.0f;
-	/* Horizontal inset is half the thumbnail pad so the caption clip box
-	 * (thumb - pad) holds names up to the tile width; a name that fits the
-	 * tile must not be shaved by reserving pad twice (APX-388). The
-	 * thumbnail stays visually centered (content width changes are split
-	 * evenly around it). */
-	p.layout.padding.left = pad * 0.5f;
+	/* Horizontal pad is 0 so the caption can use the real tile width.
+	 * The thumbnail stays inset via inner (thumb - 4*pad). A name that
+	 * fits is sized from glyph advance; a name that does not is
+	 * ellipsized (APX-393). */
+	p.layout.padding.left = 0.0f;
 	p.layout.padding.top = pad;
-	p.layout.padding.right = pad * 0.5f;
+	p.layout.padding.right = 0.0f;
 	p.layout.padding.bottom = 2.0f;
 	if (selected != 0) {
 		p.layout.border.left = 2.0f;
@@ -405,29 +462,48 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 		(void)ui->node_merge_inline_style(ctx, err_n, &ep);
 	}
 
-	label = cg_child_widget(ctx, row, "label");
-	if (!sk_ui_node_is_valid(label)) {
-		label = ui->widget_label(ctx, row, text, NULL);
-		(void)ui->node_set_pointer_events(ctx, label, SK_UI_POINTER_EVENTS_NONE);
-	} else {
-		(void)ui->label_set_text(ctx, label, text);
-	}
-	(void)ui->label_set_wrap(ctx, label, 0);
-	(void)ui->node_set_clip_children(ctx, label, 1);
-	/* Caption sized from its own glyph advance (no fixed width), capped at
-	 * the tile width so short names are never shaved; text is centered so
-	 * genuinely over-long names degrade as a centred clip instead of
-	 * silently losing their last glyph (APX-388). */
-	(void)ui->label_set_align(ctx, label, 1, 0);
 	{
-		sk_ui_style_props_t lp;
-		ui_style_props_clear(&lp);
-		lp.mask = SK_UI_SP_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FONT_SIZE;
-		lp.layout.max_width = sk_ui_pt(thumb);
-		lp.layout.height = sk_ui_pt(CG_LABEL_H);
-		lp.layout.flex_grow = 0.0f;
-		lp.font_size = g->thumbnail_scale < 0.75f ? 10.0f : 12.0f;
-		(void)ui->node_merge_inline_style(ctx, label, &lp);
+		char shown[CG_RENAME_CAP];
+		f32 font_px = cg_caption_font_px(g->thumbnail_scale);
+		f32 border = selected != 0 ? 2.0f : 0.0f;
+		f32 avail = thumb - border * 2.0f;
+		f32 advance = 0.0f;
+		f32 max_x = 0.0f;
+		f32 box_w;
+		if (avail < 8.0f) {
+			avail = 8.0f;
+		}
+		cg_fit_caption(shown, sizeof(shown), text, avail, font_px);
+		label = cg_child_widget(ctx, row, "label");
+		if (!sk_ui_node_is_valid(label)) {
+			label = ui->widget_label(ctx, row, shown, NULL);
+			(void)ui->node_set_pointer_events(ctx, label, SK_UI_POINTER_EVENTS_NONE);
+		} else {
+			(void)ui->label_set_text(ctx, label, shown);
+		}
+		(void)ui->label_set_wrap(ctx, label, 0);
+		(void)ui->node_set_clip_children(ctx, label, 0);
+		(void)ui->label_set_align(ctx, label, 1, 0);
+		{
+			sk_ui_style_props_t lp;
+			ui_style_props_clear(&lp);
+			lp.mask = SK_UI_SP_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FONT_SIZE;
+			lp.layout.max_width = sk_ui_pt(avail);
+			lp.layout.height = sk_ui_pt(CG_LABEL_H);
+			lp.layout.flex_grow = 0.0f;
+			lp.layout.flex_shrink = 0.0f;
+			lp.font_size = font_px;
+			if (ui_clay_measure_text_extent(font_px, shown, &advance, &max_x) == 0) {
+				box_w = cg_caption_box(advance, max_x);
+				if (box_w > avail) {
+					box_w = avail;
+				}
+				lp.mask |= SK_UI_SP_WIDTH | SK_UI_SP_MIN_WIDTH;
+				lp.layout.width = sk_ui_pt(box_w);
+				lp.layout.min_width = sk_ui_pt(box_w);
+			}
+			(void)ui->node_merge_inline_style(ctx, label, &lp);
+		}
 	}
 	if (error != 0) {
 		sk_ui_style_props_t lp;
@@ -449,7 +525,7 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 			sk_ui_style_props_t rp;
 			ui_style_props_clear(&rp);
 			rp.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
-			rp.layout.width = sk_ui_pt(thumb - pad);
+			rp.layout.width = sk_ui_pt(thumb);
 			rp.layout.height = sk_ui_pt(CG_LABEL_H);
 			rp.background_color = sk_ui_rgba(52.0f / 255.0f, 53.0f / 255.0f, 55.0f / 255.0f, 1.0f);
 			rp.border_color = sk_ui_rgba(0.70f, 0.74f, 0.80f, 1.0f);
@@ -1182,11 +1258,28 @@ SK_TEST(ui_content_grid_selection_rename_icon_error_identity) {
 	ui->context_destroy(ctx);
 }
 
-/* APX-388: a tile caption that fits the tile must not be shaved (the old
- * fixed thumb - 2*pad box lost 'Main.scene' → 'Main.scen'), and the label
- * must be sized from its own glyph advance so it is never one glyph short.
- * The tile content box now reserves one pad total and the caption is fit-
- * sized with max_width = thumb, so the full name draws inside the box. */
+static sk_ui_node_t wcg_find_label(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t row) {
+	u32 i;
+	u32 n;
+	if (!sk_ui_node_is_valid(row)) {
+		return SK_UI_NODE_INVALID;
+	}
+	n = ui->node_child_count(ctx, row);
+	for (i = 0u; i < n; ++i) {
+		sk_ui_node_t c = ui->node_child_at(ctx, row, i);
+		sk_ui_prop_value_t pv;
+		(void)memset(&pv, 0, sizeof(pv));
+		if (ui->node_get_prop(ctx, c, "widget", &pv) == 0 && pv.type == SK_UI_PROP_STR && pv.data.str_value != NULL && strcmp(pv.data.str_value, "label") == 0) {
+			return c;
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+/* APX-393: a tile caption that fits the tile must not be shaved (the old
+ * thumb-pad clip box lost 'Main.scene' → 'Main.scen'). The label is sized
+ * from its own glyph advance and the tile content box is the full thumb
+ * so a name that fits draws in full; over-long names are ellipsized. */
 SK_TEST(ui_content_grid_caption_fits_name_not_shaved) {
 	const sk_ui_api_t* ui = wcg_api();
 	sk_ui_context_t* ctx = ui->context_create(NULL);
@@ -1201,7 +1294,6 @@ SK_TEST(ui_content_grid_caption_fits_name_not_shaved) {
 	sk_ui_font_t* lfont;
 	f32 measured = 0.0f;
 	f32 thumb;
-	u32 i;
 
 	TEST_ASSERT_NOT_NULL(ctx);
 	/* Bind the engine font so Clay sizes the caption from real glyph
@@ -1225,27 +1317,72 @@ SK_TEST(ui_content_grid_caption_fits_name_not_shaved) {
 	row = ui->item_bind_find(ctx, grid, 1ull);
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, row, NULL, &crect));
-	/* Tile content reserves one pad total (thumb - pad), so a name that fits
-	 * the tile is not shaved by reserving pad twice. */
-	TEST_ASSERT_FLOAT_WITHIN(0.01f, thumb - thumb * 0.08f, crect.width);
+	/* Tile content is the full thumb so a name that fits the tile is not
+	 * shaved by reserving pad on the caption (APX-393). */
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, thumb, crect.width);
 
-	for (i = 0u; i < ui->node_child_count(ctx, row); ++i) {
-		sk_ui_node_t c = ui->node_child_at(ctx, row, i);
-		sk_ui_prop_value_t pv;
-		(void)memset(&pv, 0, sizeof(pv));
-		if (ui->node_get_prop(ctx, c, "widget", &pv) == 0 && pv.type == SK_UI_PROP_STR && pv.data.str_value != NULL && strcmp(pv.data.str_value, "label") == 0) {
-			label = c;
-			break;
-		}
-	}
+	label = wcg_find_label(ui, ctx, row);
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(label));
+	TEST_ASSERT_EQUAL_STRING("Main.scene", ui->label_get_text(ctx, label));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, label, &lrect, NULL));
 	TEST_ASSERT_EQUAL_INT(0, ui->font_measure_text(lfonts, lfont, 10u, "Main.scene", &measured, NULL));
-	/* Caption sized from its own advance (fit), so the full name draws
-	 * inside the tile content box instead of losing the last glyph. */
-	TEST_ASSERT_FLOAT_WITHIN(0.5f, measured, lrect.width);
+	/* Caption sized from its own advance (plus ink slack), so the full
+	 * name draws inside the tile instead of losing the last glyph. */
+	TEST_ASSERT_TRUE(lrect.width + 0.01f >= measured);
+	TEST_ASSERT_TRUE(lrect.width <= measured + 2.5f);
 	TEST_ASSERT_TRUE(lrect.x >= crect.x - 0.5f);
 	TEST_ASSERT_TRUE(lrect.x + lrect.width <= crect.x + crect.width + 0.5f);
+
+	ui->set_layout_fonts(ctx, NULL, NULL);
+	ui->font_system_destroy(lfonts);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_content_grid_caption_ellipsizes_when_wider_than_tile) {
+	const sk_ui_api_t* ui = wcg_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[2];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t grid;
+	sk_ui_node_t row;
+	sk_ui_node_t label;
+	sk_ui_rect_t lrect;
+	sk_ui_rect_t crect;
+	sk_ui_font_system_t* lfonts;
+	sk_ui_font_t* lfont;
+	f32 measured = 0.0f;
+	f32 thumb;
+	const_chr_t shown;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	lfonts = ui->font_system_create(NULL);
+	TEST_ASSERT_NOT_NULL(lfonts);
+	lfont = ui->font_load_memory(lfonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
+	TEST_ASSERT_NOT_NULL(lfont);
+	(void)ui->font_msdf_bake(lfont);
+	ui->set_layout_fonts(ctx, lfonts, lfont);
+
+	wcg_fill(items, &arr, 1u);
+	sk_ui_item_set(&items[0], 1ull, 0ull, "ThisFilenameIsWayTooLongToFitOnATile.scene", (u32)SK_UI_ITEM_FLAG_LEAF);
+	grid = ui->widget_content_grid(ctx, ui->context_root(ctx), &arr, 0.55f, "cg-ellip");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(grid));
+	TEST_ASSERT_EQUAL_INT(0, ui->content_grid_set_available_width(ctx, grid, 400.0f));
+	wcg_layout(ui, ctx, 480.0f, 360.0f);
+
+	thumb = sk_ui_content_thumb_size(0.55f);
+	row = ui->item_bind_find(ctx, grid, 1ull);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
+	label = wcg_find_label(ui, ctx, row);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(label));
+	shown = ui->label_get_text(ctx, label);
+	TEST_ASSERT_NOT_NULL(shown);
+	TEST_ASSERT_TRUE(strcmp(shown, "ThisFilenameIsWayTooLongToFitOnATile.scene") != 0);
+	TEST_ASSERT_NOT_NULL(strstr(shown, CG_ELLIPSIS));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, row, NULL, &crect));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, label, &lrect, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_measure_text(lfonts, lfont, 10u, shown, &measured, NULL));
+	TEST_ASSERT_TRUE(lrect.width <= crect.width + 0.5f);
+	TEST_ASSERT_TRUE(measured <= thumb + 1.0f);
 
 	ui->set_layout_fonts(ctx, NULL, NULL);
 	ui->font_system_destroy(lfonts);
