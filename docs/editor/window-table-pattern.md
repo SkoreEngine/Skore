@@ -21,6 +21,7 @@ pb->clear_selection(ctx, api, window, NULL);
 | Lookup | `sk_editor_window_ops_lookup` → first `add_impl` for that ops type id. Missing → NULL. |
 | Lifetime | Table outlives every open instance. Pointers die at `remove_impl` / `sk_app_shutdown`. |
 | Implementations | `static` in the window `.c`. The register function is the only published symbol. |
+| Persist | Optional `save` / `load` on `sk_editor_window_t` (JSON object). NULL when the window has no `EditorSerialize` fields. Workspace layouts call these from `editor_layout.c`. |
 
 Reference: `editor/windows/project_browser_window.h` / `.c`.
 

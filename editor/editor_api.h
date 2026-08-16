@@ -33,6 +33,7 @@
 
 #include "app.h"
 #include "console_panel.h"
+#include "editor_layout.h"
 #include "editor_ui_host.h"
 #include "editor_window.h"
 #include "imgui_shell.h"
@@ -228,6 +229,38 @@ typedef struct sk_editor_api_t {
 
 	/** @see sk_editor_dockspace_reset */
 	void (*dockspace_reset)(sk_editor_workspace_t* workspace);
+
+	/* ---- workspaces persist (APX-368) ---- */
+
+	/** @see sk_editor_workspace_type_id */
+	u32 (*workspace_type_id)(const sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_layout_init */
+	void (*layout_init)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/** @see sk_editor_layout_shutdown */
+	void (*layout_shutdown)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/** @see sk_editor_layout_set_path */
+	void (*layout_set_path)(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t path);
+
+	/** @see sk_editor_layout_save */
+	i32 (*layout_save)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/** @see sk_editor_layout_load */
+	i32 (*layout_load)(sk_app_context_t* app_context, const sk_app_api_t* app_api);
+
+	/** @see sk_editor_layout_has_saved */
+	i32 (*layout_has_saved)(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_type_id);
+
+	/** @see sk_editor_workspace_capture */
+	i32 (*workspace_capture)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_workspace_restore */
+	i32 (*workspace_restore)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_workspace_reset_to_preset */
+	void (*workspace_reset_to_preset)(sk_editor_workspace_t* workspace);
 } sk_editor_api_t;
 
 /**

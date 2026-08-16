@@ -25,6 +25,11 @@
  * Host-facing surface (APX-328/329): the functions below are the internal
  * wiring behind sk_editor_api_t. Hosts and tests resolve the editor only via
  * app_api->get_api(ctx, SK_EDITOR_API_TYPE_ID) (see editor_api.h).
+ *
+ * APX-368 adds an optional save/load pair on this table for per-window
+ * persisted state. Workspace layout (dock JSON + those blobs) lives in
+ * editor_layout.h: capture, restore, reset-to-preset, and a versioned
+ * EditorLayout.json that skips unknown window ids without crashing.
  */
 
 #include "app.h"
@@ -148,6 +153,22 @@ typedef struct sk_editor_window_t {
 
 	/** Called when the window instance is closed / destroyed. May be NULL. */
 	void (*destroy)(struct sk_editor_window_t* window);
+
+	/**
+	 * Optional persist (EditorSerialize analogue). Write this instance's
+	 * state as a JSON object into @p out (null-terminated). @p out_len
+	 * receives bytes excluding NUL. NULL when the window has no persisted
+	 * fields (most windows). @return 0 on success, non-zero if @p out is
+	 * too small or serialization failed.
+	 */
+	i32 (*save)(const struct sk_editor_window_t* window, char* out, u32 cap, u32* out_len);
+
+	/**
+	 * Optional persist: restore a JSON blob produced by save. Unknown keys
+	 * are ignored. NULL pointer or empty blob is a no-op. @return 0 on
+	 * success (including no-op).
+	 */
+	i32 (*load)(struct sk_editor_window_t* window, const_chr_t json, u32 len);
 } sk_editor_window_t;
 
 /** Non-zero when @p workspace_mask admits the workspace with type id @p workspace_id. */
@@ -196,6 +217,18 @@ u32 sk_editor_workspace_list(sk_app_context_t* app_context, const sk_app_api_t* 
 /** Currently active workspace, or NULL when none is active. */
 sk_editor_workspace_t* sk_editor_workspace_active(sk_app_context_t* app_context, const sk_app_api_t* app_api);
 
+/** Workspace type id (SK_EDITOR_WORKSPACE_SCENE / GRAPH / ANIMATOR / MATERIAL). */
+u32 sk_editor_workspace_type_id(const sk_editor_workspace_t* workspace);
+
+/** Display name from the registered workspace type (borrowed). */
+const_chr_t sk_editor_workspace_display_name(const sk_editor_workspace_t* workspace);
+
+/** App context the workspace was created on. */
+sk_app_context_t* sk_editor_workspace_app_context(const sk_editor_workspace_t* workspace);
+
+/** App API table the workspace was created with. */
+const sk_app_api_t* sk_editor_workspace_app_api(const sk_editor_workspace_t* workspace);
+
 /**
  * Open an instance of the window implementation registered under
  * SK_EDITOR_WINDOW_IMPL_TYPE_ID whose type_id equals @p window_type_id. One
@@ -211,6 +244,15 @@ void sk_editor_window_close(sk_app_context_t* app_context, const sk_app_api_t* a
 
 /** First open window instance with type id @p window_type_id, or NULL. */
 sk_editor_window_t* sk_editor_window_by_type(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_type_id_t window_type_id);
+
+/** First open window instance whose dock_id equals @p dock_id, or NULL. */
+sk_editor_window_t* sk_editor_window_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id);
+
+/**
+ * First registered window impl whose dock_id equals @p dock_id, or NULL.
+ * Used when restoring a layout that names windows by their stable dock id.
+ */
+const sk_editor_window_t* sk_editor_window_impl_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id);
 
 /**
  * Copy up to @p out_cap open window pointers into @p out and return the total
@@ -289,6 +331,25 @@ sk_ui_dock_node_t sk_editor_workspace_dock_root(const sk_editor_workspace_t* wor
  * window chrome exists first. @return 0 on success.
  */
 i32 sk_editor_workspace_dock_window(sk_editor_workspace_t* workspace, sk_editor_window_t* window);
+
+/**
+ * Sync the open window set to @p dock_ids (close extras, open missing
+ * registered ids, skip unknown ids) then apply @p dock_json onto the
+ * workspace dockspace. A NULL / empty dock document rebuilds the default
+ * InitDockSpace split tree around the synced windows. Does not leak or
+ * double-register: window_open still dedupes by type, extras are closed
+ * before the new set is opened.
+ * @return 0 on success (unknown ids skipped; corrupt dock JSON falls back
+ *         to the default split tree without crashing).
+ */
+i32 sk_editor_workspace_apply_layout(sk_editor_workspace_t* workspace, const_chr_t* dock_ids, u32 count, const_chr_t dock_json, u32 dock_json_len);
+
+/**
+ * Capture the live dockspace as pretty JSON (docs/ui-dock-layout-format.md).
+ * @return 0 on success, non-zero when there is no live model or @p out is
+ *         too small.
+ */
+i32 sk_editor_workspace_save_dock_json(const sk_editor_workspace_t* workspace, char* out, u32 cap, u32* out_len);
 
 #ifdef __cplusplus
 }

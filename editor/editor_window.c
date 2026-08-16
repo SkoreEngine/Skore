@@ -276,6 +276,22 @@ sk_editor_workspace_t* sk_editor_workspace_active(sk_app_context_t* app_context,
 	return registry != NULL ? registry->active : NULL;
 }
 
+u32 sk_editor_workspace_type_id(const sk_editor_workspace_t* workspace) {
+	return workspace->type_id;
+}
+
+const_chr_t sk_editor_workspace_display_name(const sk_editor_workspace_t* workspace) {
+	return workspace->display_name;
+}
+
+sk_app_context_t* sk_editor_workspace_app_context(const sk_editor_workspace_t* workspace) {
+	return workspace->app_context;
+}
+
+const sk_app_api_t* sk_editor_workspace_app_api(const sk_editor_workspace_t* workspace) {
+	return workspace->app_api;
+}
+
 /* APX-330 dock helpers (defined after sk_editor_window_open). */
 static void editor_window_dock_on_open(sk_editor_registry_t* registry, sk_editor_window_t* window);
 static sk_ui_dock_node_t workspace_zone_for(const sk_editor_workspace_t* workspace, i32 dock_position);
@@ -473,6 +489,42 @@ sk_editor_window_t* sk_editor_window_by_type(sk_app_context_t* app_context, cons
 	return NULL;
 }
 
+sk_editor_window_t* sk_editor_window_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id) {
+	sk_editor_registry_t* registry = editor_registry_get(app_context, app_api);
+	if (registry == NULL || dock_id == NULL) {
+		return NULL;
+	}
+	return editor_window_by_dock_id(registry, dock_id);
+}
+
+const sk_editor_window_t* sk_editor_window_impl_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	const sk_editor_window_t* found = NULL;
+	const_ptr_t* impls;
+	u32 count;
+	if (dock_id == NULL || dock_id[0] == '\0') {
+		return NULL;
+	}
+	count = app_api->impl_count(app_context, SK_EDITOR_WINDOW_IMPL_TYPE_ID);
+	if (count == 0u) {
+		return NULL;
+	}
+	impls = (const_ptr_t*)alloc->alloc(alloc->instance, (size_t)count * sizeof(const_ptr_t));
+	if (impls == NULL) {
+		return NULL;
+	}
+	(void)app_api->get_all_impls(app_context, SK_EDITOR_WINDOW_IMPL_TYPE_ID, impls, count);
+	for (u32 i = 0u; i < count; ++i) {
+		const sk_editor_window_t* impl = (const sk_editor_window_t*)impls[i];
+		if (impl->dock_id != NULL && strcmp(impl->dock_id, dock_id) == 0) {
+			found = impl;
+			break;
+		}
+	}
+	alloc->free(alloc->instance, impls);
+	return found;
+}
+
 u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t** out, u32 out_cap) {
 	sk_editor_registry_t* registry = editor_registry_get(app_context, app_api);
 	if (registry == NULL) {
@@ -498,6 +550,7 @@ u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* 
 #define SK_EDITOR_DOCK_LEFT_RATIO 0.22f
 #define SK_EDITOR_DOCK_RIGHT_RATIO 0.24f
 #define SK_EDITOR_DOCK_RIGHT_SPLIT_RATIO 0.50f
+#define SK_EDITOR_LAYOUT_APPLY_CAP 32u
 
 static void dockspace_dock_model_build(sk_editor_workspace_t* workspace);
 static void dockspace_zones_invalidate(sk_editor_workspace_t* workspace);
@@ -656,6 +709,23 @@ void sk_editor_dockspace_init(sk_editor_workspace_t* workspace) {
 	}
 }
 void sk_editor_dockspace_reset(sk_editor_workspace_t* workspace) {
+	/* Close windows that are not part of this workspace's default set
+	 * (on-demand mask 0, or a mask that does not admit the type). Then
+	 * rebuild the InitDockSpace tree. Windows without a dock_id (test
+	 * stubs) stay if their mask matches. */
+	sk_editor_window_t* open[SK_EDITOR_LAYOUT_APPLY_CAP];
+	u32 n = sk_editor_window_iterate(workspace->app_context, workspace->app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+	u32 i;
+	if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+		n = SK_EDITOR_LAYOUT_APPLY_CAP;
+	}
+	sk_editor_workspace_clear_dockspace(workspace);
+	for (i = 0u; i < n; ++i) {
+		sk_editor_window_t* window = open[i];
+		if (!sk_editor_workspace_mask_contains(window->workspace_mask, workspace->type_id)) {
+			sk_editor_window_close(workspace->app_context, workspace->app_api, window);
+		}
+	}
 	dockspace_build(workspace);
 }
 
@@ -699,6 +769,118 @@ i32 sk_editor_workspace_dock_window(sk_editor_workspace_t* workspace, sk_editor_
 	}
 	(void)editor_dock_ensure_chrome(workspace, window);
 	return workspace->ui->dock_window_to_node(workspace->dock_ctx, window->dock_id, zone, SK_UI_DOCK_DIR_CENTER);
+}
+
+static i32 editor_layout_id_wanted(const_chr_t* dock_ids, u32 count, const_chr_t dock_id) {
+	u32 i;
+	if (dock_id == NULL) {
+		return 0;
+	}
+	for (i = 0u; i < count; ++i) {
+		if (dock_ids[i] != NULL && strcmp(dock_ids[i], dock_id) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+i32 sk_editor_workspace_save_dock_json(const sk_editor_workspace_t* workspace, char* out, u32 cap, u32* out_len) {
+	if (workspace->ui == NULL || workspace->dock_ctx == NULL || workspace->dock_built == 0) {
+		return -1;
+	}
+	return workspace->ui->dock_layout_save_json(workspace->dock_ctx, workspace->dock_space_id, out, cap, out_len);
+}
+
+i32 sk_editor_workspace_apply_layout(sk_editor_workspace_t* workspace, const_chr_t* dock_ids, u32 count, const_chr_t dock_json, u32 dock_json_len) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_app_context_t* app_context = workspace->app_context;
+	const sk_app_api_t* app_api = workspace->app_api;
+	sk_editor_window_t* open[SK_EDITOR_LAYOUT_APPLY_CAP];
+	u32 n;
+	u32 i;
+	i32 loaded = 0;
+
+	/* Tear the live model first so window_close does not go through the
+	 * dock tab callback (and so chrome ids can be reused). */
+	sk_editor_workspace_clear_dockspace(workspace);
+
+	n = sk_editor_window_iterate(app_context, app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+	if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+		n = SK_EDITOR_LAYOUT_APPLY_CAP;
+	}
+	for (i = 0u; i < n; ++i) {
+		sk_editor_window_t* window = open[i];
+		if (!editor_layout_id_wanted(dock_ids, count, window->dock_id)) {
+			sk_editor_window_close(app_context, app_api, window);
+		}
+	}
+
+	for (i = 0u; i < count; ++i) {
+		const sk_editor_window_t* impl = sk_editor_window_impl_by_dock_id(app_context, app_api, dock_ids[i]);
+		if (impl == NULL) {
+			continue; /* unknown / stale window id */
+		}
+		(void)sk_editor_window_open(app_context, app_api, impl->type_id);
+	}
+
+	workspace->ui = (const sk_ui_api_t*)app_api->get_api(app_context, SK_UI_API_TYPE_ID);
+	if (workspace->ui != NULL && workspace->dock_ctx == NULL) {
+		workspace->dock_ctx = workspace->ui->context_create(NULL);
+		workspace->owns_dock_ctx = 1;
+	}
+
+	if (workspace->ui != NULL && workspace->dock_ctx != NULL) {
+		const sk_ui_api_t* ui = workspace->ui;
+		sk_ui_context_t* ctx = workspace->dock_ctx;
+
+		n = sk_editor_window_iterate(app_context, app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+		if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+			n = SK_EDITOR_LAYOUT_APPLY_CAP;
+		}
+		for (i = 0u; i < n; ++i) {
+			sk_editor_window_t* window = open[i];
+			if (window->dock_id == NULL) {
+				continue;
+			}
+			if (!sk_ui_node_is_valid(ui->find_by_id(ctx, window->dock_id))) {
+				(void)ui->widget_editor_window(ctx, ui->context_root(ctx), window->title, window->dock_id);
+			}
+			(void)ui->dock_window_register(ctx, window->dock_id, NULL, NULL);
+		}
+
+		if (dock_json != NULL && dock_json_len > 0u) {
+			if (ui->dock_layout_load_json(ctx, workspace->dock_space_id, dock_json, dock_json_len) == 0) {
+				workspace->dock_root = ui->dockspace_find(ctx, workspace->dock_space_id);
+				if (sk_ui_dock_node_is_valid(workspace->dock_root)) {
+					ui->dock_set_tab_callback(ctx, editor_dock_tab_cb, workspace->registry);
+					workspace->dock_built = 1;
+					loaded = 1;
+				}
+			}
+		}
+
+		if (loaded == 0) {
+			sk_array_free(&workspace->docks);
+			sk_array_init(&workspace->docks, alloc);
+			for (i = 0u; i < n; ++i) {
+				sk_editor_dock_slot_t slot;
+				sk_editor_window_t* window = open[i];
+				if (window->dock_id == NULL || window->dock_position == SK_EDITOR_DOCK_NONE) {
+					continue;
+				}
+				slot.window_type_id = window->type_id;
+				slot.dock_position = window->dock_position;
+				slot.order = window->order;
+				if (sk_array_push(&workspace->docks, slot) != 0) {
+					break;
+				}
+			}
+			dockspace_dock_model_build(workspace);
+		}
+	}
+
+	workspace->initialized = 1;
+	return 0;
 }
 
 /* ------------------------------------------------------------------ */

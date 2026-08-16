@@ -76,6 +76,16 @@ static const sk_editor_api_t editor_api = {
 	sk_editor_window_iterate,
 	sk_editor_dockspace_init,
 	sk_editor_dockspace_reset,
+	sk_editor_workspace_type_id,
+	sk_editor_layout_init,
+	sk_editor_layout_shutdown,
+	sk_editor_layout_set_path,
+	sk_editor_layout_save,
+	sk_editor_layout_load,
+	sk_editor_layout_has_saved,
+	sk_editor_workspace_capture,
+	sk_editor_workspace_restore,
+	sk_editor_workspace_reset_to_preset,
 };
 
 void sk_editor_bind_tables(sk_app_context_t* context, const sk_app_api_t* app_api) {
@@ -129,6 +139,13 @@ SK_TEST(editor_api_resolves_via_app_registry) {
 	TEST_ASSERT_NOT_NULL(editor->window_iterate);
 	TEST_ASSERT_NOT_NULL(editor->dockspace_init);
 	TEST_ASSERT_NOT_NULL(editor->dockspace_reset);
+	TEST_ASSERT_NOT_NULL(editor->workspace_type_id);
+	TEST_ASSERT_NOT_NULL(editor->layout_init);
+	TEST_ASSERT_NOT_NULL(editor->layout_save);
+	TEST_ASSERT_NOT_NULL(editor->layout_load);
+	TEST_ASSERT_NOT_NULL(editor->workspace_capture);
+	TEST_ASSERT_NOT_NULL(editor->workspace_restore);
+	TEST_ASSERT_NOT_NULL(editor->workspace_reset_to_preset);
 
 	/* Re-bind replaces the previous registration (idempotent). */
 	sk_editor_bind_tables(app, boot.api);

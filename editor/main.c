@@ -287,6 +287,7 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 		}
 	}
 
+	(void)sk_editor_layout_save(app, app_api);
 	sk_editor_shell_destroy(host.shell);
 	win_api->destroy_window(window);
 	return 0;

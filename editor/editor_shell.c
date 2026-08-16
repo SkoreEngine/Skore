@@ -24,6 +24,7 @@
 #include "editor_shell.h"
 
 #include "allocator.h"
+#include "editor_layout.h"
 #include "logger.h"
 #include "window_ops.h"
 #include "windows/console_window.h"
@@ -671,19 +672,19 @@ sk_editor_workspace_t* sk_editor_shell_switch_workspace(sk_editor_shell_t* shell
 	old = sk_editor_workspace_active(shell->app_context, shell->app_api);
 	if (old != ws) {
 		if (old != NULL) {
-			/* Only the active workspace's dock model is live on the shared
-			 * context; tear the old one before the new model is built (window
-			 * chrome ids are process-global). */
+			/* Snapshot the outgoing workspace before tearing its dock model
+			 * and swapping the open window set. */
+			(void)sk_editor_workspace_capture(old);
 			sk_editor_workspace_clear_dockspace(old);
 		}
 		sk_editor_workspace_switch(ws);
-		/* reset always (re)builds the model, even for a fresh workspace. */
-		sk_editor_dockspace_reset(ws);
+		/* Saved layout if we have one, otherwise the shipped default preset. */
+		(void)sk_editor_workspace_restore(ws);
 		shell->ws_tab_version = SHELL_U32_MAX;
 	} else if (!sk_ui_dock_node_is_valid(sk_editor_workspace_dock_root(ws))) {
 		/* The first workspace is created active (workspace_create) before any
-		 * model exists; build its dockspace now. */
-		sk_editor_dockspace_reset(ws);
+		 * model exists; restore saved layout or the default preset. */
+		(void)sk_editor_workspace_restore(ws);
 		shell->ws_tab_version = SHELL_U32_MAX;
 	}
 	return ws;
@@ -897,7 +898,7 @@ static void shell_act_reset_layout(sk_app_context_t* app_context, const sk_app_a
 	sk_editor_workspace_t* ws = sk_editor_workspace_active(app_context, app_api);
 	(void)shell;
 	if (ws != NULL) {
-		sk_editor_dockspace_reset(ws);
+		sk_editor_workspace_reset_to_preset(ws);
 	}
 }
 
@@ -1154,6 +1155,9 @@ sk_editor_shell_t* sk_editor_shell_create(sk_app_context_t* app_context, const s
 	shell_ws_tabs_build(shell);
 	shell->ws_tab_version = shell->workspace_count;
 
+	/* Load EditorLayout.json when present (missing / corrupt → presets). */
+	sk_editor_layout_init(app_context, app_api);
+
 	/* Bring up the default workspace (Scene) with its dockspace. */
 	(void)sk_editor_shell_switch_workspace(shell, SK_EDITOR_WORKSPACE_SCENE);
 	return shell;
@@ -1163,6 +1167,7 @@ void sk_editor_shell_destroy(sk_editor_shell_t* shell) {
 	if (shell == NULL) {
 		return;
 	}
+	sk_editor_layout_shutdown(shell->app_context, shell->app_api);
 	if (shell->logger_api != NULL && shell->log != NULL) {
 		shell->logger_api->destroy_logger(shell->log_ctx, shell->log);
 		shell->log = NULL;
@@ -1316,6 +1321,21 @@ static sk_editor_shell_t* shell_fixture_boot(shell_ui_fixture_t* fx, const sk_ed
 	sk_editor_project_browser_register(fx->boot.context, fx->boot.api);
 	sk_editor_console_register(fx->boot.context, fx->boot.api);
 	sk_editor_windows_register_impls(fx->boot.context, fx->boot.api);
+	/* Isolate persist from AppFolder leftovers: point at a missing temp file
+	 * so shell_create's layout_init does not pick up another test's document. */
+	{
+		const sk_filesystem_api_t* fs = fx->boot.api->filesystem_api(fx->boot.context);
+		char tmp[SK_FS_PATH_MAX];
+		char path[SK_FS_PATH_MAX];
+		if (fs != NULL && fs->temp_folder(tmp, (u32)sizeof(tmp)) == 0) {
+			if (sk_path_join(sk_str_view_cstr(tmp), sk_str_view_cstr("skore-apx368-shell-layout.json"), path, (u32)sizeof(path)) >= 0) {
+				if (fs->get_file_status(path) == SK_FILE_STATUS_FILE) {
+					(void)fs->remove(path);
+				}
+				sk_editor_layout_set_path(fx->boot.context, fx->boot.api, path);
+			}
+		}
+	}
 	if (out_editor != NULL) {
 		*out_editor = (const sk_editor_api_t*)fx->boot.api->get_api(fx->boot.context, SK_EDITOR_API_TYPE_ID);
 	}

@@ -12,6 +12,7 @@
 #include "allocator.h"
 #include "editor_icons.h"
 #include "notify.h"
+#include "serialization.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +54,8 @@ typedef struct pb_state_t {
 	u32 selected_count;
 	u32 workspace_id;
 	u32 created_count;
+	i32 tree_only_view;		  /* EditorSerialize treeOnlyView */
+	f32 content_browser_zoom; /* EditorSerialize contentBrowserZoom */
 	u8 _pad0[4];
 	pb_item_t items[PB_ITEM_CAP];
 	u32 item_count;
@@ -68,6 +71,8 @@ typedef struct pb_state_t {
 static void pb_init(sk_editor_window_t* window);
 static void pb_draw(sk_editor_window_t* window, i32* open);
 static void pb_destroy(sk_editor_window_t* window);
+static i32 pb_save(const sk_editor_window_t* window, char* out, u32 cap, u32* out_len);
+static i32 pb_load(sk_editor_window_t* window, const_chr_t json, u32 len);
 
 static sk_editor_window_t pb_window = {
 	.title = "Project Browser",
@@ -79,6 +84,8 @@ static sk_editor_window_t pb_window = {
 	.draw = pb_draw,
 	.render = NULL,
 	.destroy = pb_destroy,
+	.save = pb_save,
+	.load = pb_load,
 };
 
 static pb_class_state_t* pb_class(sk_app_context_t* app_context, const sk_app_api_t* app_api) {
@@ -380,6 +387,8 @@ static void pb_init(sk_editor_window_t* window) {
 	state->app_context = cls->app_context;
 	state->app_api = cls->app_api;
 	state->workspace_id = SK_EDITOR_WORKSPACE_SCENE;
+	state->tree_only_view = 0;
+	state->content_browser_zoom = 1.0f;
 	pb_seed_items(state);
 	state->drop_observer.order = 0;
 	state->drop_observer.user = state;
@@ -418,6 +427,57 @@ static void pb_destroy(sk_editor_window_t* window) {
 	state->app_api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_DROP_FILE, &state->drop_observer);
 	alloc->free(alloc->instance, state);
 	window->user_data = NULL;
+}
+
+static i32 pb_save(const sk_editor_window_t* window, char* out, u32 cap, u32* out_len) {
+	const pb_state_t* state = (const pb_state_t*)window->user_data;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_archive_writer_t writer;
+	sk_str_view_t json;
+	if (state == NULL) {
+		return -1;
+	}
+	if (sk_json_archive_writer_init(&writer, alloc) != 0) {
+		return -1;
+	}
+	writer.write_bool(writer.instance, sk_str_view_cstr("treeOnlyView"), state->tree_only_view);
+	writer.write_float(writer.instance, sk_str_view_cstr("contentBrowserZoom"), (f64)state->content_browser_zoom);
+	json = sk_json_archive_writer_emit_as_string(&writer);
+	if (json.data == NULL || json.size + 1u > cap) {
+		sk_archive_writer_destroy(&writer);
+		return -1;
+	}
+	memcpy(out, json.data, (size_t)json.size);
+	out[json.size] = '\0';
+	if (out_len != NULL) {
+		*out_len = json.size;
+	}
+	sk_archive_writer_destroy(&writer);
+	return 0;
+}
+
+static i32 pb_load(sk_editor_window_t* window, const_chr_t json, u32 len) {
+	pb_state_t* state = (pb_state_t*)window->user_data;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_archive_reader_t reader;
+	if (state == NULL) {
+		return -1;
+	}
+	if (json == NULL || len == 0u) {
+		return 0;
+	}
+	if (sk_json_archive_reader_init(&reader, sk_str_view_make(json, len), alloc) != 0) {
+		return -1;
+	}
+	state->tree_only_view = reader.read_bool(reader.instance, sk_str_view_cstr("treeOnlyView")) != 0 ? 1 : 0;
+	{
+		f64 zoom = reader.read_float(reader.instance, sk_str_view_cstr("contentBrowserZoom"));
+		if (zoom > 0.0) {
+			state->content_browser_zoom = (f32)zoom;
+		}
+	}
+	sk_archive_reader_destroy(&reader);
+	return 0;
 }
 
 void sk_editor_project_browser_register(sk_app_context_t* app_context, const sk_app_api_t* app_api) {
@@ -613,6 +673,42 @@ SK_TEST(editor_project_browser_ops_via_add_impl) {
 
 	sk_editor_project_browser_shutdown(boot.context, boot.api);
 	TEST_ASSERT_NULL(sk_editor_project_browser_ops(boot.context, boot.api));
+	sk_app_shutdown(boot.context);
+}
+
+SK_TEST(editor_project_browser_save_load_roundtrip) {
+	sk_app_boot_t boot = sk_app_create();
+	const sk_editor_project_browser_ops_t* ops;
+	sk_editor_window_t* window;
+	char json[256];
+	u32 len = 0u;
+	pb_state_t* state;
+
+	TEST_ASSERT_NOT_NULL(boot.context);
+	sk_editor_bind_tables(boot.context, boot.api);
+	sk_editor_project_browser_register(boot.context, boot.api);
+	ops = sk_editor_project_browser_ops(boot.context, boot.api);
+	window = ops->open(boot.context, boot.api);
+	TEST_ASSERT_NOT_NULL(window);
+	TEST_ASSERT_NOT_NULL(window->save);
+	TEST_ASSERT_NOT_NULL(window->load);
+
+	state = (pb_state_t*)window->user_data;
+	state->tree_only_view = 1;
+	state->content_browser_zoom = 2.5f;
+	TEST_ASSERT_EQUAL_INT(0, window->save(window, json, (u32)sizeof(json), &len));
+	TEST_ASSERT_TRUE(len > 0u);
+	TEST_ASSERT_NOT_NULL(strstr(json, "treeOnlyView"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "contentBrowserZoom"));
+
+	state->tree_only_view = 0;
+	state->content_browser_zoom = 1.0f;
+	TEST_ASSERT_EQUAL_INT(0, window->load(window, json, len));
+	TEST_ASSERT_EQUAL_INT(1, state->tree_only_view);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.5f, state->content_browser_zoom);
+
+	sk_editor_window_close(boot.context, boot.api, window);
+	sk_editor_project_browser_shutdown(boot.context, boot.api);
 	sk_app_shutdown(boot.context);
 }
 
