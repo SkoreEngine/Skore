@@ -308,9 +308,14 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 	p.layout.max_height = sk_ui_pt(thumb + CG_LABEL_H);
 	p.layout.flex_grow = 0.0f;
 	p.layout.flex_shrink = 0.0f;
-	p.layout.padding.left = pad;
+	/* Horizontal inset is half the thumbnail pad so the caption clip box
+	 * (thumb - pad) holds names up to the tile width; a name that fits the
+	 * tile must not be shaved by reserving pad twice (APX-388). The
+	 * thumbnail stays visually centered (content width changes are split
+	 * evenly around it). */
+	p.layout.padding.left = pad * 0.5f;
 	p.layout.padding.top = pad;
-	p.layout.padding.right = pad;
+	p.layout.padding.right = pad * 0.5f;
 	p.layout.padding.bottom = 2.0f;
 	if (selected != 0) {
 		p.layout.border.left = 2.0f;
@@ -409,12 +414,16 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 	}
 	(void)ui->label_set_wrap(ctx, label, 0);
 	(void)ui->node_set_clip_children(ctx, label, 1);
+	/* Caption sized from its own glyph advance (no fixed width), capped at
+	 * the tile width so short names are never shaved; text is centered so
+	 * genuinely over-long names degrade as a centred clip instead of
+	 * silently losing their last glyph (APX-388). */
+	(void)ui->label_set_align(ctx, label, 1, 0);
 	{
 		sk_ui_style_props_t lp;
 		ui_style_props_clear(&lp);
-		lp.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FONT_SIZE;
-		lp.layout.width = sk_ui_pt(thumb - pad * 2.0f);
-		lp.layout.max_width = sk_ui_pt(thumb - pad * 2.0f);
+		lp.mask = SK_UI_SP_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_FONT_SIZE;
+		lp.layout.max_width = sk_ui_pt(thumb);
 		lp.layout.height = sk_ui_pt(CG_LABEL_H);
 		lp.layout.flex_grow = 0.0f;
 		lp.font_size = g->thumbnail_scale < 0.75f ? 10.0f : 12.0f;
@@ -440,7 +449,7 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 			sk_ui_style_props_t rp;
 			ui_style_props_clear(&rp);
 			rp.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
-			rp.layout.width = sk_ui_pt(thumb - pad * 2.0f);
+			rp.layout.width = sk_ui_pt(thumb - pad);
 			rp.layout.height = sk_ui_pt(CG_LABEL_H);
 			rp.background_color = sk_ui_rgba(52.0f / 255.0f, 53.0f / 255.0f, 55.0f / 255.0f, 1.0f);
 			rp.border_color = sk_ui_rgba(0.70f, 0.74f, 0.80f, 1.0f);
@@ -1034,6 +1043,8 @@ sk_ui_node_t ui_content_grid_rename_input_impl(const sk_ui_context_t* ctx, sk_ui
 
 #ifdef SK_TESTS
 
+#include "testdata/skore_test_font_ttf.h"
+
 static const sk_ui_api_t* wcg_api(void) {
 	return ui_get_api_table();
 }
@@ -1168,6 +1179,76 @@ SK_TEST(ui_content_grid_selection_rename_icon_error_identity) {
 	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->item_bind_find(ctx, grid, 3ull)));
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->item_bind_find(ctx, grid, 5ull)));
 
+	ui->context_destroy(ctx);
+}
+
+/* APX-388: a tile caption that fits the tile must not be shaved (the old
+ * fixed thumb - 2*pad box lost 'Main.scene' → 'Main.scen'), and the label
+ * must be sized from its own glyph advance so it is never one glyph short.
+ * The tile content box now reserves one pad total and the caption is fit-
+ * sized with max_width = thumb, so the full name draws inside the box. */
+SK_TEST(ui_content_grid_caption_fits_name_not_shaved) {
+	const sk_ui_api_t* ui = wcg_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_item_t items[4];
+	sk_ui_item_array_t arr;
+	sk_ui_node_t grid;
+	sk_ui_node_t row;
+	sk_ui_node_t label = SK_UI_NODE_INVALID;
+	sk_ui_rect_t lrect;
+	sk_ui_rect_t crect;
+	sk_ui_font_system_t* lfonts;
+	sk_ui_font_t* lfont;
+	f32 measured = 0.0f;
+	f32 thumb;
+	u32 i;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	/* Bind the engine font so Clay sizes the caption from real glyph
+	 * advance, mirroring the shell frame. */
+	lfonts = ui->font_system_create(NULL);
+	TEST_ASSERT_NOT_NULL(lfonts);
+	lfont = ui->font_load_memory(lfonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
+	TEST_ASSERT_NOT_NULL(lfont);
+	(void)ui->font_msdf_bake(lfont);
+	TEST_ASSERT_NOT_NULL(ui->set_layout_fonts);
+	ui->set_layout_fonts(ctx, lfonts, lfont);
+
+	wcg_fill(items, &arr, 4u);
+	sk_ui_item_set(&items[0], 1ull, 0ull, "Main.scene", (u32)SK_UI_ITEM_FLAG_LEAF);
+	grid = ui->widget_content_grid(ctx, ui->context_root(ctx), &arr, 0.55f, "cg-caption");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(grid));
+	TEST_ASSERT_EQUAL_INT(0, ui->content_grid_set_available_width(ctx, grid, 400.0f));
+	wcg_layout(ui, ctx, 480.0f, 360.0f);
+
+	thumb = sk_ui_content_thumb_size(0.55f);
+	row = ui->item_bind_find(ctx, grid, 1ull);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, row, NULL, &crect));
+	/* Tile content reserves one pad total (thumb - pad), so a name that fits
+	 * the tile is not shaved by reserving pad twice. */
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, thumb - thumb * 0.08f, crect.width);
+
+	for (i = 0u; i < ui->node_child_count(ctx, row); ++i) {
+		sk_ui_node_t c = ui->node_child_at(ctx, row, i);
+		sk_ui_prop_value_t pv;
+		(void)memset(&pv, 0, sizeof(pv));
+		if (ui->node_get_prop(ctx, c, "widget", &pv) == 0 && pv.type == SK_UI_PROP_STR && pv.data.str_value != NULL && strcmp(pv.data.str_value, "label") == 0) {
+			label = c;
+			break;
+		}
+	}
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(label));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, label, &lrect, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_measure_text(lfonts, lfont, 10u, "Main.scene", &measured, NULL));
+	/* Caption sized from its own advance (fit), so the full name draws
+	 * inside the tile content box instead of losing the last glyph. */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, measured, lrect.width);
+	TEST_ASSERT_TRUE(lrect.x >= crect.x - 0.5f);
+	TEST_ASSERT_TRUE(lrect.x + lrect.width <= crect.x + crect.width + 0.5f);
+
+	ui->set_layout_fonts(ctx, NULL, NULL);
+	ui->font_system_destroy(lfonts);
 	ui->context_destroy(ctx);
 }
 
