@@ -25,6 +25,7 @@
 #include "resource_assets_types.h"
 #include "ui.h"
 #include "windows/console_window.h"
+#include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
 
 #include <stdio.h>
@@ -229,11 +230,12 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 		return 1;
 	}
 
-	/* Project Browser + Console first so their registered ops tables / impls
-	 * win window_open (docs/editor/window-table-pattern.md); the 14 scaffolds
-	 * follow. */
+	/* Project Browser + Console + Entity Tree first so their registered ops
+	 * tables / impls win window_open (docs/editor/window-table-pattern.md);
+	 * the 14 scaffolds follow. */
 	sk_editor_project_browser_register(app, app_api);
 	sk_editor_console_register(app, app_api);
+	sk_editor_entity_tree_register(app, app_api);
 	sk_editor_windows_register_impls(app, app_api);
 
 	if (win_api->init() != 0) {

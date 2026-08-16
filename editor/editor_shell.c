@@ -28,6 +28,7 @@
 #include "logger.h"
 #include "window_ops.h"
 #include "windows/console_window.h"
+#include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
 
 #include <stdarg.h>
@@ -621,6 +622,12 @@ sk_editor_window_t* sk_editor_shell_open_window(sk_editor_shell_t* shell, sk_typ
 		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_CONSOLE)) {
 			/* Console toggles route through its registered ops table too. */
 			const sk_editor_console_ops_t* ops = sk_editor_console_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_ENTITY_TREE)) {
+			/* Entity Tree toggles route through its registered ops table too. */
+			const sk_editor_entity_tree_ops_t* ops = sk_editor_entity_tree_ops(shell->app_context, shell->app_api);
 			if (ops != NULL && ops->open != NULL) {
 				window = ops->open(shell->app_context, shell->app_api);
 			}
@@ -1316,10 +1323,12 @@ static sk_editor_shell_t* shell_fixture_boot(shell_ui_fixture_t* fx, const sk_ed
 	sk_editor_shell_t* shell;
 	sk_editor_bind_tables(fx->boot.context, fx->boot.api);
 	sk_editor_workspace_register_impls(fx->boot.context, fx->boot.api);
-	/* Register the Project Browser + Console before the main-window scaffolds
-	 * so their real impls win window_open (docs/editor/window-table-pattern.md). */
+	/* Register the Project Browser + Console + Entity Tree before the
+	 * main-window scaffolds so their real impls win window_open
+	 * (docs/editor/window-table-pattern.md). */
 	sk_editor_project_browser_register(fx->boot.context, fx->boot.api);
 	sk_editor_console_register(fx->boot.context, fx->boot.api);
+	sk_editor_entity_tree_register(fx->boot.context, fx->boot.api);
 	sk_editor_windows_register_impls(fx->boot.context, fx->boot.api);
 	/* Isolate persist from AppFolder leftovers: point at a missing temp file
 	 * so shell_create's layout_init does not pick up another test's document. */

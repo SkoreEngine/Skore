@@ -112,6 +112,12 @@ typedef struct sk_editor_notify_rename_payload_t {
 	const_chr_t name;
 } sk_editor_notify_rename_payload_t;
 
+typedef struct sk_editor_notify_reparent_payload_t {
+	u32 workspace_id;
+	sk_rid_t rid;
+	sk_rid_t new_parent;
+} sk_editor_notify_reparent_payload_t;
+
 static void visit_entity_selection(const void* observer, void* payload) {
 	const sk_editor_on_entity_selection_t* o = (const sk_editor_on_entity_selection_t*)observer;
 	const sk_editor_notify_rid_payload_t* p = (const sk_editor_notify_rid_payload_t*)payload;
@@ -216,6 +222,14 @@ static void visit_entity_deleted(const void* observer, void* payload) {
 	}
 }
 
+static void visit_entity_reparented(const void* observer, void* payload) {
+	const sk_editor_on_entity_reparented_t* o = (const sk_editor_on_entity_reparented_t*)observer;
+	const sk_editor_notify_reparent_payload_t* p = (const sk_editor_notify_reparent_payload_t*)payload;
+	if (o->on_entity_reparented != NULL) {
+		o->on_entity_reparented(o->user, p->workspace_id, p->rid, p->new_parent);
+	}
+}
+
 void sk_editor_notify_selection_changed(sk_app_context_t* app_context, const sk_app_api_t* app_api) {
 	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_SELECTION_CHANGED, visit_selection_changed, NULL);
 }
@@ -307,6 +321,14 @@ void sk_editor_notify_entity_deleted(sk_app_context_t* app_context, const sk_app
 	payload.workspace_id = workspace_id;
 	payload.rid = rid;
 	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_ENTITY_DELETED, visit_entity_deleted, &payload);
+}
+
+void sk_editor_notify_entity_reparented(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent) {
+	sk_editor_notify_reparent_payload_t payload;
+	payload.workspace_id = workspace_id;
+	payload.rid = rid;
+	payload.new_parent = new_parent;
+	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, visit_entity_reparented, &payload);
 }
 
 #ifdef SK_TESTS
@@ -401,6 +423,12 @@ static void en_on_renamed(void* user, u32 workspace_id, sk_rid_t rid, const_chr_
 
 static void en_on_deleted(void* user, u32 workspace_id, sk_rid_t rid) {
 	en_trace_push((en_trace_t*)user, 62, workspace_id, rid, NULL, NULL);
+}
+
+static void en_on_reparented(void* user, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent) {
+	en_trace_t* t = (en_trace_t*)user;
+	en_trace_push(t, 63, workspace_id, rid, NULL, NULL);
+	(void)new_parent;
 }
 
 SK_TEST(editor_notify_empty_emit_is_noop) {
@@ -513,6 +541,7 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	sk_editor_on_entity_created_t created;
 	sk_editor_on_entity_renamed_t renamed;
 	sk_editor_on_entity_deleted_t deleted;
+	sk_editor_on_entity_reparented_t reparented;
 	sk_rid_t rid;
 	i32 entity_obj = 7;
 
@@ -547,6 +576,8 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	renamed.on_entity_renamed = en_on_renamed;
 	deleted.user = &trace;
 	deleted.on_entity_deleted = en_on_deleted;
+	reparented.user = &trace;
+	reparented.on_entity_reparented = en_on_reparented;
 
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ASSET_SELECTION, &asset);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_SELECTION, &entity);
@@ -557,6 +588,7 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_CREATED, &created);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_RENAMED, &renamed);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_DELETED, &deleted);
+	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, &reparented);
 
 	sk_editor_notify_asset_selection(boot.context, boot.api, 1u, rid);
 	sk_editor_notify_entity_selection(boot.context, boot.api, 1u, rid);
@@ -567,8 +599,9 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	sk_editor_notify_entity_created(boot.context, boot.api, 1u, rid);
 	sk_editor_notify_entity_renamed(boot.context, boot.api, 1u, rid, "Hero");
 	sk_editor_notify_entity_deleted(boot.context, boot.api, 1u, rid);
+	sk_editor_notify_entity_reparented(boot.context, boot.api, 1u, rid, rid);
 
-	TEST_ASSERT_EQUAL_UINT(9u, trace.count);
+	TEST_ASSERT_EQUAL_UINT(10u, trace.count);
 	TEST_ASSERT_EQUAL_INT(10, trace.tags[0]);
 	TEST_ASSERT_EQUAL_UINT(1u, trace.workspaces[0]);
 	TEST_ASSERT_EQUAL_UINT64(42ull, trace.rids[0]);
@@ -580,6 +613,7 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	TEST_ASSERT_EQUAL_INT(60, trace.tags[6]);
 	TEST_ASSERT_EQUAL_STRING("Hero", trace.names[7]);
 	TEST_ASSERT_EQUAL_INT(62, trace.tags[8]);
+	TEST_ASSERT_EQUAL_INT(63, trace.tags[9]);
 
 	sk_app_shutdown(boot.context);
 }

@@ -49,6 +49,7 @@ extern "C" {
 #define SK_EDITOR_NOTIFY_ENTITY_CREATED SK_TYPE_ID("sk.editor.notify.entity_created", 0xd28fb09290b04fd8ULL, 0xa10907212f90ade0ULL)
 #define SK_EDITOR_NOTIFY_ENTITY_RENAMED SK_TYPE_ID("sk.editor.notify.entity_renamed", 0x03fb4241837f24bdULL, 0x335e4d164ccf399eULL)
 #define SK_EDITOR_NOTIFY_ENTITY_DELETED SK_TYPE_ID("sk.editor.notify.entity_deleted", 0xf1999c1224eb0824ULL, 0xb16416faf4a3fe89ULL)
+#define SK_EDITOR_NOTIFY_ENTITY_REPARENTED SK_TYPE_ID("sk.editor.notify.entity_reparented", 0xb859cd0bcf2438dcULL, 0x4b366071d5906608ULL)
 
 /** C++ OnSelectionChanged — void(). */
 typedef struct sk_editor_on_selection_changed_t {
@@ -162,6 +163,14 @@ typedef struct sk_editor_on_entity_deleted_t {
 	void (*on_entity_deleted)(void* user, u32 workspace_id, sk_rid_t rid);
 } sk_editor_on_entity_deleted_t;
 
+/** Entity reparented (drag-drop / reparent op). @p rid moved under @p new_parent. */
+typedef struct sk_editor_on_entity_reparented_t {
+	i32 order;
+	u8 _pad0[4];
+	void* user;
+	void (*on_entity_reparented)(void* user, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent);
+} sk_editor_on_entity_reparented_t;
+
 void sk_editor_notify_selection_changed(sk_app_context_t* app_context, const sk_app_api_t* app_api);
 void sk_editor_notify_entity_selection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_deselection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
@@ -176,6 +185,7 @@ void sk_editor_notify_asset_activated(sk_app_context_t* app_context, const sk_ap
 void sk_editor_notify_entity_created(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_renamed(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, const_chr_t name);
 void sk_editor_notify_entity_deleted(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
+void sk_editor_notify_entity_reparented(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent);
 
 #ifdef __cplusplus
 }

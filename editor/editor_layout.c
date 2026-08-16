@@ -666,6 +666,7 @@ void sk_editor_layout_shutdown(sk_app_context_t* app_context, const sk_app_api_t
 #include "platform.h"
 #include "test.h"
 #include "ui.h"
+#include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
 
 typedef struct layout_ui_fixture_t {
@@ -753,6 +754,7 @@ static void layout_test_bind(layout_ui_fixture_t* fx, char* path, u32 path_cap) 
 	sk_editor_bind_tables(fx->boot.context, fx->boot.api);
 	sk_editor_workspace_register_impls(fx->boot.context, fx->boot.api);
 	sk_editor_project_browser_register(fx->boot.context, fx->boot.api);
+	sk_editor_entity_tree_register(fx->boot.context, fx->boot.api);
 	sk_editor_windows_register_impls(fx->boot.context, fx->boot.api);
 	if (fs != NULL && fs->temp_folder(tmp, (u32)sizeof(tmp)) == 0 && sk_path_join(sk_str_view_cstr(tmp), sk_str_view_cstr("skore-apx368-layout-test.json"), path, path_cap) >= 0) {
 		if (fs->get_file_status(path) == SK_FILE_STATUS_FILE) {

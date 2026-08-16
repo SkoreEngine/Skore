@@ -8,7 +8,10 @@
  * C++ editor icon set from Content/Images: an icon sample strip pinned
  * under the frame plus the Project Browser's mock content grid, both drawn
  * through sk_editor_icons_get (id → texture handle) and captured with the
- * icon atlas bound as the host image (finfo.images). Same offscreen capture
+ * icon atlas bound as the host image (finfo.images). The Scene dockspace
+ * also auto-opens the Entity Tree window (APX-370), which draws its mock
+ * scene hierarchy (Demo Scene / Main Camera / Directional Light / Player /
+ * Character Mesh rows). Same offscreen capture
  * recipe as the dock preview (docs/widget-lavapipe-png-review.md).
  *
  * Note: an OPEN menu popup is painted in tree order (sk-ui painter's
@@ -35,6 +38,7 @@
 #include "render_device.h"
 #include "ui.h"
 #include "windows/console_window.h"
+#include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
 
 #include "skore_test_font_ttf.h"
@@ -119,6 +123,22 @@ static i32 sandbox_drive_shell(shell_sandbox_t* s) {
 	if (!sk_ui_node_is_valid(window_menu)) {
 		fprintf(stderr, "sk-sandbox: Window menu missing\n");
 		return -1;
+	}
+
+	/* APX-370: the Entity Tree window is open in the Scene workspace and its
+	 * mock scene tree lists the seeded entities (verifies the window opens
+	 * against a scene). */
+	{
+		sk_editor_window_t* tree_window = sk_editor_window_by_type(s->app, s->app_api, SK_EDITOR_WINDOW_ENTITY_TREE);
+		const sk_editor_entity_tree_ops_t* et_ops = sk_editor_entity_tree_ops(s->app, s->app_api);
+		if (tree_window == NULL || et_ops == NULL) {
+			fprintf(stderr, "sk-sandbox: Entity Tree window not open\n");
+			return -1;
+		}
+		if (et_ops->entity_count(tree_window) < 5u || strcmp(et_ops->entity_name_at(tree_window, 0u), "Demo Scene") != 0) {
+			fprintf(stderr, "sk-sandbox: Entity Tree mock scene missing\n");
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -323,10 +343,13 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	/* Editor boot + shell (the shell owns its ui context; ui->init runs here). */
 	sk_editor_bind_tables(s->app, s->app_api);
 	sk_editor_workspace_register_impls(s->app, s->app_api);
-	/* Project Browser + Console first so their real impls win window_open
-	 * (pattern doc); the scaffolds follow. */
+	/* Project Browser + Console + Entity Tree first so their real impls win
+	 * window_open (pattern doc); the scaffolds follow. The Scene dockspace
+	 * auto-opens the Entity Tree (Scene-only mask), which draws its mock
+	 * scene tree in the captured frame. */
 	sk_editor_project_browser_register(s->app, s->app_api);
 	sk_editor_console_register(s->app, s->app_api);
+	sk_editor_entity_tree_register(s->app, s->app_api);
 	sk_editor_windows_register_impls(s->app, s->app_api);
 	s->shell = sk_editor_shell_create(s->app, s->app_api, ui);
 	if (s->shell == NULL) {
