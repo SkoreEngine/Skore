@@ -21,6 +21,10 @@
 
 #include "allocator.h"
 
+#ifdef SK_TESTS
+#include "skore_test_font_ttf.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -216,11 +220,48 @@ static void console_apply_row_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx,
 	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_WRAP;
 	p.layout.flex_direction = SK_UI_FLEX_ROW;
 	p.layout.align_items = SK_UI_ALIGN_CENTER;
-	p.layout.column_gap = 6.0f;
+	p.layout.column_gap = 4.0f;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_shrink = 0.0f;
 	p.layout.flex_wrap = SK_UI_FLEX_WRAP;
 	(void)ui->node_set_inline_style(ctx, node, &p);
+}
+
+/* Rows nested inside the toolbar (severity `levels`, Collapse/Auto-scroll
+ * `options`): size from their content instead of the 100% toolbar width, so
+ * Clear + severity pairs + Collapse/Auto-scroll share the toolbar row and a
+ * wrapped line keeps every checkbox+label pair intact (APX-382).
+ * flex_shrink 0 keeps the measured widths; flex_wrap degrades to whole-item
+ * lines on narrow hosts instead of compressing glyphs. */
+static void console_apply_toolbar_row_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_style_props_t p;
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_WRAP;
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.align_items = SK_UI_ALIGN_CENTER;
+	p.layout.column_gap = 4.0f;
+	p.layout.flex_shrink = 0.0f;
+	p.layout.flex_wrap = SK_UI_FLEX_WRAP;
+	(void)ui->node_set_inline_style(ctx, node, &p);
+}
+
+/* Toolbar label at the 13px size the C++ ConsoleWindow used (ImGui default).
+ * The shell binds the host fonts for layout measurement, so the label box is
+ * the real glyph advance of its text — never a wider estimate that would wrap
+ * Trace/Debug/Info/Warn/Error/Fatal mid-word ('Debu g', 'War n'). flex_shrink
+ * 0 is kept as intent so no solver pass can compress the measured width. */
+static sk_ui_node_t console_add_toolbar_label(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id) {
+	sk_ui_style_props_t p;
+	sk_ui_node_t label = ui->widget_label(ctx, parent, text, id);
+	if (!sk_ui_node_is_valid(label)) {
+		return label;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FONT_SIZE;
+	p.layout.flex_shrink = 0.0f;
+	p.font_size = 13.0f;
+	(void)ui->node_merge_inline_style(ctx, label, &p);
+	return label;
 }
 
 static void console_apply_scroll_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -442,6 +483,8 @@ static void console_on_autoscroll_change(sk_ui_context_t* ctx, sk_ui_node_t node
 static void console_build_ui(console_state_t* state, const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent) {
 	static const char* level_names[6] = {"Trace", "Debug", "Info", "Warn", "Error", "Fatal"};
 	static const char* level_ids[6] = {"console-lv-trace", "console-lv-debug", "console-lv-info", "console-lv-warn", "console-lv-error", "console-lv-fatal"};
+	static const char* level_lbl_ids[6] = {"console-lv-trace-lbl", "console-lv-debug-lbl", "console-lv-info-lbl",
+										   "console-lv-warn-lbl",  "console-lv-error-lbl", "console-lv-fatal-lbl"};
 	sk_ui_node_t toolbar;
 	sk_ui_node_t levels;
 	sk_ui_node_t options;
@@ -468,26 +511,26 @@ static void console_build_ui(console_state_t* state, const sk_ui_api_t* ui, sk_u
 	(void)ui->node_set_callbacks(ctx, state->clear_btn, &cbs);
 
 	levels = ui->widget_view(ctx, toolbar, "console-levels");
-	console_apply_row_style(ui, ctx, levels);
+	console_apply_toolbar_row_style(ui, ctx, levels);
 	for (i = 0u; i < 6u; ++i) {
 		state->level_cb[i] = ui->widget_checkbox(ctx, levels, state->show_level[i], level_ids[i]);
-		(void)ui->widget_label(ctx, levels, level_names[i], NULL);
+		(void)console_add_toolbar_label(ui, ctx, levels, level_names[i], level_lbl_ids[i]);
 		(void)ui->checkbox_set_on_change(ctx, state->level_cb[i], console_on_level_change, state);
 	}
 
 	options = ui->widget_view(ctx, toolbar, "console-options");
-	console_apply_row_style(ui, ctx, options);
+	console_apply_toolbar_row_style(ui, ctx, options);
 	state->collapse_cb = ui->widget_checkbox(ctx, options, state->collapse, "console-collapse");
-	(void)ui->widget_label(ctx, options, "Collapse", NULL);
+	(void)console_add_toolbar_label(ui, ctx, options, "Collapse", "console-collapse-lbl");
 	(void)ui->checkbox_set_on_change(ctx, state->collapse_cb, console_on_collapse_change, state);
 	state->autoscroll_cb = ui->widget_checkbox(ctx, options, state->autoscroll, "console-autoscroll");
-	(void)ui->widget_label(ctx, options, "Auto-scroll", NULL);
+	(void)console_add_toolbar_label(ui, ctx, options, "Auto-scroll", "console-autoscroll-lbl");
 	(void)ui->checkbox_set_on_change(ctx, state->autoscroll_cb, console_on_autoscroll_change, state);
 
 	/* Filter (search) row. */
 	filter_row = ui->widget_view(ctx, state->root, "console-filter-row");
 	console_apply_row_style(ui, ctx, filter_row);
-	(void)ui->widget_label(ctx, filter_row, "Filter", NULL);
+	(void)console_add_toolbar_label(ui, ctx, filter_row, "Filter", "console-filter-lbl");
 	state->filter_input = ui->widget_text_input(ctx, filter_row, state->last_filter, "console-filter");
 	console_apply_filter_style(ui, ctx, state->filter_input);
 
@@ -1053,6 +1096,63 @@ SK_TEST(editor_console_window_ui_dock_chrome_and_filter) {
 	window->draw(window, &open);
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-clear")));
 
+	/* APX-382: with the layout fonts bound (mirrors sk_editor_shell_frame),
+	 * the toolbar measures each severity label from its text: every label is
+	 * one line tall, stays inside the toolbar and clear of the next
+	 * checkbox, and Clear / Collapse / Auto-scroll share the row inside the
+	 * 1280x720 window (the old 100%-wide rows pushed the options column
+	 * off-screen past x=1320 and under-measured labels wrapped mid-word). */
+	{
+		static const char* cb_ids[6] = {"console-lv-trace", "console-lv-debug", "console-lv-info", "console-lv-warn", "console-lv-error", "console-lv-fatal"};
+		static const char* lbl_ids[6] = {"console-lv-trace-lbl", "console-lv-debug-lbl", "console-lv-info-lbl",
+										 "console-lv-warn-lbl",	 "console-lv-error-lbl", "console-lv-fatal-lbl"};
+		sk_ui_font_system_t* lfonts;
+		sk_ui_font_t* lfont;
+		sk_ui_rect_t toolbar;
+		sk_ui_rect_t clear_r;
+		sk_ui_rect_t options;
+		u32 i;
+		lfonts = ui->font_system_create(NULL);
+		TEST_ASSERT_NOT_NULL(lfonts);
+		lfont = ui->font_load_memory(lfonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
+		TEST_ASSERT_NOT_NULL(lfont);
+		(void)ui->font_msdf_bake(lfont);
+		TEST_ASSERT_NOT_NULL(ui->set_layout_fonts);
+		ui->set_layout_fonts(ctx, lfonts, lfont);
+		window->draw(window, &open);
+		TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+		TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1280.0f, 720.0f));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-toolbar"), &toolbar, NULL));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-clear"), &clear_r, NULL));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-options"), &options, NULL));
+		/* Clear, severity pairs and Collapse/Auto-scroll share the toolbar row. */
+		TEST_ASSERT_TRUE(clear_r.y >= toolbar.y - 0.5f);
+		TEST_ASSERT_TRUE(options.y >= toolbar.y - 0.5f);
+		TEST_ASSERT_TRUE(options.y + options.height <= toolbar.y + toolbar.height + 0.5f);
+		/* The options row is inside the window (was pushed off-screen at x>=1320). */
+		TEST_ASSERT_TRUE(options.x >= toolbar.x - 0.5f);
+		TEST_ASSERT_TRUE(options.x + options.width <= 1280.0f - 4.0f);
+		for (i = 0u; i < 6u; ++i) {
+			sk_ui_rect_t cb;
+			sk_ui_rect_t lbl;
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, cb_ids[i]), &cb, NULL));
+			TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, lbl_ids[i]), &lbl, NULL));
+			/* Label sized from its text: one line tall, inside the toolbar,
+			 * and clear of the next checkbox (no mid-word wrap). */
+			TEST_ASSERT_TRUE(lbl.height < 20.0f);
+			TEST_ASSERT_TRUE(lbl.x >= toolbar.x - 0.5f);
+			TEST_ASSERT_TRUE(lbl.x + lbl.width <= toolbar.x + toolbar.width + 0.5f);
+			TEST_ASSERT_TRUE(lbl.y >= toolbar.y - 0.5f);
+			TEST_ASSERT_TRUE(lbl.y + lbl.height <= toolbar.y + toolbar.height + 0.5f);
+			if (i + 1u < 6u) {
+				sk_ui_rect_t ncb;
+				TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, cb_ids[i + 1u]), &ncb, NULL));
+				TEST_ASSERT_TRUE(lbl.x + lbl.width <= ncb.x + 0.5f);
+			}
+		}
+		ui->set_layout_fonts(ctx, NULL, NULL);
+		ui->font_system_destroy(lfonts);
+	}
 	logger_api->destroy_logger(log_ctx, log);
 	editor->window_close(app, boot.api, window);
 	editor->workspace_destroy(ws);

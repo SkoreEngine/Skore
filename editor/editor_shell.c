@@ -865,11 +865,22 @@ i32 sk_editor_shell_frame(sk_editor_shell_t* shell, f32 width, f32 height, f32 s
 	if (ui->style_resolve(shell->ctx) != 0) {
 		return -1;
 	}
+	/* Bind the host fonts for layout text measurement (real glyph advances)
+	 * so labels are sized from their text instead of the per-glyph fallback
+	 * estimate (APX-382: 'Debug'/'Warn' wrapped mid-word when the fallback
+	 * under-measured wide glyphs). Cleared right after layout so other
+	 * contexts/hosts keep the fallback. */
+	if (ui->set_layout_fonts != NULL) {
+		ui->set_layout_fonts(shell->ctx, shell->fonts, shell->font);
+	}
 	if (ui->layout(shell->ctx, width > 1.0f ? width : 1.0f, height > 1.0f ? height : 1.0f) != 0) {
 		return -1;
 	}
 	if (ui->layout_apply_scale(shell->ctx, scale_x > 0.0f ? scale_x : 1.0f, scale_y > 0.0f ? scale_y : 1.0f) != 0) {
 		return -1;
+	}
+	if (ui->set_layout_fonts != NULL) {
+		ui->set_layout_fonts(shell->ctx, NULL, NULL);
 	}
 	memset(&paint, 0, sizeof(paint));
 	paint.font_system = shell->fonts;

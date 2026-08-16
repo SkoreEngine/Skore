@@ -41,6 +41,7 @@ if(BUILD_TESTING)
     target_include_directories(sk-editor-tests PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${SKORE_EDITOR_PLUGIN_INCLUDES}
+        ${SKORE_SOURCE_DIR}/plugins/ui/testdata
     )
     target_compile_definitions(sk-editor-tests PRIVATE SK_TESTS)
     target_link_libraries(sk-editor-tests PUBLIC sk-foundation-tests sk-test stb_image)

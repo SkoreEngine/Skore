@@ -2191,6 +2191,15 @@ typedef struct sk_ui_api_t {
 	void (*set_measure_fn)(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user);
 
 	/**
+	 * Bind the fonts used for layout-time text measurement (glyph advances).
+	 * Layout measures text before paint; without a binding it falls back to a
+	 * fixed per-glyph estimate that can under-size labels with wide glyphs
+	 * (e.g. "Debug") and wrap them mid-word. Pass NULL/NULL to restore the
+	 * fallback. Paint fonts are supplied separately in the paint params.
+	 */
+	void (*set_layout_fonts)(sk_ui_context_t* ctx, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+	/**
 	 * Run the flexbox layout solver for the whole tree.
 	 * Root is sized to @p root_width x @p root_height logical units (typically
 	 * the window client size). Clears SK_UI_DIRTY_LAYOUT on all nodes on success.

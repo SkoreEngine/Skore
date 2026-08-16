@@ -107,6 +107,14 @@ scaffold `Draw`).
 Scene Viewport tool labels no longer collide at 1280×720 (APX-380): the row
 reads `Sel Move Rot Scl Glo Snap Grid … Play Stop 2D 3D Vol Cam Opts`.
 
+The Console toolbar (APX-382) keeps every severity checkbox label intact on one
+line (`Trace Debug Info Warn Error Fatal`) and Clear / Collapse / Auto-scroll on
+the same row at 1280×720: the shell binds the host fonts for layout text
+measurement, so each label is sized from its real glyph advance instead of a
+per-glyph estimate that wrapped 'Debug' and 'Warn' mid-word; the severity and
+options rows are content-sized (not 100% of the toolbar) so the options column
+stays inside the window.
+
 ---
 
 ## 3. Icons from Content/Images — MET
