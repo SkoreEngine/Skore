@@ -34,13 +34,17 @@
  * are border-box; the editor-window class adds 1px borders on every side. */
 #define SK_EDITOR_PACKAGES_WIN_W 500.0f
 #define SK_EDITOR_PACKAGES_WIN_H 280.0f
-/* Column-resolution width for the packages table: the window's 500 border-box
- * minus 1px window borders x2, packages.content padding 8px x2, and the
- * table's own 1px borders x2 = 480. The stretch columns resolve from this
- * real width; without it the table falls back to 3 x the 80px default column
- * (240px), which squeezed Name to ~61px and Path to ~143px and clipped the
- * mock basenames / paths (APX-387). */
-#define SK_EDITOR_PACKAGES_TABLE_W 480.0f
+/* Chrome subtracted when the table has not been laid out yet (same box as
+ * the 500px floating window: 1px editor-window borders, 8px content pad,
+ * 1px table borders). Used only as the first-frame resolve width — column
+ * boxes themselves come from measured glyph advance (APX-392), not from a
+ * 0.30/0.70 guess. */
+#define SK_EDITOR_PACKAGES_WIN_BORDER 1.0f
+#define SK_EDITOR_PACKAGES_CONTENT_PAD 8.0f
+#define SK_EDITOR_PACKAGES_TABLE_BORDER 1.0f
+#define SK_EDITOR_PACKAGES_CELL_PAD 12.0f /* ui-table-cell pad 6+6 */
+#define SK_EDITOR_PACKAGES_REMOVE_W 36.0f
+#define SK_EDITOR_PACKAGES_LABEL_PX 13.0f
 
 /* ------------------------------------------------------------------ */
 /*  Internal types                                                    */
@@ -137,6 +141,97 @@ static void packages_basename(const_chr_t path, char* out, u32 cap) {
 	(void)snprintf(out, cap, "%s", base);
 }
 
+/* Cell labels size from Clay's layout-font glyph advance (APX-382): wrap
+ * off so a single token is never mid-word clipped, flex_shrink 0 so the
+ * solver cannot compress the measured box. */
+static void packages_style_cell_label(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t label) {
+	sk_ui_style_props_t p;
+	if (!sk_ui_node_is_valid(label)) {
+		return;
+	}
+	(void)ui->label_set_wrap(ctx, label, 0);
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FONT_SIZE;
+	p.layout.flex_shrink = 0.0f;
+	p.font_size = SK_EDITOR_PACKAGES_LABEL_PX;
+	(void)ui->node_merge_inline_style(ctx, label, &p);
+}
+
+static f32 packages_derived_table_w(void) {
+	return SK_EDITOR_PACKAGES_WIN_W - 2.0f * SK_EDITOR_PACKAGES_WIN_BORDER - 2.0f * SK_EDITOR_PACKAGES_CONTENT_PAD - 2.0f * SK_EDITOR_PACKAGES_TABLE_BORDER;
+}
+
+/* Prefer the laid-out content box; fall back to the window-derived leftover
+ * so the first frame (no abs rects yet) does not resolve against 3×80px. */
+static f32 packages_table_avail(packages_state_t* state) {
+	sk_ui_rect_t r;
+	sk_ui_node_t content;
+	if (state == NULL || state->ui == NULL) {
+		return packages_derived_table_w();
+	}
+	content = state->ui->find_by_id(state->ui_ctx, "packages.content");
+	if (sk_ui_node_is_valid(content) && state->ui->node_get_abs_rect(state->ui_ctx, content, &r, NULL) == 0 && r.width > 32.0f) {
+		f32 inner = r.width - 2.0f * SK_EDITOR_PACKAGES_CONTENT_PAD - 2.0f * SK_EDITOR_PACKAGES_TABLE_BORDER;
+		if (inner > 32.0f) {
+			return inner;
+		}
+	}
+	return packages_derived_table_w();
+}
+
+/* Size Name from the widest laid-out basename box, keep Path as stretch of
+ * the leftover after Name + the reserved 36px remove column. Grow the
+ * floating window if a measured path cannot fit that leftover. */
+static void packages_resolve_and_fit(packages_state_t* state) {
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	f32 avail;
+	f32 name_need = 0.0f;
+	f32 path_need = 0.0f;
+	u32 i;
+	if (state == NULL || state->ui == NULL || !sk_ui_node_is_valid(state->table)) {
+		return;
+	}
+	ui = state->ui;
+	ctx = state->ui_ctx;
+	avail = packages_table_avail(state);
+	for (i = 0u; i < state->count; ++i) {
+		char nameid[48];
+		char pathid[48];
+		sk_ui_rect_t lr;
+		sk_ui_node_t n;
+		(void)snprintf(nameid, sizeof(nameid), "packages.name.%u", i);
+		n = ui->find_by_id(ctx, nameid);
+		if (sk_ui_node_is_valid(n) && ui->node_get_abs_rect(ctx, n, &lr, NULL) == 0 && lr.width > 1.0f) {
+			f32 need = lr.width + SK_EDITOR_PACKAGES_CELL_PAD;
+			if (need > name_need) {
+				name_need = need;
+			}
+		}
+		(void)snprintf(pathid, sizeof(pathid), "packages.path.%u", i);
+		n = ui->find_by_id(ctx, pathid);
+		if (sk_ui_node_is_valid(n) && ui->node_get_abs_rect(ctx, n, &lr, NULL) == 0 && lr.width > 1.0f) {
+			f32 need = lr.width + SK_EDITOR_PACKAGES_CELL_PAD;
+			if (need > path_need) {
+				path_need = need;
+			}
+		}
+	}
+	if (name_need > 8.0f) {
+		(void)ui->table_set_column_width(ctx, state->table, 0, name_need);
+	}
+	(void)ui->table_set_column_width(ctx, state->table, 2, SK_EDITOR_PACKAGES_REMOVE_W);
+	(void)ui->table_resolve_column_widths(ctx, state->table, avail);
+	if (name_need > 8.0f && path_need > 8.0f && name_need + path_need + SK_EDITOR_PACKAGES_REMOVE_W > avail + 0.5f && sk_ui_node_is_valid(state->win)) {
+		sk_ui_style_props_t p;
+		f32 extra = (name_need + path_need + SK_EDITOR_PACKAGES_REMOVE_W) - avail;
+		memset(&p, 0, sizeof(p));
+		p.mask = SK_UI_SP_WIDTH;
+		p.layout.width = sk_ui_pt(SK_EDITOR_PACKAGES_WIN_W + extra + 4.0f);
+		(void)ui->node_merge_inline_style(ctx, state->win, &p);
+	}
+}
+
 /* ------------------------------------------------------------------ */
 /*  Widget callbacks                                                   */
 /* ------------------------------------------------------------------ */
@@ -195,14 +290,19 @@ static void packages_rebuild_table(packages_state_t* state) {
 	if (sk_ui_node_is_valid(state->table) && ui->node_alive(ctx, state->table)) {
 		(void)ui->node_destroy(ctx, state->table);
 	}
+	/* outer_width 0 → 100% of packages.content (no guessed 480px box).
+	 * Column resolve uses packages_table_avail / measured label boxes. */
 	state->table = ui->widget_table(ctx, ui->find_by_id(ctx, "packages.content"), "packages.table", 3,
-									SK_UI_TABLE_FLAG_ROW_BG | SK_UI_TABLE_FLAG_BORDERS | SK_UI_TABLE_FLAG_SCROLL_Y, SK_EDITOR_PACKAGES_TABLE_W, 0.0f);
+									SK_UI_TABLE_FLAG_ROW_BG | SK_UI_TABLE_FLAG_BORDERS | SK_UI_TABLE_FLAG_SCROLL_Y, 0.0f, 0.0f);
 	if (!sk_ui_node_is_valid(state->table)) {
 		return;
 	}
-	(void)ui->table_setup_column(ctx, state->table, "Name", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH, 0.30f);
-	(void)ui->table_setup_column(ctx, state->table, "Path", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH, 0.70f);
-	(void)ui->table_setup_column(ctx, state->table, "", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, 36.0f);
+	/* INDENT_DISABLE: col 0 otherwise steals 6+14px tree indent from Name.
+	 * Stretch weights only share leftover after the reserved 36px remove
+	 * column; Name is later pinned to the measured basename box. */
+	(void)ui->table_setup_column(ctx, state->table, "Name", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH | SK_UI_TABLE_COLUMN_FLAG_INDENT_DISABLE, 1.0f);
+	(void)ui->table_setup_column(ctx, state->table, "Path", SK_UI_TABLE_COLUMN_FLAG_WIDTH_STRETCH, 2.0f);
+	(void)ui->table_setup_column(ctx, state->table, "", SK_UI_TABLE_COLUMN_FLAG_WIDTH_FIXED, SK_EDITOR_PACKAGES_REMOVE_W);
 	(void)ui->table_headers_row(ctx, state->table);
 
 	for (i = 0u; i < state->count; ++i) {
@@ -220,12 +320,15 @@ static void packages_rebuild_table(packages_state_t* state) {
 		cell = ui->table_current_cell(ctx, state->table);
 		packages_basename(state->paths[i], name, sizeof(name));
 		(void)snprintf(name_id, sizeof(name_id), "packages.name.%u", i);
-		(void)ui->widget_label(ctx, cell, name, name_id);
+		packages_style_cell_label(ui, ctx, ui->widget_label(ctx, cell, name, name_id));
+		(void)ui->node_set_clip_children(ctx, cell, 1);
 
 		(void)ui->table_next_column(ctx, state->table);
 		cell = ui->table_current_cell(ctx, state->table);
 		(void)snprintf(path_id, sizeof(path_id), "packages.path.%u", i);
-		(void)ui->widget_label(ctx, cell, state->paths[i], path_id);
+		packages_style_cell_label(ui, ctx, ui->widget_label(ctx, cell, state->paths[i], path_id));
+		/* Clip so a long path cannot paint under the reserved 36px remove column. */
+		(void)ui->node_set_clip_children(ctx, cell, 1);
 
 		(void)ui->table_next_column(ctx, state->table);
 		cell = ui->table_current_cell(ctx, state->table);
@@ -239,6 +342,7 @@ static void packages_rebuild_table(packages_state_t* state) {
 		}
 	}
 	(void)ui->table_end(ctx, state->table);
+	packages_resolve_and_fit(state);
 	state->last_synced_revision = state->count;
 }
 
@@ -253,6 +357,8 @@ static i32 packages_sync(packages_state_t* state) {
 	revision = state->count;
 	if (revision != state->last_synced_revision && sk_ui_node_is_valid(state->table)) {
 		packages_rebuild_table(state);
+	} else {
+		packages_resolve_and_fit(state);
 	}
 	return 0;
 }
@@ -295,22 +401,20 @@ static void packages_build_ui(packages_state_t* state, const sk_ui_api_t* ui, sk
 		cp.layout.width = sk_ui_percent(100.0f);
 		cp.layout.height = sk_ui_percent(100.0f);
 		cp.layout.row_gap = 6.0f;
-		cp.layout.padding.left = 8.0f;
-		cp.layout.padding.top = 8.0f;
-		cp.layout.padding.right = 8.0f;
-		cp.layout.padding.bottom = 8.0f;
+		cp.layout.padding.left = SK_EDITOR_PACKAGES_CONTENT_PAD;
+		cp.layout.padding.top = SK_EDITOR_PACKAGES_CONTENT_PAD;
+		cp.layout.padding.right = SK_EDITOR_PACKAGES_CONTENT_PAD;
+		cp.layout.padding.bottom = SK_EDITOR_PACKAGES_CONTENT_PAD;
 		(void)ui->node_set_inline_style(ctx, content, &cp);
 	}
 	/* Give the content a stable id so the table rebuild can find it. */
 	(void)ui->node_set_id(ctx, content, "packages.content");
 
-	/* Toolbar: Add Package button on its own row, hint sentence below it.
-	 * At 14px the hint sentence measures ~483px — wider than the ~482px
-	 * content row even before the button, so it was cut mid-quote on the old
-	 * single row (APX-387). Make the toolbar a column, give the hint the full
-	 * row, and drop it to 13px (the editor default) so the whole sentence
-	 * renders on one line at the 500px window; wrap keeps it degrading to
-	 * word breaks on a narrower host instead of clipping. */
+	/* Toolbar: Add Package on its own row, hint sentence below it (APX-392).
+	 * The sentence is wider than the leftover next to the button, so a single
+	 * toolbar row cut it mid-quote. Wrap + full-row width is the overflow
+	 * path; 13px is the editor default so the mock sentence stays one line
+	 * inside the 500px window. */
 	toolbar = ui->widget_view(ctx, content, "packages.toolbar");
 	memset(&p, 0, sizeof(p));
 	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP | SK_UI_SP_WIDTH;
@@ -331,7 +435,7 @@ static void packages_build_ui(packages_state_t* state, const sk_ui_api_t* ui, sk
 	if (sk_ui_node_is_valid(hint)) {
 		memset(&p, 0, sizeof(p));
 		p.mask = SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK;
-		p.font_size = 13.0f;
+		p.font_size = SK_EDITOR_PACKAGES_LABEL_PX;
 		p.layout.width = sk_ui_percent(100.0f);
 		p.layout.flex_shrink = 0.0f;
 		(void)ui->node_merge_inline_style(ctx, hint, &p);
@@ -659,13 +763,15 @@ SK_TEST(editor_packages_window_ops_mock_list) {
 	sk_app_shutdown(app);
 }
 
-/* ui-hosted path (APX-387): the floating Packages window's toolbar hint
- * sentence renders in full on its own row below Add Package, and every
- * Name / Path label fits inside its table cell without overlapping the
- * remove button. Laid out at 1280x720 with the host fonts bound (mirrors
- * sk_editor_shell_frame), so text measures with real glyph advances. */
+/* ui-hosted path (APX-392): the floating Packages window's toolbar hint
+ * sentence wraps on its own row below Add Package, and every Name / Path
+ * label is sized from real glyph advance so it fits its cell without
+ * overlapping the reserved 36px remove button. Laid out at 1280x720 with
+ * the host fonts bound (mirrors sk_editor_shell_frame). */
 SK_TEST(editor_packages_window_ui_table_and_hint) {
 	static const char hint_text[] = "A package is a folder containing an \"Assets\" and/or \"Binaries\" folder.";
+	static const char* seeded_names[2] = {"SkoreGame", "EnginePlugins"};
+	static const char* seeded_paths[2] = {"D:/Projects/SkoreGame", "D:/Projects/EnginePlugins"};
 	sk_app_boot_t boot = sk_app_init(0, NULL);
 	sk_app_context_t* app = boot.context;
 	const sk_editor_api_t* editor;
@@ -733,6 +839,11 @@ SK_TEST(editor_packages_window_ui_table_and_hint) {
 	window->draw(window, &open);
 	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
 	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1280.0f, 720.0f));
+	/* Second pass: packages_resolve_and_fit pins Name from the laid-out
+	 * glyph boxes (sandbox does several shell frames). */
+	window->draw(window, &open);
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 1280.0f, 720.0f));
 
 	/* Hint sentence: measured real advance must be available on the label
 	 * box, on a single line, below the Add Package button, inside the window. */
@@ -753,6 +864,7 @@ SK_TEST(editor_packages_window_ui_table_and_hint) {
 		char nameid[40], pathid[40], cellname[48], cellpath[48], cellrm[48];
 		sk_ui_rect_t name_cell, path_cell, rm_cell, name_lbl, path_lbl;
 		sk_ui_node_t node;
+		f32 name_w = 0.0f, path_w = 0.0f;
 
 		(void)snprintf(nameid, sizeof(nameid), "packages.name.%u", i);
 		(void)snprintf(pathid, sizeof(pathid), "packages.path.%u", i);
@@ -769,6 +881,14 @@ SK_TEST(editor_packages_window_ui_table_and_hint) {
 		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, node, &name_lbl, NULL));
 		node = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, pathid);
 		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, node, &path_lbl, NULL));
+
+		TEST_ASSERT_EQUAL_INT(0, ui->font_measure_text(lfonts, lfont, 13u, seeded_names[i], &name_w, NULL));
+		TEST_ASSERT_EQUAL_INT(0, ui->font_measure_text(lfonts, lfont, 13u, seeded_paths[i], &path_w, NULL));
+		TEST_ASSERT_TRUE(name_w > 0.0f);
+		TEST_ASSERT_TRUE(path_w > 0.0f);
+		/* Label box is the real advance, not a clipped/guessed width. */
+		TEST_ASSERT_TRUE(name_lbl.width >= name_w - 1.0f);
+		TEST_ASSERT_TRUE(path_lbl.width >= path_w - 1.0f);
 
 		/* Name label fully inside its cell and one line tall (no 'Skore' clip). */
 		TEST_ASSERT_TRUE(name_lbl.x >= name_cell.x - 0.5f);

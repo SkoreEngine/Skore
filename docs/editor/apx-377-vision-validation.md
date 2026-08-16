@@ -233,9 +233,9 @@ labels also on 02; Packages / Debugger Statistics on 04).
 
 | Defect this wave fixed | Frame | Verdict |
 | --- | --- | --- |
-| Packages window hint clipped mid-quote (`"Binaries" folder.` hidden) | 04 | **Fixed.** The toolbar is now a column: Add Package on its own row and the hint sentence below it at 13px, full row, wrapping — the whole sentence renders on one line inside the 500px window (`packages_window.c:307`–`:338`). |
-| Packages Name cells clip `SkoreGame`→`Skore`, `EnginePlugins`→`Engin` | 04 | **Fixed.** The table now sizes its stretch columns from the real ~480px window width instead of the 3×80px default (240px), so the 0.30/0.70 Name/Path split gives ~133px/311px and every basename/path fits its cell. |
-| Packages Path cells clip + overlap the remove `x` (leftover `s`) | 04 | **Fixed.** Path (311px) holds both mock paths clear of the 36px remove column; no glyph paints over the button. |
+| Packages window hint clipped mid-quote (`"Binaries" folder.` hidden) | 04 | **Fixed (APX-392).** Add Package is on its own row; the hint is below it, wrap on, full row, 13px. Recaptured frame 04 shows the whole sentence `A package is a folder containing an "Assets" and/or "Binaries" folder.` including the closing quote and period. |
+| Packages Name cells clip `SkoreGame`→`Skore`, `EnginePlugins`→`Engin` | 04 | **Fixed (APX-392).** Name/Path labels are wrap-off + flex_shrink 0 (real glyph advance); Name has no tree indent. Frame 04 shows full `SkoreGame` and `EnginePlugins` with a gap before Path. |
+| Packages Path cells clip + overlap the remove `x` (leftover `s`) | 04 | **Fixed (APX-392).** Path stretch takes leftover after measured Name + reserved 36px remove; path cells clip children so they cannot paint under the button. Frame 04 shows full `D:/Projects/SkoreGame` and `D:/Projects/EnginePlugins` with a clear gap before each `x`. |
 | Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Fixed.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll. |
 | Scene Viewport tool button renders as `...` | 01, 03 | **Fixed.** The Grid–Play slot is `Scn`. The full row is `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
 | Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
