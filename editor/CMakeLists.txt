@@ -30,6 +30,7 @@ set_target_properties(sk-editor-lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(sk-editor ${SKORE_EDITOR_MAIN})
 target_link_libraries(sk-editor PRIVATE sk-editor-lib)
+target_include_directories(sk-editor PRIVATE ${SKORE_SOURCE_DIR}/plugins/ui/testdata)
 
 if(APPLE)
     target_link_options(sk-editor PRIVATE "LINKER:-export_dynamic")

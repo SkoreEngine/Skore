@@ -30,6 +30,9 @@ struct sk_editor_ui_host_t {
 
 	sk_editor_ui_input_target_t last_pointer_target;
 	i32 laid_out;
+
+	sk_ui_font_system_t* fonts;
+	sk_ui_font_t* font;
 };
 
 static i32 host_point_in_rect(f32 x, f32 y, const sk_ui_rect_t* r) {
@@ -209,6 +212,8 @@ i32 sk_editor_ui_host_frame(sk_editor_ui_host_t* host, f32 width, f32 height, f3
 		return -1;
 	}
 	memset(&paint, 0, sizeof(paint));
+	paint.font_system = host->fonts;
+	paint.font = host->font;
 	if (ui->paint(host->ctx, &paint) != 0) {
 		return -1;
 	}
@@ -357,6 +362,14 @@ i32 sk_editor_ui_host_want_capture_keyboard(const sk_editor_ui_host_t* host) {
 	return host->ui->wants_keyboard(host->ctx) || sk_editor_imgui_shell_want_capture_keyboard(host->imgui);
 }
 
+void sk_editor_ui_host_set_fonts(sk_editor_ui_host_t* host, sk_ui_font_system_t* fonts, sk_ui_font_t* font) {
+	if (host == NULL) {
+		return;
+	}
+	host->fonts = fonts;
+	host->font = font;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Tests                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -430,6 +443,7 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 
 	host = editor->ui_host_create(ui, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(host);
+	editor->ui_host_set_fonts(host, NULL, NULL);
 
 	/* One frame: both stacks produce draw output. */
 	TEST_ASSERT_EQUAL_INT(0, editor->ui_host_frame(host, 960.0f, 540.0f, 1.0f, 1.0f));

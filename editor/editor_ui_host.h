@@ -97,6 +97,13 @@ const sk_editor_imgui_draw_item_t* sk_editor_ui_host_imgui_draw_items(const sk_e
 i32 sk_editor_ui_host_want_capture_mouse(const sk_editor_ui_host_t* host);
 i32 sk_editor_ui_host_want_capture_keyboard(const sk_editor_ui_host_t* host);
 
+/**
+ * Attach a font system for paint / GPU encode. Host does not own the fonts.
+ * @param fonts Font system used as paint.font_system (NULL = no text glyphs).
+ * @param font  Default face (optional).
+ */
+void sk_editor_ui_host_set_fonts(sk_editor_ui_host_t* host, sk_ui_font_system_t* fonts, sk_ui_font_t* font);
+
 #ifdef __cplusplus
 }
 #endif

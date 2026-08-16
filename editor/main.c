@@ -15,6 +15,7 @@
 
 #include "app.h"
 #include "editor_api.h"
+#include "editor_gpu.h"
 #include "editor_shell.h"
 #include "editor_ui_host.h"
 #include "logger.h"
@@ -24,6 +25,8 @@
 #include "repository.h"
 #include "resource_assets_types.h"
 #include "ui.h"
+
+#include "skore_test_font_ttf.h"
 #include "windows/console_window.h"
 #include "windows/debugger_window.h"
 #include "windows/entity_tree_window.h"
@@ -71,12 +74,34 @@ static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* a
 	return (i32)count;
 }
 
+static void editor_load_ui_fonts(const sk_ui_api_t* ui, sk_ui_font_system_t** out_fonts, sk_ui_font_t** out_font) {
+	sk_ui_font_system_t* fonts = ui->font_system_create(NULL);
+	sk_ui_font_t* font = NULL;
+	if (fonts != NULL) {
+		font = ui->font_load_memory(fonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
+		if (font != NULL) {
+			(void)ui->font_msdf_bake(font);
+		}
+	}
+	*out_fonts = fonts;
+	*out_font = font;
+}
+
+static void editor_destroy_ui_fonts(const sk_ui_api_t* ui, sk_ui_font_system_t* fonts) {
+	if (ui != NULL && fonts != NULL) {
+		ui->font_system_destroy(fonts);
+	}
+}
+
 static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_editor_api_t* editor, sk_logger_t* log) {
 	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	const sk_platform_window_api_t* win_api;
 	const sk_ui_api_t* ui;
 	sk_window_t window;
 	sk_editor_ui_host_t* host;
+	sk_editor_gpu_t* gpu;
+	sk_ui_font_system_t* fonts;
+	sk_ui_font_t* font;
 	u32 frames = 0u;
 
 	win_api = (const sk_platform_window_api_t*)app_api->get_api(app, SK_PLATFORM_WINDOW_API_TYPE_ID);
@@ -104,7 +129,16 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 	host = editor->ui_host_create(ui, logger_api, app_api->logger_context(app));
 	if (host == NULL) {
 		sk_log_error(logger_api, log, "editor UI host create failed");
+		win_api->destroy_window(window);
 		return 1;
+	}
+
+	editor_load_ui_fonts(ui, &fonts, &font);
+	editor->ui_host_set_fonts(host, fonts, font);
+
+	gpu = sk_editor_gpu_create(app, app_api, ui, win_api, window, logger_api, log);
+	if (gpu == NULL) {
+		sk_log_warn(logger_api, log, "GPU present unavailable — CPU UI still runs (window stays blank)");
 	}
 
 	sk_log_info(logger_api, log, "APX-139 dual stack: sk-ui Console + ImGui-path Hierarchy");
@@ -127,13 +161,16 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		 * wired to them yet. It accepts synthetic input from tests; windowed
 		 * mode still runs style/layout/paint for both stacks each frame. */
 		(void)editor->ui_host_frame(host, (f32)logical.width, (f32)logical.height, sx, sy);
+		if (gpu != NULL) {
+			(void)sk_editor_gpu_present(gpu, editor->ui_host_context(host), fonts, win_api, window);
+		}
 
 		if ((frames++ % 120u) == 0u) {
 			const sk_ui_draw_list_t* dl = editor->ui_host_sk_ui_draw_list(host);
 			u32 imgui_n = 0u;
 			(void)editor->ui_host_imgui_draw_items(host, &imgui_n);
-			sk_log_info(logger_api, log, "frame %u: sk-ui verts=%u cmds=%u; imgui items=%u; want_mouse=%d", frames, dl != NULL ? dl->vertex_count : 0u,
-						dl != NULL ? dl->command_count : 0u, imgui_n, editor->ui_host_want_capture_mouse(host));
+			sk_log_info(logger_api, log, "frame %u: sk-ui verts=%u cmds=%u; imgui items=%u; want_mouse=%d gpu=%d", frames, dl != NULL ? dl->vertex_count : 0u,
+						dl != NULL ? dl->command_count : 0u, imgui_n, editor->ui_host_want_capture_mouse(host), gpu != NULL ? 1 : 0);
 		}
 
 		if (win_api->window_should_close(window)) {
@@ -141,7 +178,10 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		}
 	}
 
+	sk_editor_gpu_destroy(gpu);
 	editor->ui_host_destroy(host);
+	editor_destroy_ui_fonts(ui, fonts);
+	win_api->destroy_window(window);
 	return 0;
 }
 
@@ -224,6 +264,9 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 	const sk_ui_api_t* ui;
 	shell_host_t host;
 	sk_window_t window;
+	sk_editor_gpu_t* gpu;
+	sk_ui_font_system_t* fonts;
+	sk_ui_font_t* font;
 	u32 frames = 0u;
 
 	win_api = (const sk_platform_window_api_t*)app_api->get_api(app, SK_PLATFORM_WINDOW_API_TYPE_ID);
@@ -293,6 +336,14 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 	win_api->set_window_char_callback(window, shell_host_on_char, &host);
 	win_api->set_window_scroll_callback(window, shell_host_on_scroll, &host);
 
+	editor_load_ui_fonts(ui, &fonts, &font);
+	sk_editor_shell_set_fonts(host.shell, fonts, font);
+
+	gpu = sk_editor_gpu_create(app, app_api, ui, win_api, window, logger_api, log);
+	if (gpu == NULL) {
+		sk_log_warn(logger_api, log, "GPU present unavailable — CPU UI still runs (window stays blank)");
+	}
+
 	sk_log_info(logger_api, log, "APX-366 v2 editor shell: frame + menu bar + toolbar + dock host");
 	sk_log_info(logger_api, log, "Window menu entries toggle windows through the registered tables");
 	sk_log_info(logger_api, log, "Close the window to exit.");
@@ -311,11 +362,15 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 
 		shell_host_dispatch_mouse(&host, win_api, window);
 		(void)sk_editor_shell_frame(host.shell, (f32)logical.width, (f32)logical.height, sx, sy);
+		if (gpu != NULL) {
+			(void)sk_editor_gpu_present(gpu, sk_editor_shell_context(host.shell), fonts, win_api, window);
+		}
 
 		if ((frames++ % 120u) == 0u) {
 			const sk_ui_draw_list_t* dl = sk_editor_shell_context(host.shell) != NULL ? ui->get_draw_list(sk_editor_shell_context(host.shell)) : NULL;
 			u32 open = sk_editor_window_iterate(app, app_api, NULL, 0u);
-			sk_log_info(logger_api, log, "frame %u: verts=%u cmds=%u open_windows=%u", frames, dl != NULL ? dl->vertex_count : 0u, dl != NULL ? dl->command_count : 0u, open);
+			sk_log_info(logger_api, log, "frame %u: verts=%u cmds=%u open_windows=%u gpu=%d", frames, dl != NULL ? dl->vertex_count : 0u, dl != NULL ? dl->command_count : 0u, open,
+						gpu != NULL ? 1 : 0);
 		}
 
 		if (win_api->window_should_close(window)) {
@@ -329,7 +384,9 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 		editor->project_close(host.project);
 		host.project = NULL;
 	}
+	sk_editor_gpu_destroy(gpu);
 	sk_editor_shell_destroy(host.shell);
+	editor_destroy_ui_fonts(ui, fonts);
 	win_api->destroy_window(window);
 	return 0;
 }

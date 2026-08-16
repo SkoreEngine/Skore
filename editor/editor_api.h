@@ -261,6 +261,9 @@ typedef struct sk_editor_api_t {
 
 	/** @see sk_editor_workspace_reset_to_preset */
 	void (*workspace_reset_to_preset)(sk_editor_workspace_t* workspace);
+
+	/** @see sk_editor_ui_host_set_fonts */
+	void (*ui_host_set_fonts)(sk_editor_ui_host_t* host, sk_ui_font_system_t* fonts, sk_ui_font_t* font);
 } sk_editor_api_t;
 
 /**

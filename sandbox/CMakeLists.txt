@@ -43,3 +43,25 @@ add_dependencies(sk-sandbox-shell
     sk-ui
     sk-vulkan-render-device
     sk-dxc-compiler)
+
+# APX-139: --ui-migration dual-stack render check (own main()).
+add_executable(sk-sandbox-ui-migration
+    ui_migration_sandbox.c)
+
+target_link_libraries(sk-sandbox-ui-migration PRIVATE sk-foundation sk-editor-lib)
+
+if(APPLE)
+    target_link_options(sk-sandbox-ui-migration PRIVATE "LINKER:-export_dynamic")
+endif()
+
+target_include_directories(sk-sandbox-ui-migration PRIVATE
+    ${SKORE_SOURCE_DIR}/editor
+    ${SKORE_SOURCE_DIR}/plugins/ui
+    ${SKORE_SOURCE_DIR}/plugins/ui/testdata
+    ${SKORE_SOURCE_DIR}/plugins/render_device
+    ${SKORE_SOURCE_DIR}/plugins/dxc_compiler)
+
+add_dependencies(sk-sandbox-ui-migration
+    sk-ui
+    sk-vulkan-render-device
+    sk-dxc-compiler)
