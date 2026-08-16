@@ -34,6 +34,7 @@
 #include "path.h"
 #include "render_device.h"
 #include "ui.h"
+#include "windows/console_window.h"
 #include "windows/project_browser_window.h"
 
 #include "skore_test_font_ttf.h"
@@ -322,8 +323,10 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	/* Editor boot + shell (the shell owns its ui context; ui->init runs here). */
 	sk_editor_bind_tables(s->app, s->app_api);
 	sk_editor_workspace_register_impls(s->app, s->app_api);
-	/* Project Browser first so its real impl wins window_open (pattern doc). */
+	/* Project Browser + Console first so their real impls win window_open
+	 * (pattern doc); the scaffolds follow. */
 	sk_editor_project_browser_register(s->app, s->app_api);
+	sk_editor_console_register(s->app, s->app_api);
 	sk_editor_windows_register_impls(s->app, s->app_api);
 	s->shell = sk_editor_shell_create(s->app, s->app_api, ui);
 	if (s->shell == NULL) {

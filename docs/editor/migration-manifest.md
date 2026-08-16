@@ -172,7 +172,7 @@ Legend: **Dock** = `EditorWindowProperties{dockPosition, order?, workspaceTypes}
 | Events | Subscribes: none. Reads the global `GetConsoleSink()` (`SK_API`, defined in `Editor.cpp`; registered as a logger sink from `Main.cpp`). No publishes. |
 | Content/Images | none (glyph title only) |
 | Persisted | none (`showTrace/Debug/Info/Warn/Error/Critical`, `collapse`, `shouldScrollToBottom`, `filter` are session-only) |
-| Incomplete | Auto-scroll only follows when already at bottom. Otherwise functional. **Already ported to v2**: `editor/console_panel.c` (see `docs/ui-editor-migration.md`). |
+| Incomplete | Auto-scroll only follows when already at bottom. Otherwise functional. **Migrated to v2 (APX-373)**: `editor/windows/console_window.h/.c` — the v2 shell window. Message ring bound to the v2 logger (`add_sink` on the app logger context), severity checkboxes + colouring, Collapse / Auto-scroll, Filter search and Clear; public `AddMessage`/`Clear`/level-visibility/filter entry points go through the `sk_editor_console_ops_t` table registered with `add_impl` (window-table-pattern.md §7). The APX-139 `editor/console_panel.c` dual-stack demo stays for the `--ui-migration` host. |
 
 ### 3.2 DebuggerWindow
 
