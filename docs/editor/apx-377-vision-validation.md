@@ -1,26 +1,33 @@
-# APX-377 / APX-391 — Visual acceptance of the migrated editor
+# APX-377 / APX-396 — Visual acceptance of the migrated editor
 
-**Task:** APX-391 (re-render + re-judge after Packages / Project Browser /
-Debugger / Console chrome fixes: APX-387 / APX-388 / APX-389 / APX-390)  
+**Task:** APX-396 (second pass of the goal's final acceptance gate; same
+protocol as APX-385, which this repeats rather than replaces)  
 **Date:** 2026-08-16  
 **Host:** `sk-sandbox-shell` (`sandbox/editor_shell_sandbox.c`)  
 **Recipe:** lavapipe offscreen capture (`capture_create` → `paint` → `capture_frame` → `cpu_image_write_png`)  
 **Viewport:** 1280×720, scale 1.0  
 **Frames:** [`docs/editor/apx-377-frames/`](apx-377-frames/)  
-**Rebuild:** Release `sk-sandbox-shell` (Ninja), then recapture overwrote all four PNGs.
+**Rebuild:** clean Release `sk-sandbox-shell` (Ninja, 230 targets), then
+`--out-dir` overwrote all four PNGs. SHA-256 of the new files matches the
+previous tip (deterministic lavapipe capture). Verdicts below are from
+reading those pixels this pass — previous MET rows were not copied.
 
-This is the goal's final visual gate: look at the v2 editor against the C++
-InitDockSpace layout and `docs/editor/migration-manifest.md`. APX-379 activates
-the lowest-order tab in each leaf; APX-380 sizes Scene Viewport toolbar buttons
-from their labels; APX-382 sizes Console severity labels from real glyph
-advance so they no longer wrap mid-word; APX-383 labels the scene-options tool
-`Scn` instead of `…`; APX-384 sizes the Entity Tree search input to the toolbar
-height with 3px vertical padding so the hint is not clipped; APX-387 sizes the
-Packages table from the real window width and moves the hint onto its own row;
-APX-388 sizes content-grid tile captions from glyph advance so `Main.scene` is
-not shaved; APX-389 hosts Debugger Statistics in a scroll view so
-`Dedicated (VRAM)` is reachable; APX-390 wraps Console log lines at the panel
-width. APX-391 rebuilds the host, recaptures the four frames, and re-judges.
+This is the goal's final visual gate after the four chrome fixes from the
+APX-385 sweep (Packages, Project Browser, Debugger, Console) landed. Look at
+the v2 editor against the C++ InitDockSpace layout and
+`docs/editor/migration-manifest.md`. Shared widget code
+(`plugins/ui/content_item.c`) and dock-leaf sizing can regress chrome that
+already passed, so every criterion is re-judged from the new frames.
+
+APX-379 activates the lowest-order tab in each leaf; APX-380 sizes Scene
+Viewport toolbar buttons from their labels; APX-382 sizes Console severity
+labels from real glyph advance; APX-383 labels the scene-options tool `Scn`;
+APX-384 sizes the Entity Tree search input to the toolbar height with 3px
+vertical padding; Packages hint/table sizing lives in
+`editor/windows/packages_window.c`; tile captions are measured in
+`plugins/ui/content_item.c`; Debugger Statistics is a scroll host in
+`editor/windows/debugger_window.c`; Console log lines wrap in
+`editor/windows/console_window.c`.
 
 ```bash
 cmake --build build --target sk-sandbox-shell
@@ -60,14 +67,15 @@ C++ InitDockSpace zones used as the layout oracle (manifest §1 / `editor_window
 | 5 | Mocked panels clearly populated rather than blank | **MET** |
 | 6 | Additional PNG after workspace switch proves restore | **MET** |
 
-**Overall:** all six criteria are accepted. The migrated shell, dock map, icon
-atlas, Scene placeholder, and mock window bodies read as the C++ editor.
+**Overall:** all six criteria are accepted on the APX-396 frames. The
+migrated shell, dock map, icon atlas, Scene placeholder, and mock window
+bodies read as the C++ editor.
 
-The remaining-defects table is **empty**. The last open chrome item
-(`Main.scene` clipped to `Main.scen`) is gone on the APX-391 frames (see
-[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387--388--389--390)).
-A second sweep of the four 1280×720 frames found no clipped, mid-word-wrapped,
-or overlapping chrome in migrated windows. Out of scope stays out of scope:
+The six defects APX-385 refused to accept are gone (see
+[APX-385 defect confirmation](#apx-385-defect-confirmation)). APX-382 /
+APX-383 / APX-384 still hold. A sweep of the four 1280×720 frames found no
+other clipped, mid-word-wrapped, or overlapping chrome in migrated windows.
+The remaining-defects table is **empty**. Out of scope stays out of scope:
 graph-node windows, real scene rendering, thumbnails.
 
 ---
@@ -84,6 +92,8 @@ graph-node windows, real scene rendering, thumbnails.
   known painter's-algorithm limitation, manifest §8).
 - Toolbar: Save All, Undo, Redo, Play, Pause, Stop, Reset Layout.
 - Workspace switcher: Scene tab + "+" on the first frame.
+
+No menu or toolbar label is clipped, wrapped mid-word, or overlapped.
 
 ---
 
@@ -120,13 +130,15 @@ Editor occupies Center; Properties / Project Browser / Console / Debugger
 stay. Graph Editor body is empty — expected (out of scope §2.1 / §4,
 scaffold `Draw`).
 
-Scene Viewport tool labels do not collide at 1280×720 (APX-380 / APX-383): the
-row reads `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`.
+Scene Viewport tool labels do not collide at 1280×720
+(`scene_view_window.c:828`–`:841`): the row reads
+`Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`.
 No tool button is an ellipsis.
 
-The Console toolbar (APX-382) keeps every severity checkbox label intact on one
-line (`Trace Debug Info Warn Error Fatal`) plus Clear / Collapse / Auto-scroll
-on the same row. No severity label wraps mid-word.
+The Console toolbar (`console_window.c:562` / `:259`) keeps every severity
+checkbox label intact on one line (`Trace Debug Info Warn Error Fatal`) plus
+Clear / Collapse / Auto-scroll on the same row. No severity label wraps
+mid-word.
 
 ---
 
@@ -173,12 +185,12 @@ solid empty panel. Real scene rendering stays out of scope (manifest §2.3).
 
 | Panel | Expected mock | On the frames |
 | --- | --- | --- |
-| Entity Tree | Demo Scene / Main Camera / Directional Light / Player / Character Mesh | **Populated** on 01 — hierarchy is the selected RightTop tab (APX-379), not hidden behind History |
-| Console | logger ring | **Populated** on 01 — selected BottomRight tab; seeded Info lines (`Scene workspace ready`, mock Assets/Project/Renderer) are on screen; the WARN row wraps at a word break and the rest of the message is on the next line inside the panel (APX-390) |
-| Project Browser | folder tree + FolderIcon/FileIcon grid | **Populated** on 01 — Assets tree + four tiles (Scenes, Textures, Main.scene, Hero.png) using Content/Images icons; `Main.scene` is the full caption (APX-388) |
-| Debugger Statistics | FPS, frame time, CPU, working set, VRAM | **Populated** on 04 — the Statistics tab shows FPS / Frame time / Process / GPU memory / Dedicated (VRAM) fully. The body is a scroll host; APX-394 sizes the inner panel to the row stack (not 100% of the leaf) and the capture scrolls only far enough for `Dedicated (VRAM)` so the previously visible stat rows stay on screen. Console is the default tab (order 10); the host activates Debugger (order 20) on the Window-menu frame so the body is not judged while hidden behind its sibling |
+| Entity Tree | Demo Scene / Main Camera / Directional Light / Player / Character Mesh | **Populated** on 01 — hierarchy is the selected RightTop tab (APX-379). Player is collapsed (disclosure triangle), so Character Mesh is not required on screen. Names and `V`/`L` toggles are intact. |
+| Console | logger ring | **Populated** on 01 — selected BottomRight tab; seeded Info lines (`Scene workspace ready`, mock Assets/Project/Renderer) are on screen; the WARN row wraps at a word break and the rest of the message is on the next line inside the panel (`console_window.c:384` / `:413`) |
+| Project Browser | folder tree + FolderIcon/FileIcon grid | **Populated** on 01 — Assets tree + four tiles (Scenes, Textures, Main.scene, Hero.png) using Content/Images icons; `Main.scene` is the full caption (`project_browser_window.c:269`; `content_item.c:263`) |
+| Debugger Statistics | FPS, frame time, CPU, working set, VRAM | **Populated** on 04 — the Statistics tab shows FPS / Frame time / Process / GPU memory / Dedicated (VRAM) fully (`debugger_window.c:389`). The body is a scroll host (`debugger.content.host`); the capture scrolls only far enough for `debugger.stat.vram` so Frame/Process stay visible. Console is the default tab (order 10); the host activates Debugger (order 20) on the Window-menu frame so the body is not judged while hidden behind its sibling |
 | History | seeded undo/redo scopes | Sibling of Entity Tree (order 10); not required on the default tab |
-| Properties | empty-selection until an entity/asset is selected | **OK** — "Select something..." (not a blank dock) |
+| Properties | empty-selection until an entity/asset is selected | **OK** — "Select something..." (`properties_window.c:1265`; the ellipsis is the string, not a clip) |
 
 ---
 
@@ -218,70 +230,70 @@ menu items):
 
 - **Packages** — floating window, Add Package + hint on separate rows,
   Name/Path table of the two seeded mock folders (see
-  [Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387--388--389--390)).
+  [APX-385 defect confirmation](#apx-385-defect-confirmation)).
 - **Editor Settings** — floating window, left tree (General / Rendering /
   Audio / Physics / Editor), right pane (Project Name, Company Name, Auto Save).
+  Search hint (`settings_window.c:472`) is the whole word `Search`.
 - **Resource Debugger** — Center tab next to Scene Viewport (Types list
-  visible behind the floaters).
+  visible behind the floaters; occlusion is stacking, not a clip).
 
 ---
 
-## Chrome-fix confirmation (APX-382 / 383 / 384 / 387 / 388 / 389 / 390)
+## APX-385 defect confirmation
 
-Judged on the recaptured 1280×720 frames (01 / 03 for Scene chrome; Console
-labels also on 02; Packages / Debugger Statistics on 04).
+Judged on the recaptured 1280×720 frames. Each of the six defects APX-385
+refused to accept is gone. A partial fix would be a failure; none of these
+rows is a caveat.
 
-| Defect this wave fixed | Frame | Verdict |
-| --- | --- | --- |
-| Packages window hint clipped mid-quote (`"Binaries" folder.` hidden) | 04 | **Fixed (APX-392).** Add Package is on its own row; the hint is below it, wrap on, full row, 13px. Recaptured frame 04 shows the whole sentence `A package is a folder containing an "Assets" and/or "Binaries" folder.` including the closing quote and period. |
-| Packages Name cells clip `SkoreGame`→`Skore`, `EnginePlugins`→`Engin` | 04 | **Fixed (APX-392).** Name/Path labels are wrap-off + flex_shrink 0 (real glyph advance); Name has no tree indent. Frame 04 shows full `SkoreGame` and `EnginePlugins` with a gap before Path. |
-| Packages Path cells clip + overlap the remove `x` (leftover `s`) | 04 | **Fixed (APX-392).** Path stretch takes leftover after measured Name + reserved 36px remove; path cells clip children so they cannot paint under the button. Frame 04 shows full `D:/Projects/SkoreGame` and `D:/Projects/EnginePlugins` with a clear gap before each `x`. |
-| Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Fixed.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll. |
-| Scene Viewport tool button renders as `...` | 01, 03 | **Fixed.** The Grid–Play slot is `Scn`. The full row is `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
-| Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
-| Debugger Statistics `Dedicated (VRAM)` row clipped off the leaf bottom | 04 | **Fixed (APX-394).** The statistics body is a scroll host (`debugger.content.host`); the inner `debugger.content` panel is auto-height / `flex_shrink 0` so rows are not clipped inside a 100%-of-leaf box. The capture scrolls only far enough to land `debugger.stat.vram` in the leaf, so Frame/Process stay visible and `Dedicated (VRAM)` is fully on screen (`debugger_window.c` Dedicated (VRAM) row + `dgb_apply_stats_body_style`). |
-| Project Browser tile caption `Main.scene` clips to `Main.scen` | 01, 02, 03 | **Fixed (APX-393).** Caption is measured from Clay layout-font glyph advance (plus ink extent) and sized to that box with `flex_shrink 0`; the tile content width is the full thumb so a name that fits is not shaved by pad. Names wider than the tile are ellipsized (U+2026) instead of clip-shaved. Recaptured frames 01/02/03 show full `Main.scene` next to intact `Scenes` / `Textures` / `Hero.png` (seed `project_browser_window.c:269`; grid host `:1696`). |
-| Console WARN line cut at the panel edge (`…mapped via Clay floati`) | 01, 02, 03 | **Fixed (APX-390; re-verified APX-395).** Log rows wrap at the panel width (`label_set_wrap 1` at `console_window.c:384`/`:413`); the scroll body is sized from the laid-out rows (`console_sync_scroll_size`) so Auto-scroll still lands on the newest line. The WARN row is two lines: line 1 ends on a word break before the panel edge and line 2 carries `...constraints may differ (kept best-effort mapping)` fully inside the panel (pixel re-verification below). |
+| # | Defect APX-385 refused | Frame | Verdict |
+| - | ---------------------- | ----- | ------- |
+| 1 | Packages hint clipped mid-quote (`"Binaries" folder.` hidden) | 04 | **Fixed.** Add Package is on its own row; the hint is below it (`packages_window.c:434`). Frame 04 shows the whole sentence `A package is a folder containing an "Assets" and/or "Binaries" folder.` including the closing quote and period. |
+| 2 | Packages Name cells clip `SkoreGame`→`Skore`, `EnginePlugins`→`Engin` | 04 | **Fixed.** Name labels are wrap-off + `flex_shrink` 0 (`packages_window.c:147`–`:157`); Name has no tree indent (`:303`). Frame 04 shows full `SkoreGame` and `EnginePlugins` with a gap before Path. |
+| 3 | Packages Path cells clip + overlap the remove `x` | 04 | **Fixed.** Path stretch takes leftover after measured Name + reserved 36px remove (`packages_window.c:185`–`:232`); path cells clip children (`:331`). Frame 04 shows full `D:/Projects/SkoreGame` and `D:/Projects/EnginePlugins` with a clear gap before each `x`. |
+| 4 | Project Browser tile caption `Main.scene` clips to `Main.scen` | 01, 02, 03, 04 | **Fixed.** Caption is measured from Clay layout-font glyph advance (`content_item.c:263` / `:476`) and sized with `flex_shrink` 0 (`:494`). Recaptured frames show full `Main.scene` next to intact `Scenes` / `Textures` / `Hero.png` (seed `project_browser_window.c:269`). |
+| 5 | Debugger Statistics `Dedicated (VRAM)` row clipped off the leaf bottom | 04 | **Fixed.** Statistics body is a scroll host (`debugger.content.host`); inner panel is auto-height / `flex_shrink` 0 (`debugger_window.c:260` / `:389`). Frame 04 shows `Dedicated (VRAM)  7.45 GB / 7.45 GB` fully on screen under the GPU memory header. Frame/Process rows stay visible. |
+| 6 | Console WARN line cut at the panel edge (`…mapped via Clay floati`) | 01, 02, 03 | **Fixed.** Log rows wrap at the panel width (`label_set_wrap 1` at `console_window.c:384` / `:413`). The WARN is two lines; the tail `constraints may differ (kept best-effort mapping)` is fully inside the panel (pixel evidence below). |
 
-## APX-395 — Console long-line wrap re-verified (pixel evidence)
+### Pixel evidence (this recapture)
 
-Rebuilt Release `sk-sandbox-shell` (Ninja, 230 targets) at the branch tip and
-re-ran the lavapipe offscreen recipe (`capture_create → paint →
-capture_frame → cpu_image_write_png`, 1280×720, scale 1.0, `--out-dir`).
-All four PNGs came out byte-identical to the tracked frames, so the
-committed captures are current. Reading the WARN row off frames 01/02/03
-(Console log body: scroll x 658–1264, y 613–719):
+Rebuilt Release `sk-sandbox-shell` (Ninja, 230 targets) and re-ran the
+lavapipe recipe (`capture_create → paint → capture_frame →
+cpu_image_write_png`, 1280×720, scale 1.0, `--out-dir`). All four PNGs are
+1280×720. Console WARN ink on frames 01/02/03 (same extents):
 
-- The log body holds six text rows at a uniform 14px line pitch; the
-  severity-prefix column and line height are unchanged by wrapping.
-- The Clay-limitation WARN renders as two bands: line 1 at y 675–683 spans
-  x 664–1226 (wraps at a word break 34px before the content edge at
-  x 1260); line 2 at y 689–698 spans x 664–1009 — the
+- Line 1 (y 675–685) spans x 663–1225 and wraps at a word break 40px before
+  the content edge (border at x 1265).
+- Line 2 (y 686–699) spans x 662–1009 — the
   `constraints may differ (kept best-effort mapping)` tail is fully inside
-  the panel and nothing is cut at the edge.
-- The same row on the pre-fix frame (commit 84ed44b) was a single band
-  ending at x 1259 — clipped mid-word (`…floati`) with no continuation
-  line at all.
-- The newest line (the wrapped WARN) is fully on screen — last ink at
-  y 698 against the body bottom at y 719 — so Auto-scroll stays pinned to
-  the latest row.
+  the panel.
+- Last WARN ink is at y 699 against the body bottom at y 719, so Auto-scroll
+  is still pinned to the newest row.
 
-The full long message is readable on all three frames; the fix needed no
-code change this pass — a fresh rebuild and recapture confirms the wrap
-behaviour at the panel width.
+The full long message is readable on all three Console frames.
+
+---
+
+## APX-382 / 383 / 384 still hold
+
+Re-checked on the new pixels (not carried forward from the previous write-up).
+
+| Prior fix | Frame | Verdict |
+| --- | --- | --- |
+| Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Holds.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll (`console_window.c:562`–`:605`). |
+| Scene Viewport tool button renders as `...` | 01, 03 | **Holds.** The Grid–Play slot is `Scn` (`scene_view_window.c:841`). Full row: `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
+| Entity Tree search hint is clipped | 01, 03 | **Holds.** Hint `"Search entities"` (`entity_tree_window.c:1810`, 3px vertical pad at `:1820`–`:1822`) is fully inside the input, including the `g`/`y` descenders. |
 
 ---
 
 ## Remaining clipped / wrapped / overlapping chrome
 
-The previous remaining-defects table had one row (`Main.scene` → `Main.scen`).
-That item is **Fixed** on the APX-391 frames (evidence in the confirmation
-table above). A second sweep of all four 1280×720 frames — menu bar, shell
-toolbar, workspace switcher, Scene Viewport tools, Entity Tree search / `V`
-`L` toggles, Properties `Select something...`, Project Browser tiles and
-toolbar, Console toolbar + wrapped WARN body, Debugger Statistics, Packages
-hint + Name/Path cells, Settings tree + entries, tab titles — found no
-clipped, mid-word-wrapped, or overlapping chrome in migrated windows.
+Sweep of all four 1280×720 frames — menu bar, shell toolbar, workspace
+switcher, Scene Viewport tools, Entity Tree search / `V` `L` toggles,
+Properties `Select something...`, Project Browser tiles and toolbar,
+Console toolbar + wrapped WARN body, Debugger Statistics, Packages hint +
+Name/Path cells, Settings tree + entries (`settings_window.c:472`,
+`:146` / `:150`), tab titles, Resource Debugger tab. No clipped,
+mid-word-wrapped, or overlapping chrome in migrated windows.
 
 | Frame | What is wrong | Source |
 | --- | --- | --- |
