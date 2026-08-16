@@ -18,7 +18,7 @@ It **specifies behaviour only** — no implementation code.
 | Method | `git archive origin/main`, then read every window `.hpp`/`.cpp`; grep for external callers, `Event::Bind`/`EventHandler<...>::Invoke`, `StaticContent::Get*("Content/Images/...")`, `EditorSerialize`, `EditorWindowProperties` |
 | Cross-check | Window directory listing vs manifest: **28 files (14 `.cpp` + 14 `.hpp`) = 14 window classes; all 14 are listed in §3, none missing, none extra** (see §5) |
 | Out of scope | Graph node editors, thumbnail generation, real scene rendering — listed separately in §4, **not** part of the v2 window work queue |
-| Companion docs | `docs/WIDGET_MANIFEST.md` (APX-335 widget audit), `docs/ui-editor-migration.md` (APX-139 Console port), `editor/main_windows.c` (v2 window scaffolding, same 14 windows), `docs/editor/window-table-pattern.md` (APX-365 ops tables + add_impl observers) |
+| Companion docs | `docs/WIDGET_MANIFEST.md` (APX-335 widget audit), `docs/ui-editor-migration.md` (APX-139 Console port), `editor/main_windows.c` (v2 window scaffolding, same 14 windows), `docs/editor/window-table-pattern.md` (APX-365 ops tables + add_impl observers), `docs/editor/migration-audit.md` (APX-378 independent close-out) |
 
 ## 1. The window base contract (shared by all 14)
 
