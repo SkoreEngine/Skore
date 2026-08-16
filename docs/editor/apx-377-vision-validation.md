@@ -1,19 +1,21 @@
-# APX-377 / APX-381 — Visual acceptance of the migrated editor
+# APX-377 / APX-385 — Visual acceptance of the migrated editor
 
-**Task:** APX-381 (re-render + re-judge after APX-377 / APX-379 / APX-380)  
+**Task:** APX-385 (re-render + re-judge after APX-382 / APX-383 / APX-384 chrome fixes)  
 **Date:** 2026-08-16  
 **Host:** `sk-sandbox-shell` (`sandbox/editor_shell_sandbox.c`)  
 **Recipe:** lavapipe offscreen capture (`capture_create` → `paint` → `capture_frame` → `cpu_image_write_png`)  
 **Viewport:** 1280×720, scale 1.0  
-**Frames:** [`docs/editor/apx-377-frames/`](apx-377-frames/)
+**Frames:** [`docs/editor/apx-377-frames/`](apx-377-frames/)  
+**Rebuild:** Release `sk-sandbox-shell` (Ninja), then recapture overwrote all four PNGs.
 
 This is the goal's final visual gate: look at the v2 editor against the C++
 InitDockSpace layout and `docs/editor/migration-manifest.md`. APX-379 activates
 the lowest-order tab in each leaf; APX-380 sizes Scene Viewport toolbar buttons
-from their labels; APX-383 replaces the scene-options "…" button between Grid
-and Play with a readable "Scn" label so no tool collapses to an ellipsis;
-APX-381 re-captures and re-judges after those land, and opens the on-demand
-Window-menu windows.
+from their labels; APX-382 sizes Console severity labels from real glyph
+advance so they no longer wrap mid-word; APX-383 labels the scene-options tool
+`Scn` instead of `…`; APX-384 sizes the Entity Tree search input to the toolbar
+height with 3px vertical padding so the hint is not clipped. APX-385 rebuilds
+the host, recaptures the four frames, and re-judges.
 
 ```bash
 cmake --build build --target sk-sandbox-shell
@@ -55,6 +57,11 @@ C++ InitDockSpace zones used as the layout oracle (manifest §1 / `editor_window
 
 **Overall:** all six criteria are accepted. The migrated shell, dock map, icon
 atlas, Scene placeholder, and mock window bodies read as the C++ editor.
+
+The three chrome defects this wave targeted are gone on the new frames (see
+[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384)). Other
+migrated chrome still clips or overlaps; those are listed with `file:line`
+below and are **not** accepted.
 
 ---
 
@@ -106,19 +113,13 @@ Editor occupies Center; Properties / Project Browser / Console / Debugger
 stay. Graph Editor body is empty — expected (out of scope §2.1 / §4,
 scaffold `Draw`).
 
-Scene Viewport tool labels no longer collide at 1280×720 (APX-380): the row
-reads `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`.
-APX-383 removes the last ellipsis placeholder: the scene-options button
-between Grid and Play reads `Scn` (matching the 3-letter abbreviations used
-by Scl / Glo / Vol / Cam), so no tool collapses to a `…` glyph.
+Scene Viewport tool labels do not collide at 1280×720 (APX-380 / APX-383): the
+row reads `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`.
+No tool button is an ellipsis.
 
 The Console toolbar (APX-382) keeps every severity checkbox label intact on one
-line (`Trace Debug Info Warn Error Fatal`) and Clear / Collapse / Auto-scroll on
-the same row at 1280×720: the shell binds the host fonts for layout text
-measurement, so each label is sized from its real glyph advance instead of a
-per-glyph estimate that wrapped 'Debug' and 'Warn' mid-word; the severity and
-options rows are content-sized (not 100% of the toolbar) so the options column
-stays inside the window.
+line (`Trace Debug Info Warn Error Fatal`) plus Clear / Collapse / Auto-scroll
+on the same row. No severity label wraps mid-word.
 
 ---
 
@@ -208,9 +209,43 @@ model, and restored Scene.
 Opened through `sk_editor_shell_open_window` (the same path as the Window
 menu items):
 
-- **Packages** — floating window, Add Package, Name/Path table with the
-  seeded mock folders `D:/Projects/SkoreGame` and `D:/Projects/EnginePlugins`.
+- **Packages** — floating window, Add Package, Name/Path table of the two
+  seeded mock folders (cells clip; see remaining sweep).
 - **Editor Settings** — floating window, left tree (General / Rendering /
   Audio / Physics / Editor), right pane (Project Name, Company Name, Auto Save).
 - **Resource Debugger** — Center tab next to Scene Viewport (Types list
   visible behind the floaters).
+
+---
+
+## Chrome-fix confirmation (APX-382 / 383 / 384)
+
+Judged on the recaptured 1280×720 frames (01 / 03 for Scene chrome; Console
+labels also on 02).
+
+| Defect this wave fixed | Frame | Verdict |
+| --- | --- | --- |
+| Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Fixed.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll. |
+| Scene Viewport tool button renders as `...` | 01, 03 | **Fixed.** The Grid–Play slot is `Scn`. The full row is `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
+| Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
+
+---
+
+## Remaining clipped / wrapped / overlapping chrome
+
+These are **not** accepted. Each is a pixel finding on the recaptured frames,
+cited at the chrome that emits the string or sizes the box.
+
+| Frame | What is wrong | Source |
+| --- | --- | --- |
+| 04 | Packages hint is cut mid-quote: visible `A package is a folder containing an "Assets" and/or "`; `"Binaries" folder.` never appears. | `editor/windows/packages_window.c:307` (`widget_text_disabled` of the full sentence) inside a 500×280 window (`:265`–`:266`) with a single non-wrapping toolbar row (`:291`–`:298`). |
+| 04 | Packages Name cells clip the basename: `SkoreGame` → `Skore`, `EnginePlugins` → `Engin`. | `editor/windows/packages_window.c:208` (`widget_label` of `packages_basename`) in the 0.30 stretch Name column (`:191`). |
+| 04 | Packages Path cells clip and overlap the remove button: `D:/Projects/SkoreGame` reads `D:/Projects/SkoreGa` then `x`; `D:/Projects/EnginePlugins` reads `D:/Projects/EngineP` then `x` then a leftover `s`. | `editor/windows/packages_window.c:212` (path `widget_label`), `:217` (`widget_small_button` `"x"`), columns `:192`–`:193` (Path 0.70 stretch + 36px fixed). |
+| 01, 02, 03 | Project Browser tile caption `Main.scene` clips to `Main.scen`. `Scenes` / `Textures` / `Hero.png` are intact. | Seed name `editor/windows/project_browser_window.c:269`; grid host `:1696`. Caption is no-wrap + clip-children at `plugins/ui/content_item.c:410`–`:417` (`max_width` = thumb − pad). |
+| 04 | Debugger Statistics `Dedicated (VRAM)` value row is clipped off the bottom of the BottomRight leaf. Visible last line is the `GPU memory` section header. | Header + row `editor/windows/debugger_window.c:360`–`:363`; body is a non-scroll `content_host` at 100% height (`:654`–`:664`) filled by `dgb_build_statistics` (`:624`) with `flex_shrink 0` stat rows (`:264`–`:275`). |
+| 01, 02, 03 | Console WARN line is clipped at the panel edge (`…mapped via Clay floati`). Toolbar chrome is intact; this is the log body. | `editor/windows/console_window.c:369` (`widget_label` of the full line), `:374` (`label_set_wrap(..., 0)`), `:321` (width 100%). |
+
+No other migrated window chrome on these frames (menu bar, shell toolbar,
+workspace switcher, Scene Viewport tools, Entity Tree search / `V` `L`
+toggles, Properties `Select something...`, Settings tree + entries, tab
+titles) is clipped, wrapped mid-word, or overlapping.
