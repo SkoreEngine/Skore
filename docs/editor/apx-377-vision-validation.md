@@ -59,7 +59,7 @@ C++ InitDockSpace zones used as the layout oracle (manifest §1 / `editor_window
 atlas, Scene placeholder, and mock window bodies read as the C++ editor.
 
 The three chrome defects this wave targeted are gone on the new frames (see
-[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384)). Other
+[Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387)). Other
 migrated chrome still clips or overlaps; those are listed with `file:line`
 below and are **not** accepted.
 
@@ -209,8 +209,9 @@ model, and restored Scene.
 Opened through `sk_editor_shell_open_window` (the same path as the Window
 menu items):
 
-- **Packages** — floating window, Add Package, Name/Path table of the two
-  seeded mock folders (cells clip; see remaining sweep).
+- **Packages** — floating window, Add Package + hint on separate rows, \
+  Name/Path table of the two seeded mock folders (see \
+  [Chrome-fix confirmation](#chrome-fix-confirmation-apx-382--383--384--387)).
 - **Editor Settings** — floating window, left tree (General / Rendering /
   Audio / Physics / Editor), right pane (Project Name, Company Name, Auto Save).
 - **Resource Debugger** — Center tab next to Scene Viewport (Types list
@@ -218,13 +219,16 @@ menu items):
 
 ---
 
-## Chrome-fix confirmation (APX-382 / 383 / 384)
+## Chrome-fix confirmation (APX-382 / 383 / 384 / 387)
 
 Judged on the recaptured 1280×720 frames (01 / 03 for Scene chrome; Console
 labels also on 02).
 
 | Defect this wave fixed | Frame | Verdict |
 | --- | --- | --- |
+| Packages window hint clipped mid-quote (`"Binaries" folder.` hidden) | 04 | **Fixed.** The toolbar is now a column: Add Package on its own row and the hint sentence below it at 13px, full row, wrapping — the whole sentence renders on one line inside the 500px window. |
+| Packages Name cells clip `SkoreGame`→`Skore`, `EnginePlugins`→`Engin` | 04 | **Fixed.** The table now sizes its stretch columns from the real ~480px window width instead of the 3×80px default (240px), so the 0.30/0.70 Name/Path split gives ~133px/311px and every basename/path fits its cell. |
+| Packages Path cells clip + overlap the remove `x` (leftover `s`) | 04 | **Fixed.** Path (311px) holds both mock paths clear of the 36px remove column; no glyph paints over the button. |
 | Console severity label wraps mid-word (`Debu g`, `War n`) | 01, 02, 03 | **Fixed.** `Trace Debug Info Warn Error Fatal` are whole words on one toolbar row with Clear / Collapse / Auto-scroll. |
 | Scene Viewport tool button renders as `...` | 01, 03 | **Fixed.** The Grid–Play slot is `Scn`. The full row is `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`. No ellipsis glyph. |
 | Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
@@ -238,9 +242,6 @@ cited at the chrome that emits the string or sizes the box.
 
 | Frame | What is wrong | Source |
 | --- | --- | --- |
-| 04 | Packages hint is cut mid-quote: visible `A package is a folder containing an "Assets" and/or "`; `"Binaries" folder.` never appears. | `editor/windows/packages_window.c:307` (`widget_text_disabled` of the full sentence) inside a 500×280 window (`:265`–`:266`) with a single non-wrapping toolbar row (`:291`–`:298`). |
-| 04 | Packages Name cells clip the basename: `SkoreGame` → `Skore`, `EnginePlugins` → `Engin`. | `editor/windows/packages_window.c:208` (`widget_label` of `packages_basename`) in the 0.30 stretch Name column (`:191`). |
-| 04 | Packages Path cells clip and overlap the remove button: `D:/Projects/SkoreGame` reads `D:/Projects/SkoreGa` then `x`; `D:/Projects/EnginePlugins` reads `D:/Projects/EngineP` then `x` then a leftover `s`. | `editor/windows/packages_window.c:212` (path `widget_label`), `:217` (`widget_small_button` `"x"`), columns `:192`–`:193` (Path 0.70 stretch + 36px fixed). |
 | 01, 02, 03 | Project Browser tile caption `Main.scene` clips to `Main.scen`. `Scenes` / `Textures` / `Hero.png` are intact. | Seed name `editor/windows/project_browser_window.c:269`; grid host `:1696`. Caption is no-wrap + clip-children at `plugins/ui/content_item.c:410`–`:417` (`max_width` = thumb − pad). |
 | 04 | Debugger Statistics `Dedicated (VRAM)` value row is clipped off the bottom of the BottomRight leaf. Visible last line is the `GPU memory` section header. | Header + row `editor/windows/debugger_window.c:360`–`:363`; body is a non-scroll `content_host` at 100% height (`:654`–`:664`) filled by `dgb_build_statistics` (`:624`) with `flex_shrink 0` stat rows (`:264`–`:275`). |
 | 01, 02, 03 | Console WARN line is clipped at the panel edge (`…mapped via Clay floati`). Toolbar chrome is intact; this is the log body. | `editor/windows/console_window.c:369` (`widget_label` of the full line), `:374` (`label_set_wrap(..., 0)`), `:321` (width 100%). |
