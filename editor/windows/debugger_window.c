@@ -240,11 +240,11 @@ static void dgb_apply_panel_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, s
 	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.height = sk_ui_percent(100.0f);
-	p.layout.padding.left = 8.0f;
-	p.layout.padding.top = 8.0f;
-	p.layout.padding.right = 8.0f;
-	p.layout.padding.bottom = 8.0f;
-	p.layout.row_gap = 6.0f;
+	p.layout.padding.left = 6.0f;
+	p.layout.padding.top = 4.0f;
+	p.layout.padding.right = 6.0f;
+	p.layout.padding.bottom = 4.0f;
+	p.layout.row_gap = 2.0f;
 	p.background_color = sk_ui_rgba(0.08f, 0.09f, 0.11f, 0.96f);
 	(void)ui->node_set_inline_style(ctx, node, &p);
 }
@@ -268,10 +268,10 @@ static void dgb_apply_stat_row_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx
 	p.layout.flex_direction = SK_UI_FLEX_ROW;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_shrink = 0.0f;
-	p.layout.padding.left = 4.0f;
-	p.layout.padding.top = 2.0f;
-	p.layout.padding.right = 4.0f;
-	p.layout.padding.bottom = 2.0f;
+	p.layout.padding.left = 2.0f;
+	p.layout.padding.top = 0.0f;
+	p.layout.padding.right = 2.0f;
+	p.layout.padding.bottom = 0.0f;
 	(void)ui->node_set_inline_style(ctx, node, &p);
 }
 
@@ -280,8 +280,8 @@ static void dgb_apply_stat_label_style(const sk_ui_api_t* ui, sk_ui_context_t* c
 	memset(&p, 0, sizeof(p));
 	p.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK;
 	p.color = sk_ui_rgba(0.78f, 0.79f, 0.86f, 1.0f);
-	p.font_size = 12.0f;
-	p.layout.width = sk_ui_pt(220.0f);
+	p.font_size = 11.0f;
+	p.layout.width = sk_ui_pt(120.0f);
 	p.layout.flex_shrink = 0.0f;
 	(void)ui->node_set_inline_style(ctx, node, &p);
 }
@@ -653,10 +653,11 @@ static void dgb_build_ui(debugger_state_t* state, const sk_ui_api_t* ui, sk_ui_c
 
 	state->content_host = ui->widget_view(ctx, state->root, "debugger.content.host");
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW;
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_HEIGHT;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_grow = 1.0f;
 	p.layout.height = sk_ui_percent(100.0f);
+	p.layout.min_height = sk_ui_pt(72.0f);
 	(void)ui->node_set_inline_style(ctx, state->content_host, &p);
 
 	state->last_built_tab = -1;

@@ -26,14 +26,17 @@
  * until the plugin sorts floating nodes last. The capture therefore shows
  * the closed menu bar (see editor_shell.h).
  *
- * APX-377 also captures a Graph workspace frame and the Scene workspace
- * again after switching back, so workspace restore can be checked visually
- * against the first frame. Sibling names are derived from --out:
+ * APX-377 / APX-381 also capture a Graph workspace frame, the Scene
+ * workspace again after switching back, and one frame with Packages,
+ * Settings and Resource Debugger opened from the Window menu. Sibling
+ * names are derived from --out:
  *   editor_shell.png
  *   editor_shell_graph.png
  *   editor_shell_scene_restored.png
- * or, with --out-dir <dir>, the three numbered files
- *   01_scene_workspace.png / 02_graph_workspace.png / 03_scene_restored.png
+ *   editor_shell_on_demand.png
+ * or, with --out-dir <dir>, the numbered files
+ *   01_scene_workspace.png / 02_graph_workspace.png /
+ *   03_scene_restored.png / 04_on_demand_windows.png
  *
  * Usage:
  *   sk-sandbox-shell [--out <path>] [--out-dir <dir>]
@@ -109,11 +112,14 @@ static void sandbox_usage(const_chr_t prog) {
 			"usage: %s [--out <path>] [--out-dir <dir>]\n"
 			"  renders the v2 editor shell (menu bar, toolbar, workspace\n"
 			"  switcher, docked windows) to PNGs: Scene, Graph after a\n"
-			"  workspace switch, then Scene again after restore\n"
-			"  --out      Scene PNG (default: ./%s); Graph / restore\n"
-			"             siblings get _graph / _scene_restored suffixes\n"
+			"  workspace switch, Scene again after restore, then the\n"
+			"  on-demand Window-menu windows\n"
+			"  --out      Scene PNG (default: ./%s); Graph / restore /\n"
+			"             on-demand siblings get _graph / _scene_restored\n"
+			"             / _on_demand suffixes\n"
 			"  --out-dir  write 01_scene_workspace.png,\n"
-			"             02_graph_workspace.png, 03_scene_restored.png\n"
+			"             02_graph_workspace.png, 03_scene_restored.png,\n"
+			"             04_on_demand_windows.png\n"
 			"  --help     this message\n",
 			prog != NULL ? prog : "sk-sandbox-shell", SANDBOX_DEFAULT_PNG);
 }
@@ -281,6 +287,78 @@ static i32 sandbox_drive_scene_restore(shell_sandbox_t* s) {
 	return 0;
 }
 
+static void sandbox_place_floating_pt(shell_sandbox_t* s, const_chr_t id, f32 left, f32 top, f32 width, f32 height) {
+	sk_ui_node_t win;
+	sk_ui_style_props_t p;
+
+	win = s->ui->find_by_id(s->ctx, id);
+	if (!sk_ui_node_is_valid(win)) {
+		return;
+	}
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(left);
+	p.layout.top = sk_ui_pt(top);
+	p.layout.width = sk_ui_pt(width);
+	p.layout.height = sk_ui_pt(height);
+	(void)s->ui->node_set_inline_style(s->ctx, win, &p);
+}
+
+/* APX-381: open Packages, Settings and Resource Debugger the way the
+ * Window menu does (sk_editor_shell_open_window) and offset the two
+ * floating windows so all three are visible on one frame. */
+static i32 sandbox_drive_on_demand_windows(shell_sandbox_t* s) {
+	sk_editor_window_t* packages;
+	sk_editor_window_t* settings;
+	sk_editor_window_t* resource;
+	sk_editor_workspace_t* ws;
+	sk_ui_context_t* dock_ctx;
+
+	/* Show Debugger statistics on this frame (Console is the default tab). */
+	ws = sk_editor_workspace_active(s->app, s->app_api);
+	dock_ctx = ws != NULL ? sk_editor_workspace_dock_context(ws) : NULL;
+	if (dock_ctx != NULL) {
+		(void)s->ui->dock_tab_set_active(dock_ctx, "sk.editor_window.debugger");
+	}
+	packages = sk_editor_shell_open_window(s->shell, SK_EDITOR_WINDOW_PACKAGES);
+	settings = sk_editor_shell_open_window(s->shell, SK_EDITOR_WINDOW_SETTINGS);
+	resource = sk_editor_shell_open_window(s->shell, SK_EDITOR_WINDOW_RESOURCE_DEBUGGER);
+	if (packages == NULL || settings == NULL || resource == NULL) {
+		fprintf(stderr, "sk-sandbox: failed to open on-demand windows\n");
+		return -1;
+	}
+	ws = sk_editor_workspace_active(s->app, s->app_api);
+	dock_ctx = ws != NULL ? sk_editor_workspace_dock_context(ws) : NULL;
+	/* After a layout restore the zone cache is empty, so dock-on-open may
+	 * skip Resource Debugger. Dock it onto the Scene Viewport leaf. */
+	if (dock_ctx != NULL && s->ui->dock_window_is_docked(dock_ctx, "sk.editor_window.resource_debugger") == 0) {
+		sk_ui_dock_node_t center = s->ui->dock_find_node_for_window(dock_ctx, "sk.editor_window.scene_view");
+		sk_ui_node_t host;
+		sk_ui_dock_node_t root = ws != NULL ? sk_editor_workspace_dock_root(ws) : SK_UI_DOCK_NODE_INVALID;
+		host = sk_ui_dock_node_is_valid(root) ? s->ui->dockspace_host_node(dock_ctx, root) : SK_UI_NODE_INVALID;
+		if (!sk_ui_node_is_valid(s->ui->find_by_id(s->ctx, "sk.editor_window.resource_debugger")) && sk_ui_node_is_valid(host)) {
+			(void)s->ui->widget_editor_window(s->ctx, host, "Resource Debugger", "sk.editor_window.resource_debugger");
+		}
+		if (sk_ui_dock_node_is_valid(center)) {
+			(void)s->ui->dock_window_to_node(dock_ctx, "sk.editor_window.resource_debugger", center, SK_UI_DOCK_DIR_CENTER);
+		}
+	}
+	if (sandbox_frame_passes(s, "on-demand") != 0) {
+		return -1;
+	}
+	sandbox_place_floating_pt(s, "sk.editor_window.packages", 36.0f, 78.0f, 500.0f, 280.0f);
+	sandbox_place_floating_pt(s, "sk.editor_window.settings", 560.0f, 90.0f, 560.0f, 300.0f);
+	if (sandbox_frame_passes(s, "on-demand-placed") != 0) {
+		return -1;
+	}
+	if (!sk_ui_node_is_valid(s->ui->find_by_id(s->ctx, "sk.editor_window.packages")) || !sk_ui_node_is_valid(s->ui->find_by_id(s->ctx, "sk.editor_window.settings"))) {
+		fprintf(stderr, "sk-sandbox: Packages/Settings chrome missing\n");
+		return -1;
+	}
+	return 0;
+}
+
 /* APX-367 icon sample: one tile per icon id, drawn via the registry lookup
  * (sk_editor_icons_get → widget_image_rect) into the shell frame, so the
  * capture proves the Content/Images set renders end-to-end. The Project
@@ -294,34 +372,38 @@ static i32 sandbox_build_icon_strip(shell_sandbox_t* s) {
 	sk_ui_style_props_t p;
 	sk_editor_icon_id_t id;
 
-	s->icons = sk_editor_icons_create(s->rd, s->device);
 	if (s->icons == NULL) {
-		fprintf(stderr, "sk-sandbox: editor_icons_create failed (decode/atlas/upload)\n");
-		return -1;
+		s->icons = sk_editor_icons_create(s->rd, s->device);
+		if (s->icons == NULL) {
+			fprintf(stderr, "sk-sandbox: editor_icons_create failed (decode/atlas/upload)\n");
+			return -1;
+		}
+		/* Register so windows resolve the lookup (Project Browser content grid). */
+		sk_editor_icons_register(s->app, s->app_api, s->icons);
 	}
-	/* Register so windows resolve the lookup (Project Browser content grid). */
-	sk_editor_icons_register(s->app, s->app_api, s->icons);
 
 	strip = ui->widget_view(ctx, root, "sandbox.icon_strip");
 	memset(&p, 0, sizeof(p));
 	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_PADDING | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_WIDTH |
 			 SK_UI_SP_BORDER_COLOR | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
-	p.layout.flex_direction = SK_UI_FLEX_ROW;
-	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.width = sk_ui_pt(92.0f);
 	p.layout.align_items = SK_UI_ALIGN_CENTER;
-	p.layout.column_gap = 16.0f;
-	p.layout.padding.left = 10.0f;
-	p.layout.padding.right = 10.0f;
-	p.layout.padding.top = 8.0f;
-	p.layout.padding.bottom = 8.0f;
+	p.layout.column_gap = 4.0f;
+	p.layout.padding.left = 6.0f;
+	p.layout.padding.right = 6.0f;
+	p.layout.padding.top = 6.0f;
+	p.layout.padding.bottom = 6.0f;
 	p.layout.position = SK_UI_POSITION_ABSOLUTE;
-	p.layout.left = sk_ui_pt(0.0f);
-	p.layout.top = sk_ui_pt((f32)SANDBOX_H - 80.0f); /* pinned above the overflowing dock host */
-	p.background_color = sk_ui_rgba(0.09f, 0.10f, 0.13f, 1.0f);
+	/* Sit in the Scene Viewport letterbox so the strip does not cover
+	 * Project Browser tiles / Console lines / Debugger statistics. */
+	p.layout.left = sk_ui_pt(868.0f);
+	p.layout.top = sk_ui_pt(112.0f);
+	p.background_color = sk_ui_rgba(0.09f, 0.10f, 0.13f, 0.92f);
 	p.border_color = sk_ui_rgba(0.17f, 0.18f, 0.22f, 1.0f);
 	(void)ui->node_set_inline_style(ctx, strip, &p);
 
-	title = ui->widget_label(ctx, strip, "Editor icons (Content/Images):", "sandbox.icon_strip.title");
+	title = ui->widget_label(ctx, strip, "Icons", "sandbox.icon_strip.title");
 	(void)title;
 	for (id = (sk_editor_icon_id_t)0; id < SK_EDITOR_ICON_COUNT; ++id) {
 		const sk_editor_icon_t* ic = sk_editor_icons_get(s->icons, id);
@@ -339,13 +421,13 @@ static i32 sandbox_build_icon_strip(shell_sandbox_t* s) {
 		p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ROW_GAP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
 		p.layout.flex_direction = SK_UI_FLEX_COLUMN;
 		p.layout.align_items = SK_UI_ALIGN_CENTER;
-		p.layout.row_gap = 2.0f;
-		p.layout.width = sk_ui_pt(64.0f);
-		p.layout.height = sk_ui_pt(64.0f);
+		p.layout.row_gap = 1.0f;
+		p.layout.width = sk_ui_pt(72.0f);
+		p.layout.height = sk_ui_pt(52.0f);
 		(void)ui->node_set_inline_style(ctx, tile, &p);
 
 		(void)snprintf(idbuf, sizeof(idbuf), "sandbox.icon.img.%u", (u32)id);
-		icon_node = ui->widget_image_rect(ctx, tile, (i32)ic->view_index, 40.0f, 40.0f, ic->uv0x, ic->uv0y, ic->uv1x, ic->uv1y, NULL, NULL, idbuf);
+		icon_node = ui->widget_image_rect(ctx, tile, (i32)ic->view_index, 28.0f, 28.0f, ic->uv0x, ic->uv0y, ic->uv1x, ic->uv1y, NULL, NULL, idbuf);
 		(void)icon_node;
 		(void)snprintf(idbuf, sizeof(idbuf), "sandbox.icon.label.%u", (u32)id);
 		label = ui->widget_label(ctx, tile, ic->name, idbuf);
@@ -506,6 +588,14 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	sk_editor_resource_debugger_register(s->app, s->app_api);
 	sk_editor_properties_register(s->app, s->app_api);
 	sk_editor_windows_register_impls(s->app, s->app_api);
+	/* Register the icon atlas before the shell opens windows so Project
+	 * Browser tiles resolve folder/file icons on first listing. */
+	s->icons = sk_editor_icons_create(s->rd, s->device);
+	if (s->icons == NULL) {
+		fprintf(stderr, "sk-sandbox: editor_icons_create failed (decode/atlas/upload)\n");
+		return -1;
+	}
+	sk_editor_icons_register(s->app, s->app_api, s->icons);
 	s->shell = sk_editor_shell_create(s->app, s->app_api, ui);
 	if (s->shell == NULL) {
 		fprintf(stderr, "sk-sandbox: editor shell create failed\n");
@@ -657,6 +747,7 @@ int main(int argc, char* argv[]) {
 	char scene_path[SK_FS_PATH_MAX];
 	char graph_path[SK_FS_PATH_MAX];
 	char restored_path[SK_FS_PATH_MAX];
+	char on_demand_path[SK_FS_PATH_MAX];
 	char dir_path[SK_FS_PATH_MAX];
 	const_chr_t out_arg;
 	const_chr_t out_dir_arg;
@@ -680,7 +771,8 @@ int main(int argc, char* argv[]) {
 		}
 		if (sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("01_scene_workspace.png"), scene_path, (u32)sizeof(scene_path)) < 0 ||
 			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("02_graph_workspace.png"), graph_path, (u32)sizeof(graph_path)) < 0 ||
-			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("03_scene_restored.png"), restored_path, (u32)sizeof(restored_path)) < 0) {
+			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("03_scene_restored.png"), restored_path, (u32)sizeof(restored_path)) < 0 ||
+			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("04_on_demand_windows.png"), on_demand_path, (u32)sizeof(on_demand_path)) < 0) {
 			fprintf(stderr, "sk-sandbox: cannot join --out-dir PNG names\n");
 			sandbox_shutdown(&s);
 			return 1;
@@ -692,7 +784,8 @@ int main(int argc, char* argv[]) {
 			return 1;
 		}
 		if (sandbox_sibling_png(scene_path, "graph", graph_path, (u32)sizeof(graph_path)) != 0 ||
-			sandbox_sibling_png(scene_path, "scene_restored", restored_path, (u32)sizeof(restored_path)) != 0) {
+			sandbox_sibling_png(scene_path, "scene_restored", restored_path, (u32)sizeof(restored_path)) != 0 ||
+			sandbox_sibling_png(scene_path, "on_demand", on_demand_path, (u32)sizeof(on_demand_path)) != 0) {
 			fprintf(stderr, "sk-sandbox: cannot derive workspace PNG paths\n");
 			sandbox_shutdown(&s);
 			return 1;
@@ -721,6 +814,15 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 	rc = sandbox_paint_and_capture(&s, restored_path);
+	if (rc != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	if (sandbox_drive_on_demand_windows(&s) != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	rc = sandbox_paint_and_capture(&s, on_demand_path);
 	sandbox_shutdown(&s);
 	return rc == 0 ? 0 : 1;
 }

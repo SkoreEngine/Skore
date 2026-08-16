@@ -50,8 +50,8 @@
 #define PB_BREADCRUMB_CAP 32u
 #define PB_PATH_CAP 512u
 #define PB_MOCK_NEW_ASSET_BASE 100ull
-#define PB_TREE_PANE_W 220.0f
-#define PB_HEADER_H 30.0f
+#define PB_TREE_PANE_W 150.0f
+#define PB_HEADER_H 28.0f
 #define PB_ROW_H 22.0f
 #define PB_GRID_LABEL_H 18.0f
 
@@ -1603,8 +1603,9 @@ static void pb_build_ui(pb_state_t* state, const sk_ui_api_t* ui, sk_ui_context_
 	header = ui->widget_view(ctx, state->root, "pb.header");
 	pb_apply_row_style(ui, ctx, header);
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_PADDING;
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_PADDING | SK_UI_SP_FLEX_SHRINK;
 	p.layout.height = sk_ui_pt(PB_HEADER_H);
+	p.layout.flex_shrink = 0.0f;
 	p.layout.padding.left = 6.0f;
 	p.layout.padding.right = 6.0f;
 	p.layout.padding.top = 3.0f;
@@ -1660,11 +1661,12 @@ static void pb_build_ui(pb_state_t* state, const sk_ui_api_t* ui, sk_ui_context_
 	/* Body: tree pane + content grid pane. */
 	body = ui->widget_view(ctx, state->root, "pb.body");
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_HEIGHT;
 	p.layout.flex_direction = SK_UI_FLEX_ROW;
 	p.layout.flex_grow = 1.0f;
 	p.layout.width = sk_ui_percent(100.0f);
-	p.layout.min_height = sk_ui_pt(40.0f);
+	p.layout.height = sk_ui_percent(100.0f);
+	p.layout.min_height = sk_ui_pt(72.0f);
 	(void)ui->node_set_inline_style(ctx, body, &p);
 
 	state->tree_pane = ui->widget_view(ctx, body, "pb.tree.pane");
@@ -1796,6 +1798,30 @@ static void pb_sync_ui(pb_state_t* state) {
 	}
 	if (sk_ui_node_is_valid(state->grid)) {
 		(void)ui->content_grid_set_scale(ctx, state->grid, state->content_browser_zoom);
+		/* Bind atlas UVs so folder/file tiles sample Content/Images instead
+		 * of the whole atlas (texture_id is the view slot; UVs pick the icon). */
+		for (i = 0u; i < state->grid_count; ++i) {
+			const sk_editor_icon_t* ic;
+			sk_ui_node_t thumb;
+			sk_editor_icons_t* icons = sk_editor_icons_resolve(state->app_context, state->app_api);
+			if (icons == NULL) {
+				break;
+			}
+			ic = sk_editor_icons_get(icons, state->grid_meta[i].is_directory != 0 ? SK_EDITOR_ICON_FOLDER : SK_EDITOR_ICON_FILE);
+			if (ic == NULL) {
+				continue;
+			}
+			state->grid_items[i].icon = ic->view_index;
+			thumb = ui->content_grid_thumb(ctx, state->grid, state->grid_items[i].id);
+			if (!sk_ui_node_is_valid(thumb)) {
+				continue;
+			}
+			(void)ui->node_set_prop_i32(ctx, thumb, "texture_id", (i32)ic->view_index);
+			(void)ui->node_set_prop_f32(ctx, thumb, "uv0_x", ic->uv0x);
+			(void)ui->node_set_prop_f32(ctx, thumb, "uv0_y", ic->uv0y);
+			(void)ui->node_set_prop_f32(ctx, thumb, "uv1_x", ic->uv1x);
+			(void)ui->node_set_prop_f32(ctx, thumb, "uv1_y", ic->uv1y);
+		}
 	}
 
 	/* Listing changes: push the new item arrays into the bound widgets. */
@@ -2080,7 +2106,7 @@ static void pb_init(sk_editor_window_t* window) {
 	state->app_api = cls->app_api;
 	state->workspace_id = SK_EDITOR_WORKSPACE_SCENE;
 	state->tree_only_view = 0;
-	state->content_browser_zoom = 1.0f;
+	state->content_browser_zoom = 0.55f;
 	state->root_directory = SK_RID_ZERO;
 	state->open_directory = SK_RID_ZERO;
 	state->rename_item = SK_RID_ZERO;

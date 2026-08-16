@@ -545,7 +545,7 @@ u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* 
 
 /* main InitDockSpace split ratios (fractions kept by the child toward the
  * split direction; empty zones collapse at apply). */
-#define SK_EDITOR_DOCK_BOTTOM_RATIO 0.30f
+#define SK_EDITOR_DOCK_BOTTOM_RATIO 0.38f
 #define SK_EDITOR_DOCK_BOTTOM_SPLIT_RATIO 0.50f
 #define SK_EDITOR_DOCK_LEFT_RATIO 0.22f
 #define SK_EDITOR_DOCK_RIGHT_RATIO 0.24f

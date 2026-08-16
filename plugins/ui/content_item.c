@@ -334,7 +334,7 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 	(void)ui->node_set_clip_children(ctx, row, 1);
 
 	(void)snprintf(idbuf, sizeof(idbuf), "%s/t%llu", host_id != NULL ? host_id : "cg", it->id);
-	thumb_n = cg_ensure_named(ctx, row, "image", SK_UI_CLASS_CONTENT_THUMB, idbuf, 0);
+	thumb_n = cg_ensure_named(ctx, row, "image", SK_UI_CLASS_CONTENT_THUMB, idbuf, 1);
 	(void)snprintf(idbuf, sizeof(idbuf), "%s/c%llu", host_id != NULL ? host_id : "cg", it->id);
 	icon_n = cg_ensure_named(ctx, row, "content_icon", SK_UI_CLASS_CONTENT_ICON, idbuf, 0);
 	(void)snprintf(idbuf, sizeof(idbuf), "%s/e%llu", host_id != NULL ? host_id : "cg", it->id);
@@ -345,7 +345,7 @@ static void cg_decorate_cell(sk_ui_context_t* ctx, ui_content_grid_data_t* g, co
 		(void)ui->node_set_prop_i32(ctx, thumb_n, "texture_id", (i32)it->icon);
 		ui_style_props_clear(&tp);
 		tp.mask = SK_UI_SP_BACKGROUND_COLOR;
-		tp.background_color = sk_ui_rgba(0.22f, 0.48f, 0.62f, 1.0f);
+		tp.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
 		(void)ui->node_merge_inline_style(ctx, thumb_n, &tp);
 		cg_size_box(ctx, thumb_n, inner, inner);
 		cg_set_hidden(ctx, thumb_n, 0);

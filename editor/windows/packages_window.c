@@ -260,10 +260,10 @@ static void packages_build_ui(packages_state_t* state, const sk_ui_api_t* ui, sk
 	memset(&p, 0, sizeof(p));
 	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
 	p.layout.position = SK_UI_POSITION_ABSOLUTE;
-	p.layout.left = sk_ui_percent(25.0f);
-	p.layout.top = sk_ui_percent(15.0f);
-	p.layout.width = sk_ui_percent(50.0f);
-	p.layout.height = sk_ui_percent(70.0f);
+	p.layout.left = sk_ui_pt(36.0f);
+	p.layout.top = sk_ui_pt(78.0f);
+	p.layout.width = sk_ui_pt(500.0f);
+	p.layout.height = sk_ui_pt(280.0f);
 	(void)ui->node_set_inline_style(ctx, state->win, &p);
 
 	content = ui->editor_window_content(ctx, state->win);

@@ -213,12 +213,13 @@ static void console_apply_panel_style(const sk_ui_api_t* ui, sk_ui_context_t* ct
 static void console_apply_row_style(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
 	sk_ui_style_props_t p;
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK;
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_COLUMN_GAP | SK_UI_SP_WIDTH | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_WRAP;
 	p.layout.flex_direction = SK_UI_FLEX_ROW;
 	p.layout.align_items = SK_UI_ALIGN_CENTER;
 	p.layout.column_gap = 6.0f;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_shrink = 0.0f;
+	p.layout.flex_wrap = SK_UI_FLEX_WRAP;
 	(void)ui->node_set_inline_style(ctx, node, &p);
 }
 
@@ -228,7 +229,7 @@ static void console_apply_scroll_style(const sk_ui_api_t* ui, sk_ui_context_t* c
 	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING;
 	p.layout.width = sk_ui_percent(100.0f);
 	p.layout.flex_grow = 1.0f;
-	p.layout.min_height = sk_ui_pt(80.0f);
+	p.layout.min_height = sk_ui_pt(48.0f);
 	p.layout.padding.left = 4.0f;
 	p.layout.padding.top = 4.0f;
 	p.layout.padding.right = 4.0f;
@@ -577,6 +578,13 @@ static void console_init(sk_editor_window_t* window) {
 	if (logger_api != NULL && log_ctx != NULL && logger_api->add_sink(log_ctx, &state->sink) == 0) {
 		state->sink_registered = 1;
 	}
+	/* Seed Info+ lines so the dock body is populated at rest. Startup
+	 * sk_log_* lines fire before this sink is registered (window open is
+	 * after dockspace init), so without a seed the ring is empty. */
+	console_push_line(state, SK_LOGGER_TYPE_INFO, "Editor", "Scene workspace ready");
+	console_push_line(state, SK_LOGGER_TYPE_INFO, "Assets", "Mock project: Assets/Scenes, Assets/Textures");
+	console_push_line(state, SK_LOGGER_TYPE_INFO, "Project", "No project attached; using mock content");
+	console_push_line(state, SK_LOGGER_TYPE_INFO, "Renderer", "Placeholder viewport texture bound");
 	window->user_data = state;
 }
 
@@ -876,9 +884,10 @@ SK_TEST(editor_console_window_ops_and_logger_sink) {
 	ops->add_message(app, boot.api, SK_LOGGER_TYPE_WARN, "test", "warn line");
 	ops->add_message(app, boot.api, SK_LOGGER_TYPE_ERROR, "test", "error line");
 	ops->add_message(app, boot.api, SK_LOGGER_TYPE_FATAL, "test", "fatal line");
-	TEST_ASSERT_EQUAL_UINT(6u, ops->line_count(window));
-	/* Trace + Debug are hidden by default → 4 rows visible. */
-	TEST_ASSERT_EQUAL_UINT(4u, ops->visible_count(window));
+	/* 4 seed Info lines + 6 AddMessage. */
+	TEST_ASSERT_EQUAL_UINT(10u, ops->line_count(window));
+	/* Seed Info (4) + Info/Warn/Error/Fatal (4); Trace + Debug hidden. */
+	TEST_ASSERT_EQUAL_UINT(8u, ops->visible_count(window));
 
 	/* Severity filtering: show Trace, hide Info. */
 	ops->set_level_visible(app, boot.api, SK_LOGGER_TYPE_TRACE, 1);
@@ -898,8 +907,8 @@ SK_TEST(editor_console_window_ops_and_logger_sink) {
 	sk_log_trace(logger_api, log, "sink trace %d", 1);
 	sk_log_debug(logger_api, log, "sink debug %d", 2);
 	sk_log_error(logger_api, log, "sink error %d", 3);
-	TEST_ASSERT_EQUAL_UINT(9u, ops->line_count(window));
-	TEST_ASSERT_EQUAL_UINT(6u, ops->visible_count(window)); /* +trace +error (debug hidden, info hidden) */
+	TEST_ASSERT_EQUAL_UINT(13u, ops->line_count(window));
+	TEST_ASSERT_EQUAL_UINT(6u, ops->visible_count(window)); /* +trace +error (debug hidden, info hidden incl. seed) */
 	logger_api->destroy_logger(log_ctx, log);
 
 	/* Clear wipes both stored and visible. */
@@ -1000,9 +1009,9 @@ SK_TEST(editor_console_window_ui_dock_chrome_and_filter) {
 	 * ui.dock plugin right after the sink registered — the console is bound
 	 * to the whole v2 logger. DEBUG is hidden by default, so the visible
 	 * count below stays exact. */
-	TEST_ASSERT_TRUE(ops->line_count(window) >= 6u);
-	/* Trace + Debug hidden by default → 4 rows. */
-	TEST_ASSERT_EQUAL_UINT(4u, ops->visible_count(window));
+	TEST_ASSERT_TRUE(ops->line_count(window) >= 10u);
+	/* 4 seed Info + info/warn/error/fatal. Trace + Debug hidden. */
+	TEST_ASSERT_EQUAL_UINT(8u, ops->visible_count(window));
 
 	/* Search: type into the Filter input, draw re-syncs the rows. */
 	filter = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "console-filter");
@@ -1018,7 +1027,7 @@ SK_TEST(editor_console_window_ui_dock_chrome_and_filter) {
 	TEST_ASSERT_EQUAL_INT(0, ui->text_input_set_text(ctx, filter, ""));
 	window->draw(window, &open);
 	TEST_ASSERT_EQUAL_INT(0, ops->is_level_visible(window, SK_LOGGER_TYPE_ERROR));
-	TEST_ASSERT_EQUAL_UINT(3u, ops->visible_count(window)); /* trace hidden, debug hidden, error hidden */
+	TEST_ASSERT_EQUAL_UINT(7u, ops->visible_count(window)); /* 4 seed + info/warn/fatal; error/trace/debug hidden */
 
 	/* Collapse off expands duplicate rows (render count, ring unchanged). */
 	{
@@ -1029,7 +1038,7 @@ SK_TEST(editor_console_window_ui_dock_chrome_and_filter) {
 	ops->add_message(app, boot.api, SK_LOGGER_TYPE_INFO, "console-ui", "dup");
 	ops->add_message(app, boot.api, SK_LOGGER_TYPE_INFO, "console-ui", "dup");
 	window->draw(window, &open);
-	TEST_ASSERT_EQUAL_UINT(5u, ops->visible_count(window)); /* 3 rows + 2 dup rows (info visible) */
+	TEST_ASSERT_EQUAL_UINT(9u, ops->visible_count(window)); /* 7 rows + 2 dup rows (info visible) */
 
 	/* Clear button path: ops->clear is the same call the button runs. */
 	ops->clear(app, boot.api);
