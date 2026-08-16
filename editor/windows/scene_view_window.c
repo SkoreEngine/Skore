@@ -13,7 +13,9 @@
  *    content-region-avail draw.
  *  - Toolbar chrome mirroring the C++ Draw() top bar: gizmo tool selection
  *    (select/translate/rotate/scale), world/local mode, snap toggle (right
- *    click opens the snap-size popup), grid toggle, scene-options "…",
+ *    click opens the snap-size popup), grid toggle, scene-options "Scn"
+ *    (APX-383: no ellipsis placeholder — every tool button carries a
+ *    readable label at 1280x720),
  *    Play / Stop simulation, 2D/3D view type, sound toggle (MOCK — v2 has
  *    no AudioEngine), camera options and viewport-options popups.
  *  - Options popups: camera (Field of View slider, Speed slider, Smooth
@@ -63,7 +65,9 @@
 #define SV_TOOLBAR_H 30.0f
 /* Floor width only; each button grows from its label (text + padding +
  * border via content measure), so longer labels like "Move"/"Grid"/"Opts"
- * never clip and short ones ("2D", "3D", "...") keep a clickable target. */
+ * never clip and short ones ("2D", "3D", "Scn") keep a clickable target.
+ * No tool button uses an ellipsis placeholder (APX-383): the scene-options
+ * button reads "Scn", not "...". */
 #define SV_BTN_MIN_W 30.0f
 #define SV_BTN_H 22.0f
 #define SV_BTN_GAP 2.0f
@@ -834,7 +838,7 @@ static void sv_build_ui(sv_state_t* state, const sk_ui_api_t* ui, sk_ui_context_
 	sv_style_button(ui, ctx, state->tool_snap);
 	state->tool_grid = ui->widget_button(ctx, state->toolbar, "Grid", "sv.tool.grid");
 	sv_style_button(ui, ctx, state->tool_grid);
-	state->btn_scene_opts = ui->widget_button(ctx, state->toolbar, "...", "sv.tool.scene_opts");
+	state->btn_scene_opts = ui->widget_button(ctx, state->toolbar, "Scn", "sv.tool.scene_opts");
 	sv_style_button(ui, ctx, state->btn_scene_opts);
 
 	spacer = ui->widget_view(ctx, state->toolbar, "sv.toolbar.spacer1");

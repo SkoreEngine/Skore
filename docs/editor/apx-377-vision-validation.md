@@ -10,8 +10,10 @@
 This is the goal's final visual gate: look at the v2 editor against the C++
 InitDockSpace layout and `docs/editor/migration-manifest.md`. APX-379 activates
 the lowest-order tab in each leaf; APX-380 sizes Scene Viewport toolbar buttons
-from their labels; APX-381 re-captures and re-judges after those land, and
-opens the on-demand Window-menu windows.
+from their labels; APX-383 replaces the scene-options "…" button between Grid
+and Play with a readable "Scn" label so no tool collapses to an ellipsis;
+APX-381 re-captures and re-judges after those land, and opens the on-demand
+Window-menu windows.
 
 ```bash
 cmake --build build --target sk-sandbox-shell
@@ -105,7 +107,10 @@ stay. Graph Editor body is empty — expected (out of scope §2.1 / §4,
 scaffold `Draw`).
 
 Scene Viewport tool labels no longer collide at 1280×720 (APX-380): the row
-reads `Sel Move Rot Scl Glo Snap Grid … Play Stop 2D 3D Vol Cam Opts`.
+reads `Sel Move Rot Scl Glo Snap Grid Scn Play Stop 2D 3D Vol Cam Opts`.
+APX-383 removes the last ellipsis placeholder: the scene-options button
+between Grid and Play reads `Scn` (matching the 3-letter abbreviations used
+by Scl / Glo / Vol / Cam), so no tool collapses to a `…` glyph.
 
 The Console toolbar (APX-382) keeps every severity checkbox label intact on one
 line (`Trace Debug Info Warn Error Fatal`) and Clear / Collapse / Auto-scroll on
