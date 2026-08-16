@@ -5,6 +5,12 @@ file(GLOB_RECURSE SKORE_EDITOR_SOURCES CONFIGURE_DEPENDS *.h *.c)
 set(SKORE_EDITOR_MAIN ${CMAKE_CURRENT_SOURCE_DIR}/main.c)
 list(FILTER SKORE_EDITOR_SOURCES EXCLUDE REGEX "main\\.c$")
 
+# smoke_tests.c is SK_TESTS-only (APX-376); excluded from the production
+# targets so their TUs stay non-empty outside test builds (-Wpedantic), and
+# added back to the test archive below.
+set(SKORE_EDITOR_SMOKE_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/smoke_tests.c)
+list(FILTER SKORE_EDITOR_SOURCES EXCLUDE REGEX "smoke_tests\\.c$")
+
 # Header-only plugin surfaces (runtime load via app registry). Same pattern as
 # player/: ui.h pulls render_device + dxc_compiler types.
 set(SKORE_EDITOR_PLUGIN_INCLUDES
@@ -30,7 +36,7 @@ if(APPLE)
 endif()
 
 if(BUILD_TESTING)
-    add_library(sk-editor-tests STATIC ${SKORE_EDITOR_SOURCES})
+    add_library(sk-editor-tests STATIC ${SKORE_EDITOR_SOURCES} ${SKORE_EDITOR_SMOKE_TESTS})
     target_include_directories(sk-editor-tests PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${SKORE_EDITOR_PLUGIN_INCLUDES}
