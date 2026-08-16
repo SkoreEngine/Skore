@@ -27,6 +27,7 @@
 #include "windows/console_window.h"
 #include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
+#include "windows/scene_view_window.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -236,6 +237,7 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 	sk_editor_project_browser_register(app, app_api);
 	sk_editor_console_register(app, app_api);
 	sk_editor_entity_tree_register(app, app_api);
+	sk_editor_scene_view_register(app, app_api);
 	sk_editor_windows_register_impls(app, app_api);
 
 	if (win_api->init() != 0) {

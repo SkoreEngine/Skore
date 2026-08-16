@@ -11,7 +11,11 @@
  * icon atlas bound as the host image (finfo.images). The Scene dockspace
  * also auto-opens the Entity Tree window (APX-370), which draws its mock
  * scene hierarchy (Demo Scene / Main Camera / Directional Light / Player /
- * Character Mesh rows). Same offscreen capture
+ * Character Mesh rows), and the Scene Viewport window (APX-372), which
+ * draws its toolbar chrome + a 512x288 placeholder viewport texture
+ * (checkerboard/gradient, generated on the CPU) letterboxed into the dock
+ * content — the placeholder view rides the same host images array at slot
+ * SK_EDITOR_SCENE_VIEW_TEX_SLOT. Same offscreen capture
  * recipe as the dock preview (docs/widget-lavapipe-png-review.md).
  *
  * Note: an OPEN menu popup is painted in tree order (sk-ui painter's
@@ -40,6 +44,7 @@
 #include "windows/console_window.h"
 #include "windows/entity_tree_window.h"
 #include "windows/project_browser_window.h"
+#include "windows/scene_view_window.h"
 
 #include "skore_test_font_ttf.h"
 
@@ -64,6 +69,11 @@ typedef struct shell_sandbox_t {
 	sk_ui_font_t* font;
 	sk_ui_capture_t* capture;
 	sk_editor_icons_t* icons;
+	/* APX-372: Scene View placeholder texture + combined host image array
+	 * (zero slot + icon atlas + placeholder view at TEX_SLOT). */
+	sk_editor_scene_view_tex_registry_t* sv_tex;
+	sk_texture_view_t images[SK_EDITOR_ICON_COUNT + 2u];
+	u32 image_count;
 } shell_sandbox_t;
 
 static const_chr_t sandbox_arg_value(int argc, char* argv[], const_chr_t flag) {
@@ -137,6 +147,42 @@ static i32 sandbox_drive_shell(shell_sandbox_t* s) {
 		}
 		if (et_ops->entity_count(tree_window) < 5u || strcmp(et_ops->entity_name_at(tree_window, 0u), "Demo Scene") != 0) {
 			fprintf(stderr, "sk-sandbox: Entity Tree mock scene missing\n");
+			return -1;
+		}
+	}
+
+	/* APX-372: the Scene Viewport window is open, its toolbar chrome exists
+	 * and its placeholder image node is laid out inside the dock content
+	 * (aspect-handled: image ratio matches the 512x288 placeholder). */
+	{
+		sk_editor_window_t* sv_window = sk_editor_window_by_type(s->app, s->app_api, SK_EDITOR_WINDOW_SCENE_VIEW);
+		const sk_editor_scene_view_ops_t* sv_ops = sk_editor_scene_view_ops(s->app, s->app_api);
+		sk_ui_node_t image = SK_UI_NODE_INVALID;
+		sk_ui_node_t tool = SK_UI_NODE_INVALID;
+		sk_ui_style_props_t style;
+		f32 iw = 0.0f;
+		f32 ih = 0.0f;
+		f32 ratio = 0.0f;
+		if (sv_window == NULL || sv_ops == NULL) {
+			fprintf(stderr, "sk-sandbox: Scene Viewport window not open\n");
+			return -1;
+		}
+		image = s->ui->find_by_id(s->ctx, "sv.viewport.image");
+		tool = s->ui->find_by_id(s->ctx, "sv.tool.rot");
+		if (!sk_ui_node_is_valid(image) || !sk_ui_node_is_valid(tool)) {
+			fprintf(stderr, "sk-sandbox: Scene Viewport chrome missing\n");
+			return -1;
+		}
+		memset(&style, 0, sizeof(style));
+		if (s->ui->node_get_inline_style(s->ctx, image, &style) == 0) {
+			iw = style.layout.width.value;
+			ih = style.layout.height.value;
+		}
+		if (iw > 1.0f && ih > 1.0f) {
+			ratio = iw / ih;
+		}
+		if (ratio < 1.5f || ratio > 1.9f) {
+			fprintf(stderr, "sk-sandbox: Scene Viewport image ratio %.3f not 16:9\n", (double)ratio);
 			return -1;
 		}
 	}
@@ -243,8 +289,13 @@ static i32 sandbox_paint_and_capture(shell_sandbox_t* s, const_chr_t png_path) {
 	finfo.font_system = s->fonts;
 	finfo.font = s->font;
 	/* APX-367: bind the icon atlas as the host image so IMAGE draw commands
-	 * (icon tiles) sample real pixels instead of the white fallback. */
-	if (s->icons != NULL) {
+	 * (icon tiles) sample real pixels instead of the white fallback.
+	 * APX-372: the Scene View placeholder texture shares the array at slot
+	 * SK_EDITOR_SCENE_VIEW_TEX_SLOT (built in sandbox_init). */
+	if (s->image_count > 0u) {
+		finfo.images.views = s->images;
+		finfo.images.count = s->image_count;
+	} else if (s->icons != NULL) {
 		u32 view_count = 0u;
 		finfo.images.views = sk_editor_icons_views(s->icons, &view_count);
 		finfo.images.count = view_count;
@@ -264,7 +315,12 @@ static i32 sandbox_paint_and_capture(shell_sandbox_t* s, const_chr_t png_path) {
 
 static void sandbox_shutdown(shell_sandbox_t* s) {
 	/* The shell owns the ui context + ui->init/shutdown; release everything
-	 * that depends on the live ui (capture/fonts/icons) before destroying it. */
+	 * that depends on the live ui (capture/fonts/icons/texture) before
+	 * destroying it. */
+	if (s->sv_tex != NULL) {
+		sk_editor_scene_view_texture_destroy(s->sv_tex);
+		s->sv_tex = NULL;
+	}
 	if (s->icons != NULL) {
 		sk_editor_icons_destroy(s->icons);
 		s->icons = NULL;
@@ -343,13 +399,14 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	/* Editor boot + shell (the shell owns its ui context; ui->init runs here). */
 	sk_editor_bind_tables(s->app, s->app_api);
 	sk_editor_workspace_register_impls(s->app, s->app_api);
-	/* Project Browser + Console + Entity Tree first so their real impls win
-	 * window_open (pattern doc); the scaffolds follow. The Scene dockspace
-	 * auto-opens the Entity Tree (Scene-only mask), which draws its mock
-	 * scene tree in the captured frame. */
+	/* Project Browser + Console + Entity Tree + Scene View first so their
+	 * real impls win window_open (pattern doc); the scaffolds follow. The
+	 * Scene dockspace auto-opens the Entity Tree + Scene Viewport (Scene-only
+	 * mask); the Scene Viewport draws its placeholder texture in the frame. */
 	sk_editor_project_browser_register(s->app, s->app_api);
 	sk_editor_console_register(s->app, s->app_api);
 	sk_editor_entity_tree_register(s->app, s->app_api);
+	sk_editor_scene_view_register(s->app, s->app_api);
 	sk_editor_windows_register_impls(s->app, s->app_api);
 	s->shell = sk_editor_shell_create(s->app, s->app_api, ui);
 	if (s->shell == NULL) {
@@ -365,6 +422,36 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	if (sandbox_build_icon_strip(s) != 0) {
 		fprintf(stderr, "sk-sandbox: icon strip build failed\n");
 		return -1;
+	}
+
+	/* APX-372: create the Scene View placeholder texture and build the
+	 * combined host image array the UI renderer samples: slot 0 stays zero
+	 * ("no texture"), slots 1..5 are the icon atlas, slot 6 is the
+	 * placeholder view (SK_EDITOR_SCENE_VIEW_TEX_SLOT). The Scene Viewport
+	 * window resolves the registry and draws its viewport texture. */
+	{
+		const sk_texture_view_t* icon_views = NULL;
+		const sk_texture_view_t* sv_view = NULL;
+		u32 icon_count = 0u;
+		u32 i;
+		s->sv_tex = sk_editor_scene_view_texture_create(s->app, s->app_api, s->rd, s->device);
+		if (s->sv_tex == NULL) {
+			fprintf(stderr, "sk-sandbox: scene view texture create failed\n");
+			return -1;
+		}
+		sk_editor_scene_view_texture_register(s->app, s->app_api, s->sv_tex);
+		if (s->icons != NULL) {
+			icon_views = sk_editor_icons_views(s->icons, &icon_count);
+		}
+		sv_view = sk_editor_scene_view_texture_view(s->sv_tex);
+		memset(s->images, 0, sizeof(s->images));
+		s->image_count = 0u;
+		for (i = 0u; i < icon_count && i < SK_EDITOR_ICON_COUNT + 1u; ++i) {
+			s->images[s->image_count++] = icon_views[i];
+		}
+		if (sv_view != NULL && s->image_count < (u32)(sizeof(s->images) / sizeof(s->images[0]))) {
+			s->images[s->image_count++] = *sv_view;
+		}
 	}
 
 	memset(&cdesc, 0, sizeof(cdesc));

@@ -118,6 +118,11 @@ typedef struct sk_editor_notify_reparent_payload_t {
 	sk_rid_t new_parent;
 } sk_editor_notify_reparent_payload_t;
 
+typedef struct sk_editor_notify_viewport_payload_t {
+	u32 workspace_id;
+	const sk_editor_viewport_state_t* state;
+} sk_editor_notify_viewport_payload_t;
+
 static void visit_entity_selection(const void* observer, void* payload) {
 	const sk_editor_on_entity_selection_t* o = (const sk_editor_on_entity_selection_t*)observer;
 	const sk_editor_notify_rid_payload_t* p = (const sk_editor_notify_rid_payload_t*)payload;
@@ -230,6 +235,14 @@ static void visit_entity_reparented(const void* observer, void* payload) {
 	}
 }
 
+static void visit_viewport_state(const void* observer, void* payload) {
+	const sk_editor_on_viewport_state_t* o = (const sk_editor_on_viewport_state_t*)observer;
+	const sk_editor_notify_viewport_payload_t* p = (const sk_editor_notify_viewport_payload_t*)payload;
+	if (o->on_viewport_state != NULL) {
+		o->on_viewport_state(o->user, p->workspace_id, p->state);
+	}
+}
+
 void sk_editor_notify_selection_changed(sk_app_context_t* app_context, const sk_app_api_t* app_api) {
 	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_SELECTION_CHANGED, visit_selection_changed, NULL);
 }
@@ -331,6 +344,13 @@ void sk_editor_notify_entity_reparented(sk_app_context_t* app_context, const sk_
 	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, visit_entity_reparented, &payload);
 }
 
+void sk_editor_notify_viewport_state(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, const sk_editor_viewport_state_t* state) {
+	sk_editor_notify_viewport_payload_t payload;
+	payload.workspace_id = workspace_id;
+	payload.state = state;
+	notify_emit(app_context, app_api, SK_EDITOR_NOTIFY_VIEWPORT_STATE, visit_viewport_state, &payload);
+}
+
 #ifdef SK_TESTS
 
 #include "test.h"
@@ -348,6 +368,8 @@ typedef struct en_trace_t {
 	u64 rids[EN_TRACE_CAP];
 	void* entities[EN_TRACE_CAP];
 	const_chr_t names[EN_TRACE_CAP];
+	f32 viewport_fov;
+	u32 viewport_ops;
 	i32 remove_self_tag;
 	sk_editor_on_selection_changed_t* remove_self;
 	sk_editor_on_selection_changed_t* add_during;
@@ -429,6 +451,13 @@ static void en_on_reparented(void* user, u32 workspace_id, sk_rid_t rid, sk_rid_
 	en_trace_t* t = (en_trace_t*)user;
 	en_trace_push(t, 63, workspace_id, rid, NULL, NULL);
 	(void)new_parent;
+}
+
+static void en_on_viewport_state(void* user, u32 workspace_id, const sk_editor_viewport_state_t* state) {
+	en_trace_t* t = (en_trace_t*)user;
+	en_trace_push(t, 70, workspace_id, SK_RID_ZERO, NULL, NULL);
+	t->viewport_fov = state != NULL ? state->camera_fov : 0.0f;
+	t->viewport_ops = state != NULL ? (u32)state->gizmo_operation : 0u;
 }
 
 SK_TEST(editor_notify_empty_emit_is_noop) {
@@ -542,6 +571,8 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	sk_editor_on_entity_renamed_t renamed;
 	sk_editor_on_entity_deleted_t deleted;
 	sk_editor_on_entity_reparented_t reparented;
+	sk_editor_on_viewport_state_t viewport;
+	sk_editor_viewport_state_t vstate;
 	sk_rid_t rid;
 	i32 entity_obj = 7;
 
@@ -556,6 +587,7 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	memset(&created, 0, sizeof(created));
 	memset(&renamed, 0, sizeof(renamed));
 	memset(&deleted, 0, sizeof(deleted));
+	memset(&viewport, 0, sizeof(viewport));
 	rid.id = 42ull;
 
 	asset.user = &trace;
@@ -578,6 +610,14 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	deleted.on_entity_deleted = en_on_deleted;
 	reparented.user = &trace;
 	reparented.on_entity_reparented = en_on_reparented;
+	viewport.user = &trace;
+	viewport.on_viewport_state = en_on_viewport_state;
+
+	memset(&vstate, 0, sizeof(vstate));
+	vstate.gizmo_operation = 2u;
+	vstate.camera_fov = 75.0f;
+	vstate.view_type = 1;
+	vstate.draw_grid = 0;
 
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ASSET_SELECTION, &asset);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_SELECTION, &entity);
@@ -589,6 +629,7 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_RENAMED, &renamed);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_DELETED, &deleted);
 	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, &reparented);
+	boot.api->add_impl(boot.context, SK_EDITOR_NOTIFY_VIEWPORT_STATE, &viewport);
 
 	sk_editor_notify_asset_selection(boot.context, boot.api, 1u, rid);
 	sk_editor_notify_entity_selection(boot.context, boot.api, 1u, rid);
@@ -600,8 +641,9 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	sk_editor_notify_entity_renamed(boot.context, boot.api, 1u, rid, "Hero");
 	sk_editor_notify_entity_deleted(boot.context, boot.api, 1u, rid);
 	sk_editor_notify_entity_reparented(boot.context, boot.api, 1u, rid, rid);
+	sk_editor_notify_viewport_state(boot.context, boot.api, 3u, &vstate);
 
-	TEST_ASSERT_EQUAL_UINT(10u, trace.count);
+	TEST_ASSERT_EQUAL_UINT(11u, trace.count);
 	TEST_ASSERT_EQUAL_INT(10, trace.tags[0]);
 	TEST_ASSERT_EQUAL_UINT(1u, trace.workspaces[0]);
 	TEST_ASSERT_EQUAL_UINT64(42ull, trace.rids[0]);
@@ -614,6 +656,10 @@ SK_TEST(editor_notify_payloads_match_cpp_events) {
 	TEST_ASSERT_EQUAL_STRING("Hero", trace.names[7]);
 	TEST_ASSERT_EQUAL_INT(62, trace.tags[8]);
 	TEST_ASSERT_EQUAL_INT(63, trace.tags[9]);
+	TEST_ASSERT_EQUAL_INT(70, trace.tags[10]);
+	TEST_ASSERT_EQUAL_UINT(3u, trace.workspaces[10]);
+	TEST_ASSERT_EQUAL_FLOAT(75.0f, trace.viewport_fov);
+	TEST_ASSERT_EQUAL_UINT(2u, trace.viewport_ops);
 
 	sk_app_shutdown(boot.context);
 }

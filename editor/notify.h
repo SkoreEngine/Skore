@@ -50,6 +50,7 @@ extern "C" {
 #define SK_EDITOR_NOTIFY_ENTITY_RENAMED SK_TYPE_ID("sk.editor.notify.entity_renamed", 0x03fb4241837f24bdULL, 0x335e4d164ccf399eULL)
 #define SK_EDITOR_NOTIFY_ENTITY_DELETED SK_TYPE_ID("sk.editor.notify.entity_deleted", 0xf1999c1224eb0824ULL, 0xb16416faf4a3fe89ULL)
 #define SK_EDITOR_NOTIFY_ENTITY_REPARENTED SK_TYPE_ID("sk.editor.notify.entity_reparented", 0xb859cd0bcf2438dcULL, 0x4b366071d5906608ULL)
+#define SK_EDITOR_NOTIFY_VIEWPORT_STATE SK_TYPE_ID("sk.editor.notify.viewport_state", 0x5e4a2f8d17b0c63aULL, 0xa3d9e04b72c1f85eULL)
 
 /** C++ OnSelectionChanged — void(). */
 typedef struct sk_editor_on_selection_changed_t {
@@ -171,6 +172,44 @@ typedef struct sk_editor_on_entity_reparented_t {
 	void (*on_entity_reparented)(void* user, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent);
 } sk_editor_on_entity_reparented_t;
 
+/**
+ * SceneViewWindow viewport state (manifest §3.9 EditorSerialize surface).
+ * Snapshot published whenever a toolbar / options change mutates it, so
+ * other windows can react to view/gizmo preference changes without an event
+ * bus (APX-365). Values mirror the C++ fields: gizmoOperation (0 select,
+ * 1 translate, 2 rotate, 3 scale), guizmoMode (0 world, 1 local),
+ * viewType (0 3D, 1 2D), cameraFov, and the render-debug toggles.
+ */
+typedef struct sk_editor_viewport_state_t {
+	u32 gizmo_operation;
+	u8 _pad0[4];
+	i32 gizmo_mode;
+	i32 gizmo_snap_enabled;
+	f32 snap[3];
+	i32 view_type;
+	i32 draw_icons;
+	f32 camera_fov;
+	i32 draw_grid;
+	i32 draw_selection_outline;
+	i32 draw_debug_physics;
+	i32 show_all_physics_shapes;
+	i32 lock_camera_frustum;
+	i32 draw_mesh_aabb;
+	i32 draw_nav_mesh;
+	i32 draw_component_gizmos;
+	/** C++ windowStartedSimulation (mock: session-only, no live simulation). */
+	i32 simulating;
+	i32 interaction_disabled;
+} sk_editor_viewport_state_t;
+
+/** C++ SceneViewWindow viewport state change (void(u32 workspaceId, const state&)). */
+typedef struct sk_editor_on_viewport_state_t {
+	i32 order;
+	u8 _pad0[4];
+	void* user;
+	void (*on_viewport_state)(void* user, u32 workspace_id, const sk_editor_viewport_state_t* state);
+} sk_editor_on_viewport_state_t;
+
 void sk_editor_notify_selection_changed(sk_app_context_t* app_context, const sk_app_api_t* app_api);
 void sk_editor_notify_entity_selection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_deselection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
@@ -186,6 +225,7 @@ void sk_editor_notify_entity_created(sk_app_context_t* app_context, const sk_app
 void sk_editor_notify_entity_renamed(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, const_chr_t name);
 void sk_editor_notify_entity_deleted(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_reparented(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent);
+void sk_editor_notify_viewport_state(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, const sk_editor_viewport_state_t* state);
 
 #ifdef __cplusplus
 }

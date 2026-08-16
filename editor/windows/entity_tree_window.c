@@ -44,8 +44,9 @@
  *  - "Show Scene Entity" (debug toggle): v2 has no live scene/entity runtime
  *    hierarchy, so the toggle only flips the session flag (the tree stays on
  *    the RID path).
- *  - Double-click "frame in SceneView" is not ported (SceneViewWindow is not
- *    migrated; manifest §3.9).
+ *  - Double-click "frame in SceneView" is not ported (SceneViewWindow's
+ *    ops table exposes view_entity now, but the tree has no double-click
+ *    handler yet; manifest §3.9).
  *
  * Public entry points follow the APX-365 pattern (window-table-pattern.md):
  * the window publishes one process-lifetime `sk_editor_entity_tree_ops_t`

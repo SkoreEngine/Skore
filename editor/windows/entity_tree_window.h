@@ -31,8 +31,9 @@
  *  - Create Entity From Asset: the C++ opens a resource-selection popup; v2
  *    has no scene-asset picker yet, so the action records a test-visible
  *    flag on the window state instead of creating.
- *  - Double-click "frame in SceneView" (SceneViewWindow::ViewEntity) records
- *    the viewed entity RID on window state; SceneView is not migrated.
+ *  - Double-click "frame in SceneView" (SceneViewWindow::ViewEntity)
+ *    records the viewed entity RID on window state; SceneView is migrated
+ *    (APX-372) but the tree has no double-click handler yet.
  *  - Show Resource Inspector records the inspected RID; ResourceDebuggerWindow
  *    is not migrated.
  *  - Prototype-override items (Revert Instance Overrides / Add Back This
