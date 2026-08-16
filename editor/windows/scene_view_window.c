@@ -61,7 +61,10 @@
 #define SK_EDITOR_SCENE_VIEW_STATE_TYPE_ID SK_TYPE_ID("sk.editor.scene_view.state", 0x3d6a91c2e84bf057ULL, 0x7e0c25b9d4a8f163ULL)
 
 #define SV_TOOLBAR_H 30.0f
-#define SV_BTN_W 30.0f
+/* Floor width only; each button grows from its label (text + padding +
+ * border via content measure), so longer labels like "Move"/"Grid"/"Opts"
+ * never clip and short ones ("2D", "3D", "...") keep a clickable target. */
+#define SV_BTN_MIN_W 30.0f
 #define SV_BTN_H 22.0f
 #define SV_BTN_GAP 2.0f
 #define SV_MENU_CAP 32u
@@ -487,8 +490,13 @@ sk_editor_scene_view_tex_t sk_editor_scene_view_texture_get(const sk_editor_scen
 static void sv_style_button(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
 	sk_ui_style_props_t p;
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_SHRINK;
-	p.layout.width = sk_ui_pt(SV_BTN_W);
+	/* No fixed width: the flex solver measures the label (text + padding +
+	 * border) and sizes each button to fit it (min_width keeps a floor for
+	 * the short 2/3-char labels). flex_shrink 0 keeps the measured size
+	 * even when the row is narrower than the sum of its buttons, so glyphs
+	 * never compress over each other. */
+	p.mask = SK_UI_SP_MIN_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_SHRINK;
+	p.layout.min_width = sk_ui_pt(SV_BTN_MIN_W);
 	p.layout.height = sk_ui_pt(SV_BTN_H);
 	p.layout.flex_shrink = 0.0f;
 	(void)ui->node_merge_inline_style(ctx, node, &p);
@@ -1825,6 +1833,54 @@ static void sv_test_click(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_nod
 	(void)ui->input_dispatch(ctx, &ev);
 }
 
+/* Toolbar layout invariant (APX-380): every tool button rect is inside the
+ * window chrome (and the toolbar row), no two buttons overlap horizontally,
+ * and each button carries a label-sized width — at least the SV_BTN_MIN_W
+ * floor, with the longer labels ("Opts") strictly wider than the shortest
+ * ("2D"). @p tol is the layout round-off tolerance in logical px. */
+static void sv_test_assert_toolbar_fits(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t chrome, f32 tol) {
+	enum { SV_TB_COUNT = 15u }; /* matches items[] below; compile-time so cppcheck proves every rects[] element is written */
+	typedef struct sv_tb_item_t {
+		const_chr_t id;
+	} sv_tb_item_t;
+	static const sv_tb_item_t items[SV_TB_COUNT] = {
+		{"sv.tool.sel"},  {"sv.tool.move"}, {"sv.tool.rot"}, {"sv.tool.scl"}, {"sv.tool.mode"}, {"sv.tool.snap"}, {"sv.tool.grid"}, {"sv.tool.scene_opts"},
+		{"sv.tool.play"}, {"sv.tool.stop"}, {"sv.tool.2d"},	 {"sv.tool.3d"},  {"sv.tool.vol"},	{"sv.tool.cam"},  {"sv.tool.opts"},
+	};
+	sk_ui_rect_t window;
+	sk_ui_rect_t toolbar;
+	sk_ui_rect_t rects[SV_TB_COUNT];
+	u32 i;
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, chrome, &window, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "sv.toolbar"), &toolbar, NULL));
+	for (i = 0u; i < SV_TB_COUNT; ++i) {
+		sk_ui_node_t node = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, items[i].id);
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(node));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, node, &rects[i], NULL));
+	}
+	for (i = 0u; i < SV_TB_COUNT; ++i) {
+		/* Inside the toolbar row and therefore inside the window chrome. */
+		TEST_ASSERT_TRUE(rects[i].x >= toolbar.x - tol);
+		TEST_ASSERT_TRUE(rects[i].x + rects[i].width <= toolbar.x + toolbar.width + tol);
+		TEST_ASSERT_TRUE(rects[i].y >= toolbar.y - tol);
+		TEST_ASSERT_TRUE(rects[i].y + rects[i].height <= toolbar.y + toolbar.height + tol);
+		TEST_ASSERT_TRUE(rects[i].x >= window.x - tol);
+		TEST_ASSERT_TRUE(rects[i].x + rects[i].width <= window.x + window.width + tol);
+		/* Label-driven sizing: every button clears the fixed-width floor. */
+		TEST_ASSERT_TRUE(rects[i].width >= SV_BTN_MIN_W - tol);
+	}
+	/* No horizontal overlap: the row order matches DOM order and Clay leaves
+	 * at least the SV_BTN_GAP between buttons (flex_shrink 0 keeps the
+	 * measured label widths even when the row is tight). */
+	for (i = 1u; i < SV_TB_COUNT; ++i) {
+		TEST_ASSERT_TRUE(rects[i].x >= rects[i - 1u].x + rects[i - 1u].width - tol);
+	}
+	/* Longer labels grow beyond the floor: "Opts" (4 glyphs) is wider than
+	 * "2D" (2 glyphs) — the buttons are label-sized, not fixed-width. */
+	TEST_ASSERT_TRUE(rects[SV_TB_COUNT - 1u].width > rects[10].width);
+}
+
 /* Shell path: the Scene workspace docks the Scene Viewport window; its
  * toolbar chrome exists, toolbar clicks mutate the viewport state through
  * the observer, and the placeholder image letterboxes to the content area
@@ -1992,6 +2048,29 @@ SK_TEST(editor_scene_view_chrome_and_aspect) {
 	TEST_ASSERT_TRUE(w > 200.0f);
 	TEST_ASSERT_TRUE(h > 100.0f);
 	TEST_ASSERT_TRUE(aspect > 1.0f);
+
+	/* APX-380: the tool row must fit the default 1280x720 viewport and a
+	 * narrower window without overlapping or clipping — buttons are sized
+	 * from their labels (min floor only), so every rect stays inside the
+	 * window and no two rects intersect. */
+	{
+		static const f32 sizes[][2] = {{1280.0f, 720.0f}, {800.0f, 600.0f}};
+		u32 si;
+		for (si = 0u; si < 2u; ++si) {
+			f32 win_w = sizes[si][0];
+			f32 win_h = sizes[si][1];
+			/* Chrome fills the window minus the test margins (10px). */
+			memset(&p, 0, sizeof(p));
+			p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+			p.layout.width = sk_ui_pt(win_w - 20.0f);
+			p.layout.height = sk_ui_pt(win_h - 20.0f);
+			(void)ui->node_merge_inline_style(ctx, chrome, &p);
+			window->draw(window, &open);
+			TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+			TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, win_w, win_h));
+			sv_test_assert_toolbar_fits(ui, ctx, chrome, 0.5f);
+		}
+	}
 
 	boot.api->remove_impl(app, SK_EDITOR_NOTIFY_VIEWPORT_STATE, &observer);
 	ui->context_destroy(ctx);

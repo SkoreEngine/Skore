@@ -212,8 +212,8 @@ static void editor_gpu_log_warn(sk_editor_gpu_t* g, const_chr_t msg) {
 	}
 }
 
-sk_editor_gpu_t* sk_editor_gpu_create(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_ui_api_t* ui, const sk_platform_window_api_t* win_api,
-									  sk_window_t window, const sk_logger_api_t* logger_api, sk_logger_t* log) {
+sk_editor_gpu_t* sk_editor_gpu_create(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_ui_api_t* ui, const sk_platform_window_api_t* win_api, sk_window_t window,
+									  const sk_logger_api_t* logger_api, sk_logger_t* log) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	sk_editor_gpu_t* g;
 	sk_extent_t fb;

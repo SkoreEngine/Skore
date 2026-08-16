@@ -31,8 +31,8 @@ typedef struct sk_editor_gpu_t sk_editor_gpu_t;
  * @param log        Optional logger instance.
  * @return GPU state, or NULL if the device / swapchain / renderer failed.
  */
-sk_editor_gpu_t* sk_editor_gpu_create(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_ui_api_t* ui, const sk_platform_window_api_t* win_api,
-									  sk_window_t window, const sk_logger_api_t* logger_api, sk_logger_t* log);
+sk_editor_gpu_t* sk_editor_gpu_create(sk_app_context_t* app, const sk_app_api_t* app_api, const sk_ui_api_t* ui, const sk_platform_window_api_t* win_api, sk_window_t window,
+									  const sk_logger_api_t* logger_api, sk_logger_t* log);
 
 /** Destroy GPU resources. Safe on NULL. */
 void sk_editor_gpu_destroy(sk_editor_gpu_t* gpu);
