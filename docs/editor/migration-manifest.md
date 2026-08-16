@@ -429,7 +429,9 @@ The v2 shell that hosts every migrated window lives in
 - **Workspace switcher**: tabs for open workspaces + "+" popup of the
   registered workspace types.
 - Render check: `sandbox/editor_shell_sandbox.c` (`sk-sandbox-shell`) writes
-  `editor_shell.png`.
+  the Scene frame plus Graph / Scene-restored siblings (APX-377). `--out-dir`
+  emits `01_scene_workspace.png` / `02_graph_workspace.png` /
+  `03_scene_restored.png`. Default `--out` is still `./editor_shell.png`.
 - Known plugin limitation: an open menu popup is painted in sk-ui tree order
   (painter's algorithm), so it renders under the later toolbar/dock siblings;
   input still routes through Clay's floating z-index (menu clicks work and are
@@ -463,4 +465,5 @@ The C++ editor's bitmap icon set is now available to v2 windows:
   asset shows the generic file icon, never a thumbnail texture.
 - Render check: `sk-sandbox-shell` pins an icon sample strip (all five ids)
   plus the Project Browser content grid under the frame and captures them
-  with the atlas bound (`editor_shell.png`).
+  with the atlas bound. APX-377 vision frames live in
+  `docs/editor/apx-377-frames/` (see `docs/editor/apx-377-vision-validation.md`).

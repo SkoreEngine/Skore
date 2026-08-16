@@ -26,8 +26,17 @@
  * until the plugin sorts floating nodes last. The capture therefore shows
  * the closed menu bar (see editor_shell.h).
  *
+ * APX-377 also captures a Graph workspace frame and the Scene workspace
+ * again after switching back, so workspace restore can be checked visually
+ * against the first frame. Sibling names are derived from --out:
+ *   editor_shell.png
+ *   editor_shell_graph.png
+ *   editor_shell_scene_restored.png
+ * or, with --out-dir <dir>, the three numbered files
+ *   01_scene_workspace.png / 02_graph_workspace.png / 03_scene_restored.png
+ *
  * Usage:
- *   sk-sandbox-shell [--out <path>]
+ *   sk-sandbox-shell [--out <path>] [--out-dir <dir>]
  *   (default out: ./editor_shell.png)
  *
  * Not a test; not registered with CTest.
@@ -62,6 +71,7 @@
 #define SANDBOX_W 1280u
 #define SANDBOX_H 720u
 #define SANDBOX_DEFAULT_PNG "editor_shell.png"
+#define SANDBOX_FRAME_PASSES 3u
 
 typedef struct shell_sandbox_t {
 	const sk_app_api_t* app_api;
@@ -96,11 +106,15 @@ static const_chr_t sandbox_arg_value(int argc, char* argv[], const_chr_t flag) {
 
 static void sandbox_usage(const_chr_t prog) {
 	fprintf(stderr,
-			"usage: %s [--out <path>]\n"
-			"  renders the v2 editor shell frame (menu bar, toolbar,\n"
-			"  workspace switcher, Scene dockspace) to a PNG\n"
-			"  --out    PNG file (default: ./%s)\n"
-			"  --help   this message\n",
+			"usage: %s [--out <path>] [--out-dir <dir>]\n"
+			"  renders the v2 editor shell (menu bar, toolbar, workspace\n"
+			"  switcher, docked windows) to PNGs: Scene, Graph after a\n"
+			"  workspace switch, then Scene again after restore\n"
+			"  --out      Scene PNG (default: ./%s); Graph / restore\n"
+			"             siblings get _graph / _scene_restored suffixes\n"
+			"  --out-dir  write 01_scene_workspace.png,\n"
+			"             02_graph_workspace.png, 03_scene_restored.png\n"
+			"  --help     this message\n",
 			prog != NULL ? prog : "sk-sandbox-shell", SANDBOX_DEFAULT_PNG);
 }
 
@@ -120,14 +134,21 @@ static sk_adapter_t sandbox_select_adapter(const sk_render_device_api_t* api, sk
 	return best;
 }
 
-static i32 sandbox_drive_shell(shell_sandbox_t* s) {
-	sk_ui_node_t window_menu;
+static i32 sandbox_frame_passes(shell_sandbox_t* s, const_chr_t label) {
 	u32 i;
-	for (i = 0u; i < 3u; ++i) {
+	for (i = 0u; i < SANDBOX_FRAME_PASSES; ++i) {
 		if (sk_editor_shell_frame(s->shell, (f32)SANDBOX_W, (f32)SANDBOX_H, 1.0f, 1.0f) != 0) {
-			fprintf(stderr, "sk-sandbox: shell frame %u failed\n", i);
+			fprintf(stderr, "sk-sandbox: %s frame %u failed\n", label != NULL ? label : "shell", i);
 			return -1;
 		}
+	}
+	return 0;
+}
+
+static i32 sandbox_drive_shell(shell_sandbox_t* s) {
+	sk_ui_node_t window_menu;
+	if (sandbox_frame_passes(s, "scene") != 0) {
+		return -1;
 	}
 	window_menu = sk_editor_shell_find_menu(s->shell, "shell.menu.window");
 	if (!sk_ui_node_is_valid(window_menu)) {
@@ -193,6 +214,69 @@ static i32 sandbox_drive_shell(shell_sandbox_t* s) {
 			fprintf(stderr, "sk-sandbox: Scene Viewport image ratio %.3f not 16:9\n", (double)ratio);
 			return -1;
 		}
+	}
+	return 0;
+}
+
+/* APX-377: switch Scene → Graph and confirm the Graph Editor docked. */
+static i32 sandbox_drive_graph_workspace(shell_sandbox_t* s) {
+	sk_editor_workspace_t* ws;
+	sk_editor_window_t* graph;
+	sk_ui_context_t* dock_ctx;
+
+	ws = sk_editor_shell_switch_workspace(s->shell, SK_EDITOR_WORKSPACE_GRAPH);
+	if (ws == NULL) {
+		fprintf(stderr, "sk-sandbox: switch to Graph workspace failed\n");
+		return -1;
+	}
+	if (sandbox_frame_passes(s, "graph") != 0) {
+		return -1;
+	}
+	if (sk_editor_workspace_active(s->app, s->app_api) != ws) {
+		fprintf(stderr, "sk-sandbox: Graph workspace is not active\n");
+		return -1;
+	}
+	graph = sk_editor_window_by_type(s->app, s->app_api, SK_EDITOR_WINDOW_GRAPH_EDITOR);
+	if (graph == NULL) {
+		fprintf(stderr, "sk-sandbox: Graph Editor window not open after switch\n");
+		return -1;
+	}
+	dock_ctx = sk_editor_workspace_dock_context(ws);
+	if (dock_ctx == NULL || s->ui->dock_window_is_docked(dock_ctx, "sk.editor_window.graph_editor") == 0) {
+		fprintf(stderr, "sk-sandbox: Graph Editor is not docked\n");
+		return -1;
+	}
+	return 0;
+}
+
+/* APX-377: switch Graph → Scene and confirm the captured Scene layout
+ * (Scene Viewport + Entity Tree) is restored. */
+static i32 sandbox_drive_scene_restore(shell_sandbox_t* s) {
+	sk_editor_workspace_t* ws;
+	sk_ui_context_t* dock_ctx;
+	sk_ui_node_t image;
+
+	ws = sk_editor_shell_switch_workspace(s->shell, SK_EDITOR_WORKSPACE_SCENE);
+	if (ws == NULL) {
+		fprintf(stderr, "sk-sandbox: switch back to Scene workspace failed\n");
+		return -1;
+	}
+	if (sandbox_frame_passes(s, "scene-restore") != 0) {
+		return -1;
+	}
+	dock_ctx = sk_editor_workspace_dock_context(ws);
+	if (dock_ctx == NULL || s->ui->dock_window_is_docked(dock_ctx, "sk.editor_window.scene_view") == 0) {
+		fprintf(stderr, "sk-sandbox: Scene Viewport not docked after restore\n");
+		return -1;
+	}
+	if (s->ui->dock_window_is_docked(dock_ctx, "sk.editor_window.entity_tree") == 0) {
+		fprintf(stderr, "sk-sandbox: Entity Tree not docked after restore\n");
+		return -1;
+	}
+	image = s->ui->find_by_id(s->ctx, "sv.viewport.image");
+	if (!sk_ui_node_is_valid(image)) {
+		fprintf(stderr, "sk-sandbox: Scene Viewport image missing after restore\n");
+		return -1;
 	}
 	return 0;
 }
@@ -510,6 +594,36 @@ static i32 sandbox_path_is_absolute(const_chr_t path) {
 	return 0;
 }
 
+static i32 sandbox_sibling_png(const_chr_t base, const_chr_t stem_suffix, char* out, u32 out_cap) {
+	u32 n = 0u;
+	u32 last_slash = 0u;
+	u32 last_dot = 0u;
+	u32 has_dot = 0u;
+	if (base == NULL || stem_suffix == NULL || out == NULL || out_cap == 0u) {
+		return -1;
+	}
+	while (base[n] != '\0') {
+		if (base[n] == '/' || base[n] == '\\') {
+			last_slash = n;
+			has_dot = 0u;
+		} else if (base[n] == '.') {
+			last_dot = n;
+			has_dot = 1u;
+		}
+		n++;
+	}
+	if (has_dot != 0 && last_dot > last_slash) {
+		if (snprintf(out, out_cap, "%.*s_%s%s", (i32)last_dot, base, stem_suffix, base + last_dot) < 0 || out[0] == '\0') {
+			return -1;
+		}
+		return 0;
+	}
+	if (snprintf(out, out_cap, "%s_%s.png", base, stem_suffix) < 0 || out[0] == '\0') {
+		return -1;
+	}
+	return 0;
+}
+
 static i32 sandbox_resolve_path(shell_sandbox_t* s, const_chr_t requested, const_chr_t fallback, char* out, u32 out_cap) {
 	char cwd[SK_FS_PATH_MAX];
 	const_chr_t name = (requested != NULL && requested[0] != '\0') ? requested : fallback;
@@ -540,8 +654,12 @@ static i32 sandbox_has_arg(int argc, char* argv[], const_chr_t flag) {
 
 int main(int argc, char* argv[]) {
 	shell_sandbox_t s;
-	char out_path[SK_FS_PATH_MAX];
+	char scene_path[SK_FS_PATH_MAX];
+	char graph_path[SK_FS_PATH_MAX];
+	char restored_path[SK_FS_PATH_MAX];
+	char dir_path[SK_FS_PATH_MAX];
 	const_chr_t out_arg;
+	const_chr_t out_dir_arg;
 	i32 rc;
 
 	if (sandbox_has_arg(argc, argv, "--help") != 0 || sandbox_has_arg(argc, argv, "-h") != 0) {
@@ -549,20 +667,60 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 	out_arg = sandbox_arg_value(argc, argv, "--out");
+	out_dir_arg = sandbox_arg_value(argc, argv, "--out-dir");
 	if (sandbox_init(&s, argc, argv) != 0) {
 		sandbox_shutdown(&s);
 		return 1;
 	}
-	if (sandbox_resolve_path(&s, out_arg, SANDBOX_DEFAULT_PNG, out_path, (u32)sizeof(out_path)) != 0) {
-		fprintf(stderr, "sk-sandbox: cannot resolve output path\n");
-		sandbox_shutdown(&s);
-		return 1;
+	if (out_dir_arg != NULL && out_dir_arg[0] != '\0') {
+		if (sandbox_resolve_path(&s, out_dir_arg, ".", dir_path, (u32)sizeof(dir_path)) != 0) {
+			fprintf(stderr, "sk-sandbox: cannot resolve --out-dir\n");
+			sandbox_shutdown(&s);
+			return 1;
+		}
+		if (sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("01_scene_workspace.png"), scene_path, (u32)sizeof(scene_path)) < 0 ||
+			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("02_graph_workspace.png"), graph_path, (u32)sizeof(graph_path)) < 0 ||
+			sk_path_join(sk_str_view_cstr(dir_path), sk_str_view_cstr("03_scene_restored.png"), restored_path, (u32)sizeof(restored_path)) < 0) {
+			fprintf(stderr, "sk-sandbox: cannot join --out-dir PNG names\n");
+			sandbox_shutdown(&s);
+			return 1;
+		}
+	} else {
+		if (sandbox_resolve_path(&s, out_arg, SANDBOX_DEFAULT_PNG, scene_path, (u32)sizeof(scene_path)) != 0) {
+			fprintf(stderr, "sk-sandbox: cannot resolve output path\n");
+			sandbox_shutdown(&s);
+			return 1;
+		}
+		if (sandbox_sibling_png(scene_path, "graph", graph_path, (u32)sizeof(graph_path)) != 0 ||
+			sandbox_sibling_png(scene_path, "scene_restored", restored_path, (u32)sizeof(restored_path)) != 0) {
+			fprintf(stderr, "sk-sandbox: cannot derive workspace PNG paths\n");
+			sandbox_shutdown(&s);
+			return 1;
+		}
 	}
 	if (sandbox_drive_shell(&s) != 0) {
 		sandbox_shutdown(&s);
 		return 1;
 	}
-	rc = sandbox_paint_and_capture(&s, out_path);
+	rc = sandbox_paint_and_capture(&s, scene_path);
+	if (rc != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	if (sandbox_drive_graph_workspace(&s) != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	rc = sandbox_paint_and_capture(&s, graph_path);
+	if (rc != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	if (sandbox_drive_scene_restore(&s) != 0) {
+		sandbox_shutdown(&s);
+		return 1;
+	}
+	rc = sandbox_paint_and_capture(&s, restored_path);
 	sandbox_shutdown(&s);
 	return rc == 0 ? 0 : 1;
 }
