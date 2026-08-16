@@ -27,8 +27,8 @@
  *    on the window state (test-visible), no OS call.
  *  - "Copy Path Id": clipboard hooks are host-provided; copies through the
  *    ui clipboard when set, else records the path id (MOCK fallback).
- *  - "Show Resource Inspector": ResourceDebuggerWindow is not migrated yet;
- *    records the inspected path id on the window state (MOCK).
+ *  - "Show Resource Inspector": routes through the Resource Debugger ops
+ *    table (`inspect_resource`) — never a direct symbol.
  *
  * Public entry points (ClearSelection / SelectItem / SetSelection /
  * SetRenameItem / RevealPath / Refresh / GetOpenDirectory / ...) follow the

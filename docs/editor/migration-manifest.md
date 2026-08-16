@@ -76,18 +76,30 @@ Common surface every window inherits (v2 equivalent in parentheses):
 
 ### Global event catalogue the windows touch (defined in `EditorCommon.hpp` / `Skore/Events.hpp`)
 
-| Event type | Signature | Published by | Subscribed by (windows) |
-| --- | --- | --- | --- |
-| `OnSelectionChanged` | `void()` | `Selection` (on any selection change) | none of the 14 |
-| `OnEntitySelection` | `void(u32 workspaceId, RID)` | `Selection` | PropertiesWindow |
-| `OnEntityDeselection` | `void(u32 workspaceId, RID)` | `Selection` | PropertiesWindow |
-| `OnEntityDebugSelection` | `void(u32 workspaceId, Entity*)` | `Selection` (runtime entity selection) | PropertiesWindow |
-| `OnEntityDebugDeselection` | `void(u32 workspaceId, Entity*)` | `Selection` | PropertiesWindow |
-| `OnAssetSelection` | `void(u32 workspaceId, RID)` | `EditorWorkspace` (`WorkspaceResourceState::SelectedAsset` change, set via `EditorWorkspace::OpenAsset`) | PropertiesWindow |
-| `OnResourceSelection` | `void(u32 workspaceId, RID)` | `AnimatorEditor`, AnimatorTreeViewWindow | PropertiesWindow |
-| `OnMaterialNodeSelection` | `void(u32 workspaceId, RID)` | MaterialGraphEditorWindow | PropertiesWindow |
-| `OnDropFileCallback` | `void(StringView path)` | App (OS file drop) | ProjectBrowserWindow |
-| `OnUpdate` / `OnShutdown` / `OnShutdownRequest` | `void()` / `void()` / `void(bool*)` | App | Editor core (not windows); ProjectBrowserWindow binds `OnShutdown` via its init/shutdown helpers |
+C++ `Event` is **not** ported. Each former event is an `add_impl` observer
+struct in `editor/notify.h` (APX-365 / APX-375) unless explicitly dropped.
+
+| Event type | Signature | Published by | Subscribed by (windows) | v2 (APX-375) |
+| --- | --- | --- | --- | --- |
+| `OnSelectionChanged` | `void()` | `Selection` (on any selection change) | none of the 14 | **Implemented** — `SK_EDITOR_NOTIFY_SELECTION_CHANGED`. Entity Tree + Project Browser publish. No window subscriber (matches C++). |
+| `OnEntitySelection` | `void(u32 workspaceId, RID)` | `Selection` | PropertiesWindow | **Implemented** — `SK_EDITOR_NOTIFY_ENTITY_SELECTION`. Entity Tree publishes; Properties subscribes (workspace-filtered). |
+| `OnEntityDeselection` | `void(u32 workspaceId, RID)` | `Selection` | PropertiesWindow | **Implemented** — `SK_EDITOR_NOTIFY_ENTITY_DESELECTION`. Same pair. |
+| `OnEntityDebugSelection` | `void(u32 workspaceId, Entity*)` | `Selection` (runtime entity selection) | PropertiesWindow | **Implemented** — `SK_EDITOR_NOTIFY_ENTITY_DEBUG_SELECTION`. Properties subscribes. No in-scope publisher (no live runtime Entity*); kept for the C++ payload. |
+| `OnEntityDebugDeselection` | `void(u32 workspaceId, Entity*)` | `Selection` | PropertiesWindow | **Implemented** — `SK_EDITOR_NOTIFY_ENTITY_DEBUG_DESELECTION`. Same. |
+| `OnAssetSelection` | `void(u32 workspaceId, RID)` | `EditorWorkspace` (`WorkspaceResourceState::SelectedAsset` change, set via `EditorWorkspace::OpenAsset`) | PropertiesWindow | **Implemented** — `SK_EDITOR_NOTIFY_ASSET_SELECTION`. Project Browser publishes; Properties subscribes. |
+| `OnResourceSelection` | `void(u32 workspaceId, RID)` | `AnimatorEditor`, AnimatorTreeViewWindow | PropertiesWindow | **Implemented** (observer) — `SK_EDITOR_NOTIFY_RESOURCE_SELECTION`. Properties subscribes. Publishers are graph windows → **out of scope** (§2.1 / §4); no in-scope publisher. |
+| `OnMaterialNodeSelection` | `void(u32 workspaceId, RID)` | MaterialGraphEditorWindow | PropertiesWindow | **Implemented** (observer) — `SK_EDITOR_NOTIFY_MATERIAL_NODE_SELECTION`. Properties subscribes. Publisher is the material graph window → **out of scope** (§2.1 / §4). |
+| `OnDropFileCallback` | `void(StringView path)` | App (OS file drop) | ProjectBrowserWindow | **Implemented** — `SK_EDITOR_NOTIFY_DROP_FILE`. Project Browser subscribes (`import_asset` into the open directory). Host publishes via `sk_editor_notify_drop_file` (v2 platform window has no drop callback yet). |
+| `OnUpdate` / `OnShutdown` / `OnShutdownRequest` | `void()` / `void()` / `void(bool*)` | App | Editor core (not windows); ProjectBrowserWindow binds `OnShutdown` via its init/shutdown helpers | **Dropped as out of scope** — editor-core / host lifecycle, not a window Event. Project Browser teardown is `destroy` (`remove_impl` of the drop observer). |
+
+Additional v2 observer kinds (not C++ Events; used so windows stay on the struct tables):
+
+| Kind | Role |
+| --- | --- |
+| `SK_EDITOR_NOTIFY_ASSET_OPENED` / `ASSET_ACTIVATED` | Project Browser double-click / Enter (`OpenAsset`). Properties also consumes `ASSET_ACTIVATED`. |
+| `SK_EDITOR_NOTIFY_ENTITY_CREATED` / `RENAMED` / `DELETED` / `REPARENTED` | Entity Tree structure mutations. Properties refreshes / clears on rename / delete / reparent. |
+| `SK_EDITOR_NOTIFY_VIEWPORT_STATE` | Scene View toolbar / options snapshot. |
+| `SK_EDITOR_NOTIFY_DIRTY` / `SAVE` | Content dirty (entity / asset / inspector mutations) and File/Save All (also captures + writes the layout store). |
 
 Resource-change events (`Resources::RegisterEvent(ResourceEventType::Changed, ...)`),
 used by the workspace/selection/animator state objects, are listed per window.

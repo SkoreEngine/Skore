@@ -10,9 +10,13 @@
  * rows), asset, resource or material node — through the notify.h observers
  * (ENTITY_SELECTION / ENTITY_DESELECTION, ENTITY_DEBUG_SELECTION /
  * ENTITY_DEBUG_DESELECTION, ASSET_SELECTION, RESOURCE_SELECTION,
- * MATERIAL_NODE_SELECTION), each filtered by the workspace id exactly like
- * the C++ ctor bindings. Selection is consumed through the observer structs
- * published by the hierarchy and content browser — no Events.
+ * MATERIAL_NODE_SELECTION, ASSET_ACTIVATED, ENTITY_RENAMED / DELETED /
+ * REPARENTED), each filtered by the *active* workspace id (C++ ctor
+ * bindings used the instance's workspace; v2 has one instance per type so
+ * the filter follows workspace switching). Selection is consumed through
+ * the observer structs published by the hierarchy and content browser —
+ * no Events. Window destroy `remove_impl`s every observer so workspace
+ * switch open/close cannot leak callbacks.
  *
  * In-scope surface (manifest §3.7): entity header (name / UUID / layer
  * MOCK), per-component collapsing headers with property rows drawn from the

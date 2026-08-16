@@ -31,11 +31,10 @@
  *  - Create Entity From Asset: the C++ opens a resource-selection popup; v2
  *    has no scene-asset picker yet, so the action records a test-visible
  *    flag on the window state instead of creating.
- *  - Double-click "frame in SceneView" (SceneViewWindow::ViewEntity)
- *    records the viewed entity RID on window state; SceneView is migrated
- *    (APX-372) but the tree has no double-click handler yet.
- *  - Show Resource Inspector records the inspected RID; ResourceDebuggerWindow
- *    is not migrated.
+ *  - Double-click / second click of the already-selected row frames the
+ *    entity through the Scene View ops table (`view_entity`).
+ *  - Show Resource Inspector opens the Resource Debugger through its ops
+ *    table (`inspect_resource`); never a direct symbol.
  *  - Prototype-override items (Revert Instance Overrides / Add Back This
  *    Instance) register dead handlers: v2 scenes have no prototype removal
  *    state yet, and the C++ CheckIsOverride already returns false always.

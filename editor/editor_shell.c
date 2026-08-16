@@ -26,6 +26,7 @@
 #include "allocator.h"
 #include "editor_layout.h"
 #include "logger.h"
+#include "notify.h"
 #include "window_ops.h"
 #include "windows/console_window.h"
 #include "windows/debugger_window.h"
@@ -134,6 +135,12 @@ struct sk_editor_shell_t {
 	/* mocked toolbar state */
 	i32 sim_playing;
 	i32 debug_options;
+	i32 content_dirty; /* set by SK_EDITOR_NOTIFY_DIRTY; cleared on Save All */
+
+	/* save/dirty observers (add_impl for the shell lifetime). */
+	sk_editor_on_dirty_t obs_dirty;
+	sk_editor_on_save_t obs_save;
+	i32 save_count; /* test-visible: how many save notifies the shell has consumed */
 };
 
 /* ------------------------------------------------------------------ */
@@ -1022,11 +1029,36 @@ static void shell_act_open_project_settings(sk_app_context_t* app_context, const
 	}
 }
 
-/* Toolbar actions (mock where the feature is not implemented yet). */
+static void shell_on_dirty(void* user, u32 workspace_id) {
+	sk_editor_shell_t* shell = (sk_editor_shell_t*)user;
+	(void)workspace_id;
+	if (shell != NULL) {
+		shell->content_dirty = 1;
+	}
+}
+
+static void shell_on_save(void* user, u32 workspace_id) {
+	sk_editor_shell_t* shell = (sk_editor_shell_t*)user;
+	(void)workspace_id;
+	if (shell != NULL) {
+		shell->save_count++;
+		shell->content_dirty = 0;
+	}
+}
+
+/* File/Save All + toolbar: publish SAVE, capture the live workspace, persist layout. */
 static void shell_act_save_all(sk_app_context_t* app_context, const sk_app_api_t* app_api, void* user) {
-	(void)app_context;
-	(void)app_api;
-	shell_log((const sk_editor_shell_t*)user, "Save All not implemented yet");
+	sk_editor_shell_t* shell = (sk_editor_shell_t*)user;
+	sk_editor_workspace_t* ws = sk_editor_workspace_active(app_context, app_api);
+	u32 workspace_id = ws != NULL ? sk_editor_workspace_type_id(ws) : 0u;
+	if (ws != NULL) {
+		(void)sk_editor_workspace_capture(ws);
+	}
+	sk_editor_notify_save(app_context, app_api, workspace_id);
+	(void)sk_editor_layout_save(app_context, app_api);
+	if (shell != NULL) {
+		shell->content_dirty = 0;
+	}
 }
 
 static void shell_act_play(sk_app_context_t* app_context, const sk_app_api_t* app_api, void* user) {
@@ -1082,7 +1114,7 @@ static void shell_register_default_menu(sk_editor_shell_t* shell) {
 	SHELL_MENU_ITEM("File/Close Project", 10, shell_act_mock, NULL, NULL);
 	SHELL_MENU("File/Recent Projects", 20);
 	SHELL_MENU_ITEM("File/Recent Projects/No Recent Projects", 0, NULL, shell_enabled_false, NULL);
-	SHELL_MENU_ITEM("File/Save All", 1000, shell_act_mock, NULL, "Ctrl+S");
+	SHELL_MENU_ITEM("File/Save All", 1000, shell_act_save_all, NULL, "Ctrl+S");
 	SHELL_MENU_ITEM("File/Export", 2000, shell_act_mock, NULL, NULL);
 	SHELL_MENU_ITEM("File/Export And Run", 2005, shell_act_mock, NULL, NULL);
 	SHELL_MENU_ITEM("File/Exit", 2147483647, shell_act_exit, NULL, "Ctrl+Q");
@@ -1219,6 +1251,15 @@ sk_editor_shell_t* sk_editor_shell_create(sk_app_context_t* app_context, const s
 	shell_ws_tabs_build(shell);
 	shell->ws_tab_version = shell->workspace_count;
 
+	shell->obs_dirty.order = 0;
+	shell->obs_dirty.user = shell;
+	shell->obs_dirty.on_dirty = shell_on_dirty;
+	app_api->add_impl(app_context, SK_EDITOR_NOTIFY_DIRTY, &shell->obs_dirty);
+	shell->obs_save.order = 0;
+	shell->obs_save.user = shell;
+	shell->obs_save.on_save = shell_on_save;
+	app_api->add_impl(app_context, SK_EDITOR_NOTIFY_SAVE, &shell->obs_save);
+
 	/* Load EditorLayout.json when present (missing / corrupt → presets). */
 	sk_editor_layout_init(app_context, app_api);
 
@@ -1230,6 +1271,10 @@ sk_editor_shell_t* sk_editor_shell_create(sk_app_context_t* app_context, const s
 void sk_editor_shell_destroy(sk_editor_shell_t* shell) {
 	if (shell == NULL) {
 		return;
+	}
+	if (shell->app_api != NULL && shell->app_context != NULL) {
+		shell->app_api->remove_impl(shell->app_context, SK_EDITOR_NOTIFY_DIRTY, &shell->obs_dirty);
+		shell->app_api->remove_impl(shell->app_context, SK_EDITOR_NOTIFY_SAVE, &shell->obs_save);
 	}
 	sk_editor_layout_shutdown(shell->app_context, shell->app_api);
 	if (shell->logger_api != NULL && shell->log != NULL) {
@@ -1581,7 +1626,7 @@ SK_TEST(editor_shell_window_close_and_toolbar) {
 	TEST_ASSERT_NULL(sk_editor_window_by_type(fx.boot.context, fx.boot.api, SK_EDITOR_WINDOW_CONSOLE));
 	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(shell->ctx, "sk.editor_window.console"));
 
-	/* Toolbar: Save All is inert-but-clickable; Play toggles the mock sim. */
+	/* Toolbar: Play toggles the mock sim. Save All publishes SAVE + layout. */
 	TEST_ASSERT_EQUAL_INT(0, sk_editor_shell_sim_playing(shell));
 	TEST_ASSERT_EQUAL_INT(0, sk_editor_shell_frame(shell, 1280.0f, 720.0f, 1.0f, 1.0f));
 	{

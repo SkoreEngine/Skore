@@ -16,8 +16,10 @@
  *  - No project attached → a fixed mock folder tree + item list.
  *  - Import button (OS file dialog not ported) → no-op; drop-file import is
  *    real (OnDropFile observer imports into the open directory).
- *  - Show in Explorer / Show Resource Inspector / Copy Path Id → recorded on
- *    window state (test-visible), no OS call.
+ *  - Show in Explorer / Copy Path Id → recorded on window state
+ *    (test-visible), no OS call.
+ *  - Show Resource Inspector routes through the Resource Debugger ops table
+ *    (`inspect_resource`).
  *  - Thumbnails: out of scope (manifest §2.2) — folder/file tiles use the
  *    Content/Images icon atlas (APX-367), never a thumbnail texture.
  */
@@ -29,6 +31,7 @@
 #include "editor_icons.h"
 #include "notify.h"
 #include "resource_assets_types.h"
+#include "resource_debugger_window.h"
 #include "serialization.h"
 #include "ui.h"
 
@@ -138,7 +141,6 @@ typedef struct pb_state_t {
 	char last_import_path[PB_PATH_CAP];
 	char last_show_in_explorer[PB_PATH_CAP];
 	char last_copied_path_id[PB_PATH_CAP];
-	char last_inspected_path_id[PB_NAME_CAP];
 	u32 mock_seq;
 
 	/* UI handles (live only while a ui context hosts the dock chrome). */
@@ -726,10 +728,40 @@ static void pb_check_versions(pb_state_t* state) {
 /*  Selection + notifications                                         */
 /* ------------------------------------------------------------------ */
 
+static u32 pb_workspace_id(pb_state_t* state) {
+	sk_editor_workspace_t* ws = sk_editor_workspace_active(state->app_context, state->app_api);
+	if (ws != NULL) {
+		state->workspace_id = sk_editor_workspace_type_id(ws);
+	}
+	return state->workspace_id;
+}
+
+static void pb_mark_dirty(pb_state_t* state) {
+	if (state != NULL) {
+		sk_editor_notify_dirty(state->app_context, state->app_api, pb_workspace_id(state));
+	}
+}
+
+static void pb_inspect_resource(pb_state_t* state, sk_rid_t rid) {
+	const sk_editor_resource_debugger_ops_t* rd;
+	sk_editor_window_t* dbg;
+	if (state == NULL || rid.id == 0u) {
+		return;
+	}
+	rd = sk_editor_resource_debugger_ops(state->app_context, state->app_api);
+	if (rd == NULL || rd->inspect_resource == NULL) {
+		return;
+	}
+	dbg = rd->inspect_resource(state->app_context, state->app_api, rid);
+	if (dbg != NULL && rd->set_repository != NULL && state->repository != NULL) {
+		rd->set_repository(state->app_context, state->app_api, dbg, state->repository);
+	}
+}
+
 static void pb_notify_selection(pb_state_t* state) {
 	sk_editor_notify_selection_changed(state->app_context, state->app_api);
 	if (state->last_selected.id != 0u) {
-		sk_editor_notify_asset_selection(state->app_context, state->app_api, state->workspace_id, state->last_selected);
+		sk_editor_notify_asset_selection(state->app_context, state->app_api, pb_workspace_id(state), state->last_selected);
 	}
 	state->selection_revision++;
 }
@@ -831,6 +863,7 @@ static void pb_apply_rename(pb_state_t* state, sk_rid_t asset_rid, const_chr_t n
 	}
 	repo->set_string(view, SK_RESOURCE_ASSET_FIELD_NAME, new_name);
 	repo->commit(view, NULL);
+	pb_mark_dirty(state);
 	pb_rebuild_listing(state);
 }
 
@@ -859,6 +892,7 @@ static void pb_delete_selected(pb_state_t* state) {
 	}
 	pb_clear_selection_internal(state);
 	pb_notify_selection(state);
+	pb_mark_dirty(state);
 	pb_rebuild_listing(state);
 }
 
@@ -867,6 +901,7 @@ static void pb_move_asset(pb_state_t* state, sk_rid_t target_directory, sk_rid_t
 		return;
 	}
 	state->app_api->resource_assets_api(state->app_context)->move_asset(state->assets, target_directory, dragged_asset, NULL);
+	pb_mark_dirty(state);
 	pb_rebuild_listing(state);
 }
 
@@ -947,17 +982,13 @@ static void pb_action_copy_path_id(sk_app_context_t* app_context, const sk_app_a
 
 static void pb_action_show_resource_inspector(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t* window, void* user) {
 	pb_state_t* state = (pb_state_t*)window->user_data;
-	char path[PB_NAME_CAP];
 	(void)app_context;
 	(void)app_api;
 	(void)user;
 	if (state == NULL || state->last_selected.id == 0u) {
 		return;
 	}
-	/* MOCK: ResourceDebuggerWindow::InspectResource is not migrated; record
-	 * the target path id so tests can verify the entry point fired. */
-	(void)pb_path_id(state, state->last_selected, path, (u32)sizeof(path));
-	(void)snprintf(state->last_inspected_path_id, PB_NAME_CAP, "%s", path);
+	pb_inspect_resource(state, state->last_selected);
 }
 
 static void pb_seed_class_menus(pb_class_state_t* cls) {
@@ -1063,6 +1094,7 @@ static void pb_asset_new(sk_app_context_t* app_context, const sk_app_api_t* app_
 		pb_select_rids(state, &rid, 1u);
 		state->rename_item = rid;
 		pb_notify_selection(state);
+		pb_mark_dirty(state);
 	}
 }
 
@@ -1185,8 +1217,11 @@ static void pb_activate_item(sk_app_context_t* app_context, const sk_app_api_t* 
 		pb_notify_selection(state);
 		return;
 	}
-	sk_editor_notify_asset_opened(app_context, app_api, state->workspace_id, rid);
-	sk_editor_notify_asset_activated(app_context, app_api, state->workspace_id, rid);
+	/* C++ OpenAsset: select first (OnAssetSelection), then activate. */
+	pb_select_rids(state, &rid, 1u);
+	pb_notify_selection(state);
+	sk_editor_notify_asset_opened(app_context, app_api, pb_workspace_id(state), rid);
+	sk_editor_notify_asset_activated(app_context, app_api, pb_workspace_id(state), rid);
 }
 
 static void pb_reveal_path(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t* window, sk_rid_t rid) {
@@ -1302,6 +1337,7 @@ static void pb_on_drop_file(void* user, const_chr_t path) {
 	 * directory (C++ OnDropFile → ResourceAssets::ImportAsset). */
 	if (pb_has_project(state) && state->open_directory.id != 0u) {
 		(void)state->app_api->resource_assets_api(state->app_context)->import_asset(state->assets, state->open_directory, path, NULL);
+		pb_mark_dirty(state);
 		pb_rebuild_listing(state);
 	}
 	(void)snprintf(state->last_import_path, PB_PATH_CAP, "%s", state->last_drop_path);
@@ -1907,8 +1943,10 @@ static void pb_handle_interactions(pb_state_t* state) {
 					pb_clear_selection_internal(state);
 					pb_notify_selection(state);
 				} else {
-					sk_editor_notify_asset_opened(state->app_context, state->app_api, state->workspace_id, state->grid_meta[i].rid);
-					sk_editor_notify_asset_activated(state->app_context, state->app_api, state->workspace_id, state->grid_meta[i].rid);
+					pb_select_rids(state, &state->grid_meta[i].rid, 1u);
+					pb_notify_selection(state);
+					sk_editor_notify_asset_opened(state->app_context, state->app_api, pb_workspace_id(state), state->grid_meta[i].rid);
+					sk_editor_notify_asset_activated(state->app_context, state->app_api, pb_workspace_id(state), state->grid_meta[i].rid);
 				}
 				break;
 			}

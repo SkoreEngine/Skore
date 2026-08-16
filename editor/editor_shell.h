@@ -13,8 +13,9 @@
  *     from the C++ editor's menu surface (MenuItemContext). Window-toggling
  *     entries always run through the struct-table registries (APX-329/330
  *     window impls, APX-365 per-window ops tables) — never direct calls.
- *   - toolbar: Save All / Undo / Redo / Play / Pause / Stop / Reset Layout;
- *     unimplemented actions stay inert or mocked instead of being dropped.
+ *   - toolbar: Save All (notify SAVE + layout persist) / Undo / Redo / Play /
+ *     Pause / Stop / Reset Layout; unimplemented actions stay inert or mocked
+ *     instead of being dropped.
  *   - docking host: embeds the active workspace's sk-ui dockspace model
  *     (APX-330). Window open/close/focus are registry-driven:
  *     sk_editor_window_open / sk_editor_window_close and dock tab

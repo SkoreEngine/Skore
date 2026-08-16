@@ -51,6 +51,12 @@ app_api->remove_impl(ctx, SK_EDITOR_NOTIFY_ASSET_SELECTION, &obs);
 `sk_editor_notify_*` helpers only walk one type's impls. Do not add a central
 `Event` type, a subscribe API, or a queued bus.
 
+Cross-window *calls* (InspectResource, ViewEntity) are **not** notify
+kinds: they go through the callee's ops table (`inspect_resource`,
+`view_entity`). Window `destroy` must `remove_impl` every observer the
+instance added so workspace-switch close/reopen cannot leave a dangling
+callback.
+
 ## Adding the next window
 
 1. New TU under `editor/windows/<name>_window.h` / `.c` (do not edit a v2-owned

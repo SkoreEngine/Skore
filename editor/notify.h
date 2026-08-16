@@ -51,6 +51,8 @@ extern "C" {
 #define SK_EDITOR_NOTIFY_ENTITY_DELETED SK_TYPE_ID("sk.editor.notify.entity_deleted", 0xf1999c1224eb0824ULL, 0xb16416faf4a3fe89ULL)
 #define SK_EDITOR_NOTIFY_ENTITY_REPARENTED SK_TYPE_ID("sk.editor.notify.entity_reparented", 0xb859cd0bcf2438dcULL, 0x4b366071d5906608ULL)
 #define SK_EDITOR_NOTIFY_VIEWPORT_STATE SK_TYPE_ID("sk.editor.notify.viewport_state", 0x5e4a2f8d17b0c63aULL, 0xa3d9e04b72c1f85eULL)
+#define SK_EDITOR_NOTIFY_DIRTY SK_TYPE_ID("sk.editor.notify.dirty", 0x1c8e4a7b93d0f621ULL, 0x5e2a9c4d8b17f0aeULL)
+#define SK_EDITOR_NOTIFY_SAVE SK_TYPE_ID("sk.editor.notify.save", 0xa71d3e8c5b2490f6ULL, 0x0c4e8f1a6d3b27c5ULL)
 
 /** C++ OnSelectionChanged — void(). */
 typedef struct sk_editor_on_selection_changed_t {
@@ -210,6 +212,26 @@ typedef struct sk_editor_on_viewport_state_t {
 	void (*on_viewport_state)(void* user, u32 workspace_id, const sk_editor_viewport_state_t* state);
 } sk_editor_on_viewport_state_t;
 
+/**
+ * Project / scene content became dirty (entity or asset mutation). Not a C++
+ * Event; v2 replacement for the editor's unsaved-resource flag so the shell
+ * Save All path and other windows share one observer list.
+ */
+typedef struct sk_editor_on_dirty_t {
+	i32 order;
+	u8 _pad0[4];
+	void* user;
+	void (*on_dirty)(void* user, u32 workspace_id);
+} sk_editor_on_dirty_t;
+
+/** Save All requested (File/Save All, toolbar). @p workspace_id is the active workspace, or 0. */
+typedef struct sk_editor_on_save_t {
+	i32 order;
+	u8 _pad0[4];
+	void* user;
+	void (*on_save)(void* user, u32 workspace_id);
+} sk_editor_on_save_t;
+
 void sk_editor_notify_selection_changed(sk_app_context_t* app_context, const sk_app_api_t* app_api);
 void sk_editor_notify_entity_selection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_deselection(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
@@ -226,6 +248,8 @@ void sk_editor_notify_entity_renamed(sk_app_context_t* app_context, const sk_app
 void sk_editor_notify_entity_deleted(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid);
 void sk_editor_notify_entity_reparented(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent);
 void sk_editor_notify_viewport_state(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id, const sk_editor_viewport_state_t* state);
+void sk_editor_notify_dirty(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id);
+void sk_editor_notify_save(sk_app_context_t* app_context, const sk_app_api_t* app_api, u32 workspace_id);
 
 #ifdef __cplusplus
 }

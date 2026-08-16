@@ -101,7 +101,7 @@ typedef struct properties_state_t {
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* ui_ctx;
 
-	/* notify.h observers (add_impl while the window is open). */
+	/* notify.h observers (add_impl while the window is open; destroy unbinds). */
 	sk_editor_on_entity_selection_t obs_entity_sel;
 	sk_editor_on_entity_deselection_t obs_entity_desel;
 	sk_editor_on_entity_debug_selection_t obs_debug_sel;
@@ -109,6 +109,10 @@ typedef struct properties_state_t {
 	sk_editor_on_asset_selection_t obs_asset_sel;
 	sk_editor_on_resource_selection_t obs_resource_sel;
 	sk_editor_on_material_node_selection_t obs_material_sel;
+	sk_editor_on_entity_renamed_t obs_entity_renamed;
+	sk_editor_on_entity_deleted_t obs_entity_deleted;
+	sk_editor_on_entity_reparented_t obs_entity_reparented;
+	sk_editor_on_asset_activated_t obs_asset_activated;
 } properties_state_t;
 
 typedef struct properties_class_state_t {
@@ -140,6 +144,22 @@ static properties_class_state_t* properties_class(sk_app_context_t* app_context,
 /*  Selection observers (C++ Event::Bind in ctor, filtered by ws id)  */
 /* ------------------------------------------------------------------ */
 
+static u32 props_filter_workspace(const properties_state_t* state) {
+	sk_editor_workspace_t* ws = sk_editor_workspace_active(state->app_context, state->app_api);
+	return ws != NULL ? sk_editor_workspace_type_id(ws) : state->workspace_id;
+}
+
+static i32 props_same_workspace(const properties_state_t* state, u32 workspace_id) {
+	return state != NULL && workspace_id == props_filter_workspace(state) ? 1 : 0;
+}
+
+static void props_mark_dirty(properties_state_t* state) {
+	if (state != NULL) {
+		state->content_dirty = 1u;
+		sk_editor_notify_dirty(state->app_context, state->app_api, props_filter_workspace(state));
+	}
+}
+
 static void properties_clear_selection_internal(properties_state_t* state) {
 	state->kind = SK_EDITOR_PROPERTIES_NONE;
 	state->selected_rid = SK_RID_ZERO;
@@ -154,7 +174,7 @@ static void properties_clear_selection_internal(properties_state_t* state) {
 
 static void props_on_entity_selection(void* user, u32 workspace_id, sk_rid_t rid) {
 	properties_state_t* state = (properties_state_t*)user;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	if (rid.id == 0u && state->kind != SK_EDITOR_PROPERTIES_ENTITY) {
@@ -167,7 +187,7 @@ static void props_on_entity_selection(void* user, u32 workspace_id, sk_rid_t rid
 
 static void props_on_entity_deselection(void* user, u32 workspace_id, sk_rid_t rid) {
 	properties_state_t* state = (properties_state_t*)user;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	if (rid.id == 0u && state->kind != SK_EDITOR_PROPERTIES_ENTITY) {
@@ -181,7 +201,7 @@ static void props_on_entity_deselection(void* user, u32 workspace_id, sk_rid_t r
 static void props_on_debug_selection(void* user, u32 workspace_id, void* entity) {
 	properties_state_t* state = (properties_state_t*)user;
 	(void)entity;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	properties_clear_selection_internal(state);
@@ -191,7 +211,7 @@ static void props_on_debug_selection(void* user, u32 workspace_id, void* entity)
 static void props_on_debug_deselection(void* user, u32 workspace_id, void* entity) {
 	properties_state_t* state = (properties_state_t*)user;
 	(void)entity;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	if (state->kind == SK_EDITOR_PROPERTIES_DEBUG_ENTITY) {
@@ -201,7 +221,7 @@ static void props_on_debug_deselection(void* user, u32 workspace_id, void* entit
 
 static void props_on_asset_selection(void* user, u32 workspace_id, sk_rid_t rid) {
 	properties_state_t* state = (properties_state_t*)user;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	properties_clear_selection_internal(state);
@@ -211,7 +231,7 @@ static void props_on_asset_selection(void* user, u32 workspace_id, sk_rid_t rid)
 
 static void props_on_resource_selection(void* user, u32 workspace_id, sk_rid_t rid) {
 	properties_state_t* state = (properties_state_t*)user;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	properties_clear_selection_internal(state);
@@ -221,7 +241,7 @@ static void props_on_resource_selection(void* user, u32 workspace_id, sk_rid_t r
 
 static void props_on_material_selection(void* user, u32 workspace_id, sk_rid_t rid) {
 	properties_state_t* state = (properties_state_t*)user;
-	if (state == NULL || state->workspace_id != workspace_id) {
+	if (!props_same_workspace(state, workspace_id)) {
 		return;
 	}
 	if (rid.id == 0u && state->kind != SK_EDITOR_PROPERTIES_MATERIAL_NODE) {
@@ -230,6 +250,50 @@ static void props_on_material_selection(void* user, u32 workspace_id, sk_rid_t r
 	properties_clear_selection_internal(state);
 	state->kind = SK_EDITOR_PROPERTIES_MATERIAL_NODE;
 	state->selected_rid = rid;
+}
+
+static void props_on_entity_renamed(void* user, u32 workspace_id, sk_rid_t rid, const_chr_t name) {
+	properties_state_t* state = (properties_state_t*)user;
+	(void)name;
+	if (!props_same_workspace(state, workspace_id)) {
+		return;
+	}
+	if (state->kind == SK_EDITOR_PROPERTIES_ENTITY && SK_RID_EQ(state->selected_rid, rid)) {
+		state->content_dirty = 1u;
+	}
+}
+
+static void props_on_entity_deleted(void* user, u32 workspace_id, sk_rid_t rid) {
+	properties_state_t* state = (properties_state_t*)user;
+	if (!props_same_workspace(state, workspace_id)) {
+		return;
+	}
+	if (state->kind == SK_EDITOR_PROPERTIES_ENTITY && SK_RID_EQ(state->selected_rid, rid)) {
+		properties_clear_selection_internal(state);
+		state->content_dirty = 1u;
+	}
+}
+
+static void props_on_entity_reparented(void* user, u32 workspace_id, sk_rid_t rid, sk_rid_t new_parent) {
+	properties_state_t* state = (properties_state_t*)user;
+	(void)new_parent;
+	if (!props_same_workspace(state, workspace_id)) {
+		return;
+	}
+	if (state->kind == SK_EDITOR_PROPERTIES_ENTITY && SK_RID_EQ(state->selected_rid, rid)) {
+		state->content_dirty = 1u;
+	}
+}
+
+static void props_on_asset_activated(void* user, u32 workspace_id, sk_rid_t rid) {
+	properties_state_t* state = (properties_state_t*)user;
+	if (!props_same_workspace(state, workspace_id)) {
+		return;
+	}
+	properties_clear_selection_internal(state);
+	state->kind = SK_EDITOR_PROPERTIES_ASSET;
+	state->selected_rid = rid;
+	state->content_dirty = 1u;
 }
 
 /* ------------------------------------------------------------------ */
@@ -322,6 +386,7 @@ static sk_rid_t props_add_component_internal(properties_state_t* state, sk_type_
 	}
 	(void)state->repo->add_to_subobject_list(view, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, comp);
 	state->repo->commit(view, NULL);
+	props_mark_dirty(state);
 	return comp;
 }
 
@@ -349,6 +414,7 @@ static void props_remove_component_internal(properties_state_t* state, u32 index
 	} else if (state->selected_component_index > index) {
 		state->selected_component_index -= 1u;
 	}
+	props_mark_dirty(state);
 }
 
 /* Move component @p index by @p delta (-1 / +1; real list reorder). */
@@ -1337,6 +1403,26 @@ static void properties_init(sk_editor_window_t* window) {
 	state->obs_material_sel.on_material_node_selection = props_on_material_selection;
 	api->add_impl(cls->app_context, SK_EDITOR_NOTIFY_MATERIAL_NODE_SELECTION, &state->obs_material_sel);
 
+	state->obs_entity_renamed.order = 10;
+	state->obs_entity_renamed.user = state;
+	state->obs_entity_renamed.on_entity_renamed = props_on_entity_renamed;
+	api->add_impl(cls->app_context, SK_EDITOR_NOTIFY_ENTITY_RENAMED, &state->obs_entity_renamed);
+
+	state->obs_entity_deleted.order = 10;
+	state->obs_entity_deleted.user = state;
+	state->obs_entity_deleted.on_entity_deleted = props_on_entity_deleted;
+	api->add_impl(cls->app_context, SK_EDITOR_NOTIFY_ENTITY_DELETED, &state->obs_entity_deleted);
+
+	state->obs_entity_reparented.order = 10;
+	state->obs_entity_reparented.user = state;
+	state->obs_entity_reparented.on_entity_reparented = props_on_entity_reparented;
+	api->add_impl(cls->app_context, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, &state->obs_entity_reparented);
+
+	state->obs_asset_activated.order = 10;
+	state->obs_asset_activated.user = state;
+	state->obs_asset_activated.on_asset_activated = props_on_asset_activated;
+	api->add_impl(cls->app_context, SK_EDITOR_NOTIFY_ASSET_ACTIVATED, &state->obs_asset_activated);
+
 	window->user_data = state;
 }
 
@@ -1398,6 +1484,10 @@ static void properties_destroy(sk_editor_window_t* window) {
 	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_ASSET_SELECTION, &state->obs_asset_sel);
 	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_RESOURCE_SELECTION, &state->obs_resource_sel);
 	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_MATERIAL_NODE_SELECTION, &state->obs_material_sel);
+	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_ENTITY_RENAMED, &state->obs_entity_renamed);
+	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_ENTITY_DELETED, &state->obs_entity_deleted);
+	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_ENTITY_REPARENTED, &state->obs_entity_reparented);
+	api->remove_impl(state->app_context, SK_EDITOR_NOTIFY_ASSET_ACTIVATED, &state->obs_asset_activated);
 
 	ws = sk_editor_workspace_active(state->app_context, state->app_api);
 	ctx = ws != NULL ? sk_editor_workspace_dock_context(ws) : NULL;
@@ -1479,6 +1569,7 @@ static void props_ops_rename_entity(sk_app_context_t* app_context, const sk_app_
 	}
 	(void)state->repo->set_string(view, SK_ENTITY_RESOURCE_FIELD_NAME, name);
 	state->repo->commit(view, NULL);
+	props_mark_dirty(state);
 }
 
 static i32 props_ops_get_entity_uuid(const sk_editor_window_t* window, sk_rid_t entity, char* out, u32 cap) {
@@ -1990,6 +2081,29 @@ SK_TEST(editor_properties_window_ops_selection_and_components) {
 	/* Workspace filter: a different workspace id is ignored. */
 	sk_editor_notify_entity_selection(app, boot.api, SK_EDITOR_WORKSPACE_GRAPH, player);
 	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_RESOURCE, (int)ops->get_kind(window));
+
+	/* Re-select the entity, then structure observers refresh / clear. */
+	sk_editor_notify_entity_selection(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, player);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ENTITY, (int)ops->get_kind(window));
+	sk_editor_notify_entity_renamed(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, player, "RenamedAgain");
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ENTITY, (int)ops->get_kind(window));
+	sk_editor_notify_entity_deleted(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, player);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_NONE, (int)ops->get_kind(window));
+
+	/* Asset activation (browser double-click) drives the inspector. */
+	sk_editor_notify_asset_activated(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, scene);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ASSET, (int)ops->get_kind(window));
+	TEST_ASSERT_TRUE(ops->get_selected_rid(window).id == scene.id);
+
+	/* Close detaches observers: a later notify must not crash. */
+	editor->window_close(app, boot.api, window);
+	sk_editor_notify_entity_selection(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, player);
+	TEST_ASSERT_NULL(editor->window_by_type(app, boot.api, SK_EDITOR_WINDOW_PROPERTIES));
+	window = ops->open(app, boot.api);
+	TEST_ASSERT_NOT_NULL(window);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_NONE, (int)ops->get_kind(window));
+	sk_editor_notify_entity_selection(app, boot.api, SK_EDITOR_WORKSPACE_SCENE, player);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ENTITY, (int)ops->get_kind(window));
 
 	editor->window_close(app, boot.api, window);
 	TEST_ASSERT_NULL(editor->window_by_type(app, boot.api, SK_EDITOR_WINDOW_PROPERTIES));

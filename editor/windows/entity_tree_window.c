@@ -39,14 +39,13 @@
  *  - Create Entity From Asset: the C++ opens a resource-selection popup; v2
  *    has no scene-asset picker yet, so the action records a test-visible
  *    flag instead.
- *  - Show Resource Inspector records the inspected RID; ResourceDebuggerWindow
- *    is not migrated.
  *  - "Show Scene Entity" (debug toggle): v2 has no live scene/entity runtime
  *    hierarchy, so the toggle only flips the session flag (the tree stays on
  *    the RID path).
- *  - Double-click "frame in SceneView" is not ported (SceneViewWindow's
- *    ops table exposes view_entity now, but the tree has no double-click
- *    handler yet; manifest §3.9).
+ *  - Show Resource Inspector routes through the Resource Debugger ops table
+ *    (`inspect_resource`) — never a direct symbol.
+ *  - Double-click / second click of the already-selected row frames the
+ *    entity through the Scene View ops table (`view_entity`).
  *
  * Public entry points follow the APX-365 pattern (window-table-pattern.md):
  * the window publishes one process-lifetime `sk_editor_entity_tree_ops_t`
@@ -61,6 +60,9 @@
 #include "editor_shell.h"
 #include "notify.h"
 #include "resource_asset_builtins.h"
+#include "properties_window.h"
+#include "resource_debugger_window.h"
+#include "scene_view_window.h"
 #include "ui.h"
 
 #include <stdio.h>
@@ -167,7 +169,6 @@ typedef struct et_state_t {
 
 	/* MOCK recorders (test-visible). */
 	i32 last_create_from_asset;
-	sk_rid_t last_inspected;
 
 	/* Session flags (C++ members). */
 	i32 show_scene_entity;
@@ -609,6 +610,46 @@ static void et_rebuild_tree(et_state_t* state) {
 /*  Selection + observers                                              */
 /* ------------------------------------------------------------------ */
 
+static void et_mark_dirty(et_state_t* state) {
+	if (state != NULL) {
+		sk_editor_notify_dirty(state->app_context, state->app_api, state->workspace_id);
+	}
+}
+
+/* C++ EntityTreeWindow::ShowResourceInspector → ResourceDebuggerWindow::InspectResource. */
+static void et_inspect_resource(et_state_t* state, sk_rid_t rid) {
+	const sk_editor_resource_debugger_ops_t* rd;
+	sk_editor_window_t* dbg;
+	if (state == NULL || rid.id == 0u) {
+		return;
+	}
+	rd = sk_editor_resource_debugger_ops(state->app_context, state->app_api);
+	if (rd == NULL || rd->inspect_resource == NULL) {
+		return;
+	}
+	dbg = rd->inspect_resource(state->app_context, state->app_api, rid);
+	if (dbg != NULL && rd->set_repository != NULL && state->repository != NULL) {
+		rd->set_repository(state->app_context, state->app_api, dbg, state->repository);
+	}
+}
+
+/* C++ EntityTreeWindow double-click → SceneViewWindow::ViewEntity. */
+static void et_frame_in_scene_view(et_state_t* state, sk_rid_t rid) {
+	const sk_editor_scene_view_ops_t* sv;
+	sk_editor_window_t* win;
+	if (state == NULL || rid.id == 0u) {
+		return;
+	}
+	sv = sk_editor_scene_view_ops(state->app_context, state->app_api);
+	if (sv == NULL) {
+		return;
+	}
+	win = sv->open != NULL ? sv->open(state->app_context, state->app_api) : NULL;
+	if (win != NULL && sv->view_entity != NULL) {
+		sv->view_entity(state->app_context, state->app_api, win, rid);
+	}
+}
+
 static i32 et_selected_contains(const et_state_t* state, sk_rid_t rid) {
 	u32 i;
 	for (i = 0u; i < state->selected_count; ++i) {
@@ -719,6 +760,7 @@ static sk_rid_t et_create_entity_internal(et_state_t* state, sk_rid_t parent, sk
 		rid = et_mock_create(state, parent);
 		if (rid.id != 0u) {
 			sk_editor_notify_entity_created(state->app_context, state->app_api, state->workspace_id, rid);
+			et_mark_dirty(state);
 			et_select_exclusive(state, rid);
 			et_rebuild_tree(state);
 			state->reveal_rid = rid;
@@ -749,6 +791,7 @@ static sk_rid_t et_create_entity_internal(et_state_t* state, sk_rid_t parent, sk
 		repo->commit(view, scope);
 	}
 	sk_editor_notify_entity_created(state->app_context, state->app_api, state->workspace_id, rid);
+	et_mark_dirty(state);
 	et_select_exclusive(state, rid);
 	et_rebuild_tree(state);
 	state->reveal_rid = rid;
@@ -769,6 +812,7 @@ static void et_rename_entity_internal(et_state_t* state, sk_rid_t rid, const_chr
 		}
 		(void)snprintf(state->mock[idx].name, sizeof(state->mock[idx].name), "%s", name);
 		sk_editor_notify_entity_renamed(state->app_context, state->app_api, state->workspace_id, rid, state->mock[idx].name);
+		et_mark_dirty(state);
 		et_rebuild_tree(state);
 		return;
 	}
@@ -783,6 +827,7 @@ static void et_rename_entity_internal(et_state_t* state, sk_rid_t rid, const_chr
 	repo->set_string(view, SK_ENTITY_RESOURCE_FIELD_NAME, name);
 	repo->commit(view, scope);
 	sk_editor_notify_entity_renamed(state->app_context, state->app_api, state->workspace_id, rid, name);
+	et_mark_dirty(state);
 	et_rebuild_tree(state);
 }
 
@@ -798,6 +843,7 @@ static sk_rid_t et_duplicate_entity_internal(et_state_t* state, sk_rid_t rid, sk
 		clone = et_mock_duplicate(state, rid);
 		if (clone.id != 0u) {
 			sk_editor_notify_entity_created(state->app_context, state->app_api, state->workspace_id, clone);
+			et_mark_dirty(state);
 			et_select_exclusive(state, clone);
 			et_rebuild_tree(state);
 			state->reveal_rid = clone;
@@ -822,6 +868,7 @@ static sk_rid_t et_duplicate_entity_internal(et_state_t* state, sk_rid_t rid, sk
 		repo->commit(view, scope);
 	}
 	sk_editor_notify_entity_created(state->app_context, state->app_api, state->workspace_id, clone);
+	et_mark_dirty(state);
 	et_select_exclusive(state, clone);
 	et_rebuild_tree(state);
 	state->reveal_rid = clone;
@@ -848,6 +895,9 @@ static void et_delete_entity_internal(et_state_t* state, sk_rid_t rid, sk_undo_r
 		sk_editor_notify_entity_deleted(state->app_context, state->app_api, state->workspace_id, doomed[i]);
 		et_deselect_subtree(state, doomed[i]);
 	}
+	if (count > 0u) {
+		et_mark_dirty(state);
+	}
 	/* Drop deleted ids from the session toggle state. */
 	for (i = 0u; i < count; ++i) {
 		u32 t;
@@ -873,6 +923,7 @@ static void et_reparent_entity_internal(et_state_t* state, sk_rid_t entity, sk_r
 	}
 	if (state->mock_scene != 0) {
 		et_mock_reparent(state, entity, new_parent);
+		et_mark_dirty(state);
 		et_rebuild_tree(state);
 		return;
 	}
@@ -906,6 +957,7 @@ static void et_reparent_entity_internal(et_state_t* state, sk_rid_t entity, sk_r
 		repo->commit(view, scope);
 	}
 	sk_editor_notify_entity_reparented(state->app_context, state->app_api, state->workspace_id, entity, target);
+	et_mark_dirty(state);
 	et_rebuild_tree(state);
 }
 
@@ -1111,10 +1163,8 @@ static void et_action_show_scene_entity(sk_app_context_t* app_context, const sk_
 static void et_action_show_resource_inspector(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t* window, void* user) {
 	et_state_t* state = et_state_of(app_context, app_api, window);
 	(void)user;
-	/* MOCK: C++ opens ResourceDebuggerWindow::InspectResource(selected[0]);
-	 * the debugger is not migrated, so record the inspected RID. */
 	if (state != NULL && state->selected_count > 0u) {
-		state->last_inspected = state->selected[0];
+		et_inspect_resource(state, state->selected[0]);
 	}
 }
 
@@ -1989,6 +2039,10 @@ static void et_on_tree_activate(sk_ui_context_t* ctx, sk_ui_node_t host, u64 ite
 			sk_rid_t rid = state->tree_rids[i];
 			if ((state->last_click_mods & (u32)SK_UI_MOD_CTRL) != 0u) {
 				et_toggle_select(state, rid);
+			} else if (state->selected_count == 1u && SK_RID_EQ(state->selected[0], rid)) {
+				/* Second click of the already-selected row (C++ double-click
+				 * ViewEntity): frame through the Scene View ops table. */
+				et_frame_in_scene_view(state, rid);
 			} else {
 				et_select_exclusive(state, rid);
 			}
@@ -3013,6 +3067,123 @@ SK_TEST(editor_entity_tree_ui_dock_tree) {
 	ui->context_destroy(ctx);
 	ui->shutdown();
 	sk_editor_entity_tree_shutdown(app, boot.api);
+	sk_app_shutdown(app);
+}
+
+static void ett_on_dirty(void* user, u32 workspace_id) {
+	u32* count = (u32*)user;
+	(void)workspace_id;
+	(*count)++;
+}
+
+/* Cross-window: selection / structure / inspect / view-entity / dirty go
+ * through add_impl observer structs and per-window ops tables only. */
+SK_TEST(editor_windows_cross_notify_and_ops) {
+	sk_app_boot_t boot = sk_app_create();
+	sk_app_context_t* app = boot.context;
+	const sk_editor_api_t* editor;
+	const sk_editor_entity_tree_ops_t* et;
+	const sk_editor_properties_ops_t* props;
+	const sk_editor_scene_view_ops_t* sv;
+	const sk_editor_resource_debugger_ops_t* rd;
+	sk_editor_window_t* tree;
+	sk_editor_window_t* inspector;
+	sk_editor_window_t* view;
+	sk_editor_window_t* dbg;
+	sk_rid_t player;
+	sk_rid_t created;
+	u32 dirty = 0u;
+	sk_editor_on_dirty_t on_dirty;
+	et_class_state_t* cls;
+	u32 i;
+	i32 fired = 0;
+
+	TEST_ASSERT_NOT_NULL(app);
+	sk_editor_bind_tables(app, boot.api);
+	editor = (const sk_editor_api_t*)boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(editor);
+
+	sk_editor_entity_tree_register(app, boot.api);
+	sk_editor_properties_register(app, boot.api);
+	sk_editor_scene_view_register(app, boot.api);
+	sk_editor_resource_debugger_register(app, boot.api);
+
+	et = sk_editor_entity_tree_ops(app, boot.api);
+	props = sk_editor_properties_ops(app, boot.api);
+	sv = sk_editor_scene_view_ops(app, boot.api);
+	rd = sk_editor_resource_debugger_ops(app, boot.api);
+	TEST_ASSERT_NOT_NULL(et);
+	TEST_ASSERT_NOT_NULL(props);
+	TEST_ASSERT_NOT_NULL(sv);
+	TEST_ASSERT_NOT_NULL(rd);
+
+	tree = et->open(app, boot.api);
+	inspector = props->open(app, boot.api);
+	TEST_ASSERT_NOT_NULL(tree);
+	TEST_ASSERT_NOT_NULL(inspector);
+
+	memset(&on_dirty, 0, sizeof(on_dirty));
+	on_dirty.user = &dirty;
+	on_dirty.on_dirty = ett_on_dirty;
+	boot.api->add_impl(app, SK_EDITOR_NOTIFY_DIRTY, &on_dirty);
+
+	player = et->entity_rid_at(tree, 3u); /* Player in the mock scene */
+	TEST_ASSERT_TRUE(player.id != 0u);
+	et->select_entity(app, boot.api, tree, player, 1, NULL);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ENTITY, (int)props->get_kind(inspector));
+	TEST_ASSERT_TRUE(props->get_selected_rid(inspector).id == player.id);
+
+	/* Structure: rename refreshes the inspector without changing selection. */
+	et->rename_entity(app, boot.api, tree, player, "Hero");
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_ENTITY, (int)props->get_kind(inspector));
+	TEST_ASSERT_EQUAL_STRING("Hero", et->entity_name_at(tree, 3u));
+
+	/* Inspect routes through the Resource Debugger ops table. */
+	cls = et_class(app, boot.api);
+	for (i = 0u; i < cls->menu_count; ++i) {
+		if (cls->menus[i].item_name != NULL && strcmp(cls->menus[i].item_name, "Show Resource Inspector") == 0 && cls->menus[i].action != NULL) {
+			cls->menus[i].action(app, boot.api, tree, cls->menus[i].user);
+			fired = 1;
+			break;
+		}
+	}
+	TEST_ASSERT_EQUAL_INT(1, fired);
+	dbg = editor->window_by_type(app, boot.api, SK_EDITOR_WINDOW_RESOURCE_DEBUGGER);
+	TEST_ASSERT_NOT_NULL(dbg);
+	TEST_ASSERT_TRUE(rd->get_selected_instance(dbg).id == player.id);
+
+	/* Second-click / ViewEntity path: ops table, not a direct symbol. */
+	et_frame_in_scene_view((et_state_t*)tree->user_data, player);
+	view = editor->window_by_type(app, boot.api, SK_EDITOR_WINDOW_SCENE_VIEW);
+	TEST_ASSERT_NOT_NULL(view);
+	TEST_ASSERT_TRUE(sv->get_last_viewed_entity(view).id == player.id);
+
+	/* Create marks dirty; delete of the selected entity clears the inspector. */
+	created = et->create_entity(app, boot.api, tree, player, NULL);
+	TEST_ASSERT_TRUE(created.id != 0u);
+	TEST_ASSERT_TRUE(dirty > 0u);
+	et->select_entity(app, boot.api, tree, created, 1, NULL);
+	TEST_ASSERT_TRUE(props->get_selected_rid(inspector).id == created.id);
+	et->delete_entity(app, boot.api, tree, NULL);
+	TEST_ASSERT_EQUAL_INT((int)SK_EDITOR_PROPERTIES_NONE, (int)props->get_kind(inspector));
+
+	/* Close the inspector: observers detach; notify is a no-op on the dead window. */
+	editor->window_close(app, boot.api, inspector);
+	et->select_entity(app, boot.api, tree, player, 1, NULL);
+	TEST_ASSERT_NULL(editor->window_by_type(app, boot.api, SK_EDITOR_WINDOW_PROPERTIES));
+
+	boot.api->remove_impl(app, SK_EDITOR_NOTIFY_DIRTY, &on_dirty);
+	editor->window_close(app, boot.api, tree);
+	if (view != NULL) {
+		editor->window_close(app, boot.api, view);
+	}
+	if (dbg != NULL) {
+		editor->window_close(app, boot.api, dbg);
+	}
+	sk_editor_entity_tree_shutdown(app, boot.api);
+	sk_editor_properties_shutdown(app, boot.api);
+	sk_editor_scene_view_shutdown(app, boot.api);
+	sk_editor_resource_debugger_shutdown(app, boot.api);
 	sk_app_shutdown(app);
 }
 

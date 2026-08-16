@@ -18,9 +18,9 @@
  * live resource found by walking the dense RID range 1..resource_count
  * (RIDs are sequential per repository). Instance lists per type come from
  * the same walk. Without an attached repository the window shows a clearly
- * marked empty state (`set_repository` attaches one; the Project Browser /
- * Entity Tree "Show Resource Inspector" callers pass their scene/project
- * repository once they are wired to the debugger).
+ * marked empty state (`set_repository` attaches one). The Project Browser /
+ * Entity Tree "Show Resource Inspector" actions call `inspect_resource`
+ * through this table and then `set_repository` with their attached repo.
  *
  * Public entry points (Open / InspectResource / NavigateToInstance / back /
  * type+instance queries / generic field reads) follow the APX-365 pattern:
