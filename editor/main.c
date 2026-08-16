@@ -35,9 +35,10 @@ static void print_usage(const_chr_t argv0) {
 			"Usage:\n"
 			"  %s <package_path> [--name <package_name>] [--import <path>]...\n"
 			"  %s --ui-migration\n"
-			"  %s --shell\n"
+			"  %s --shell [<package_path>] [--name <package_name>]\n"
 			"\n"
-			"  package_path   Directory that contains Assets/\n"
+			"  package_path   Directory that contains Assets/ (shell mode attaches it\n"
+			"                 to the Project Browser; mock data without one)\n"
 			"  --name         Package name for path ids (default: Game)\n"
 			"  --import       Import a source file or directory via core importers\n"
 			"  --ui-migration Dual-stack editor UI demo (sk-ui Console + ImGui shell)\n"
@@ -144,6 +145,7 @@ typedef struct shell_host_t {
 	sk_editor_shell_t* shell;
 	const sk_platform_window_api_t* win_api;
 	sk_window_t window;
+	sk_editor_project_t* project; /* optional attached project (APX-369) */
 	f32 pointer_x;
 	f32 pointer_y;
 	i32 pointer_down;
@@ -208,7 +210,7 @@ static void shell_host_dispatch_mouse(shell_host_t* host, const sk_platform_wind
 	host->pointer_down = down;
 }
 
-static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log) {
+static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name) {
 	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	const sk_platform_window_api_t* win_api;
 	const sk_ui_api_t* ui;
@@ -253,6 +255,24 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 		sk_log_error(logger_api, log, "editor shell create failed");
 		return 1;
 	}
+
+	/* APX-369: when a package path was given, open it and attach it to the
+	 * Project Browser so the shell lists a real project (not mock data). */
+	host.project = NULL;
+	if (package_path != NULL) {
+		const sk_editor_api_t* editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
+		host.project = editor != NULL ? editor->project_open(app, app_api, package_name, package_path) : NULL;
+		if (host.project == NULL) {
+			sk_log_error(logger_api, log, "failed to open project at %s (need Assets/ under package root); Project Browser uses mock data", package_path);
+		} else {
+			const sk_editor_project_browser_ops_t* ops = sk_editor_project_browser_ops(app, app_api);
+			sk_editor_window_t* browser = sk_editor_window_by_type(app, app_api, SK_EDITOR_WINDOW_PROJECT_BROWSER);
+			if (ops != NULL && browser != NULL && ops->set_project != NULL) {
+				ops->set_project(app, app_api, browser, host.project);
+				sk_log_info(logger_api, log, "Project Browser attached to package '%s' at %s", package_name, package_path);
+			}
+		}
+	}
 	win_api->set_window_key_callback(window, shell_host_on_key, &host);
 	win_api->set_window_char_callback(window, shell_host_on_char, &host);
 	win_api->set_window_scroll_callback(window, shell_host_on_scroll, &host);
@@ -288,6 +308,11 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 	}
 
 	(void)sk_editor_layout_save(app, app_api);
+	if (host.project != NULL) {
+		const sk_editor_api_t* editor = (const sk_editor_api_t*)app_api->get_api(app, SK_EDITOR_API_TYPE_ID);
+		editor->project_close(host.project);
+		host.project = NULL;
+	}
 	sk_editor_shell_destroy(host.shell);
 	win_api->destroy_window(window);
 	return 0;
@@ -421,7 +446,7 @@ int main(int argc, char* argv[]) {
 	if (ui_migration) {
 		rc = run_ui_migration(app, app_api, editor, log);
 	} else if (shell_mode) {
-		rc = run_shell_mode(app, app_api, log);
+		rc = run_shell_mode(app, app_api, log, package_path, package_name);
 	} else {
 		rc = run_package_mode(app, app_api, editor, log, package_path, package_name, import_paths, import_count);
 	}
