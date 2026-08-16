@@ -320,6 +320,7 @@ i32 ui_node_get_layout_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, 
 i32 ui_node_get_layout_rect_scaled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
 
 void ui_set_measure_fn_impl(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user);
+void ui_set_layout_fonts_impl(sk_ui_context_t* ctx, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
 i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y);
 void ui_layout_get_content_scale_impl(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y);
 
@@ -1089,6 +1090,12 @@ i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32
  * Does not re-initialize Clay; affects the next layout pass.
  */
 void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Measure UTF-8 with the Clay layout font (same advances as wrap=0 FIT).
+ * @return 0 on success; -1 when no layout font is bound or px is not positive.
+ */
+i32 ui_clay_measure_text_extent(f32 px, const_chr_t utf8, f32* out_advance, f32* out_max_x);
 
 /**
  * Whether Clay has been initialized (used by the adapter to skip redundant

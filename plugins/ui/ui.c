@@ -168,6 +168,11 @@ void ui_set_measure_fn_impl(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_
 	ctx->measure_user = user;
 }
 
+void ui_set_layout_fonts_impl(sk_ui_context_t* ctx, sk_ui_font_system_t* font_system, sk_ui_font_t* font) {
+	(void)ctx;
+	ui_clay_set_font(font_system, font);
+}
+
 void ui_layout_get_content_scale_impl(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y) {
 	if (out_scale_x != NULL) {
 		*out_scale_x = ctx->content_scale_x;
@@ -1436,6 +1441,7 @@ static const sk_ui_api_t ui_api = {
 	ui_node_get_layout_rect_impl,
 	ui_node_get_layout_rect_scaled_impl,
 	ui_set_measure_fn_impl,
+	ui_set_layout_fonts_impl,
 	ui_clay_layout_impl,
 	ui_layout_apply_scale_impl,
 	ui_layout_get_content_scale_impl,

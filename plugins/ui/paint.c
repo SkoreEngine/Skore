@@ -1083,7 +1083,11 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		const u8* b = line_ends[li];
 		f32 align_dx = 0.0f;
 
-		if (text_align == 1 && content_w > line_widths[li]) {
+		if (text_align == 1) {
+			/* Always centre (APX-388): when the text overflows the box the
+			 * caller's clip rect turns this into a centred clip instead of a
+			 * silent right-edge shave (content grids clip captions at the
+			 * tile box while the label box may be wider). */
 			align_dx = (content_w - line_widths[li]) * 0.5f;
 		} else if (text_align == 2 && content_w > line_widths[li]) {
 			align_dx = content_w - line_widths[li];

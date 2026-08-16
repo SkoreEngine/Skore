@@ -65,9 +65,13 @@ struct sk_editor_workspace_t {
 	SK_ARRAY(sk_editor_dock_slot_t) docks;
 
 	/* APX-330: workspace-owned sk-ui dockspace model (NULL until the ui API
-	 * is available and dockspace init/reset built the model). */
+	 * is available and dockspace init/reset built the model). APX-366: the
+	 * editor shell may bind a shared context with
+	 * sk_editor_workspace_set_dock_context; owns_dock_ctx stays 0 then, so
+	 * destroying the workspace never destroys the shell's context. */
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* dock_ctx;
+	i32 owns_dock_ctx; /* 1 when dockspace_build created dock_ctx itself */
 	sk_ui_dock_node_t dock_root;
 	sk_ui_dock_node_t zone_center;
 	sk_ui_dock_node_t zone_left;
@@ -238,8 +242,10 @@ void sk_editor_workspace_destroy(sk_editor_workspace_t* workspace) {
 	if (registry->active == workspace) {
 		registry->active = NULL;
 	}
-	/* Tear down the workspace-owned sk-ui dockspace (chrome, tabs, callback). */
-	if (workspace->ui != NULL && workspace->dock_ctx != NULL) {
+	/* Tear down the workspace-owned sk-ui dockspace (chrome, tabs, callback) —
+	 * but only when the workspace owns the context (a shell-bound shared
+	 * context survives the workspace, see set_dock_context). */
+	if (workspace->ui != NULL && workspace->dock_ctx != NULL && workspace->owns_dock_ctx != 0) {
 		workspace->ui->context_destroy(workspace->dock_ctx);
 	}
 	sk_array_free(&workspace->docks);
@@ -268,6 +274,22 @@ u32 sk_editor_workspace_list(sk_app_context_t* app_context, const sk_app_api_t* 
 sk_editor_workspace_t* sk_editor_workspace_active(sk_app_context_t* app_context, const sk_app_api_t* app_api) {
 	sk_editor_registry_t* registry = editor_registry_get(app_context, app_api);
 	return registry != NULL ? registry->active : NULL;
+}
+
+u32 sk_editor_workspace_type_id(const sk_editor_workspace_t* workspace) {
+	return workspace->type_id;
+}
+
+const_chr_t sk_editor_workspace_display_name(const sk_editor_workspace_t* workspace) {
+	return workspace->display_name;
+}
+
+sk_app_context_t* sk_editor_workspace_app_context(const sk_editor_workspace_t* workspace) {
+	return workspace->app_context;
+}
+
+const sk_app_api_t* sk_editor_workspace_app_api(const sk_editor_workspace_t* workspace) {
+	return workspace->app_api;
 }
 
 /* APX-330 dock helpers (defined after sk_editor_window_open). */
@@ -467,6 +489,42 @@ sk_editor_window_t* sk_editor_window_by_type(sk_app_context_t* app_context, cons
 	return NULL;
 }
 
+sk_editor_window_t* sk_editor_window_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id) {
+	sk_editor_registry_t* registry = editor_registry_get(app_context, app_api);
+	if (registry == NULL || dock_id == NULL) {
+		return NULL;
+	}
+	return editor_window_by_dock_id(registry, dock_id);
+}
+
+const sk_editor_window_t* sk_editor_window_impl_by_dock_id(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t dock_id) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	const sk_editor_window_t* found = NULL;
+	const_ptr_t* impls;
+	u32 count;
+	if (dock_id == NULL || dock_id[0] == '\0') {
+		return NULL;
+	}
+	count = app_api->impl_count(app_context, SK_EDITOR_WINDOW_IMPL_TYPE_ID);
+	if (count == 0u) {
+		return NULL;
+	}
+	impls = (const_ptr_t*)alloc->alloc(alloc->instance, (size_t)count * sizeof(const_ptr_t));
+	if (impls == NULL) {
+		return NULL;
+	}
+	(void)app_api->get_all_impls(app_context, SK_EDITOR_WINDOW_IMPL_TYPE_ID, impls, count);
+	for (u32 i = 0u; i < count; ++i) {
+		const sk_editor_window_t* impl = (const sk_editor_window_t*)impls[i];
+		if (impl->dock_id != NULL && strcmp(impl->dock_id, dock_id) == 0) {
+			found = impl;
+			break;
+		}
+	}
+	alloc->free(alloc->instance, impls);
+	return found;
+}
+
 u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* app_api, sk_editor_window_t** out, u32 out_cap) {
 	sk_editor_registry_t* registry = editor_registry_get(app_context, app_api);
 	if (registry == NULL) {
@@ -487,11 +545,12 @@ u32 sk_editor_window_iterate(sk_app_context_t* app_context, const sk_app_api_t* 
 
 /* main InitDockSpace split ratios (fractions kept by the child toward the
  * split direction; empty zones collapse at apply). */
-#define SK_EDITOR_DOCK_BOTTOM_RATIO 0.30f
+#define SK_EDITOR_DOCK_BOTTOM_RATIO 0.38f
 #define SK_EDITOR_DOCK_BOTTOM_SPLIT_RATIO 0.50f
 #define SK_EDITOR_DOCK_LEFT_RATIO 0.22f
 #define SK_EDITOR_DOCK_RIGHT_RATIO 0.24f
 #define SK_EDITOR_DOCK_RIGHT_SPLIT_RATIO 0.50f
+#define SK_EDITOR_LAYOUT_APPLY_CAP 32u
 
 static void dockspace_dock_model_build(sk_editor_workspace_t* workspace);
 static void dockspace_zones_invalidate(sk_editor_workspace_t* workspace);
@@ -533,10 +592,13 @@ static void dockspace_build(sk_editor_workspace_t* workspace) {
 
 	/* APX-330: project the default layout onto the workspace's sk-ui
 	 * dockspace when the ui plugin is available (editor host / ui-loaded
-	 * tests). Without ui the workspace keeps the slot list only. */
+	 * tests). Without ui the workspace keeps the slot list only. A
+	 * shell-bound shared context (APX-366, set_dock_context) is reused;
+	 * otherwise each workspace creates (and owns) its own context. */
 	workspace->ui = (const sk_ui_api_t*)app_api->get_api(app_context, SK_UI_API_TYPE_ID);
 	if (workspace->ui != NULL && workspace->dock_ctx == NULL) {
 		workspace->dock_ctx = workspace->ui->context_create(NULL);
+		workspace->owns_dock_ctx = 1;
 	}
 	dockspace_dock_model_build(workspace);
 	workspace->initialized = 1;
@@ -550,6 +612,32 @@ static void dockspace_zones_invalidate(sk_editor_workspace_t* workspace) {
 	workspace->zone_right_bottom = SK_UI_DOCK_NODE_INVALID;
 	workspace->zone_bottom_left = SK_UI_DOCK_NODE_INVALID;
 	workspace->zone_bottom_right = SK_UI_DOCK_NODE_INVALID;
+}
+
+/* The dock builder tab-appends in `order` sequence, so the *last*
+ * (highest-order) window of a leaf ends up active (last-tab-wins). The C++
+ * editor shows the first/lowest-order window in a leaf, so once the default
+ * layout is built, activate the lowest-order window of every zone. The
+ * workspace->docks array is sorted by (dock_position, order) above, so the
+ * first slot of each zone group is that zone's lowest-order window.
+ * Restored layouts take the JSON path (dock_layout_load_json) and keep the
+ * saved active tab; this build path only runs for default layouts. */
+static void dockspace_activate_lowest_order_tabs(sk_editor_workspace_t* workspace) {
+	const sk_ui_api_t* ui = workspace->ui;
+	sk_ui_context_t* ctx = workspace->dock_ctx;
+	u32 i;
+	for (i = 0u; i < workspace->docks.count; ++i) {
+		const sk_editor_dock_slot_t* slot = &workspace->docks.items[i];
+		sk_editor_window_t* window;
+		if (i > 0u && workspace->docks.items[i - 1u].dock_position == slot->dock_position) {
+			continue; /* not the lowest-order window of this zone */
+		}
+		window = sk_editor_window_by_type(workspace->app_context, workspace->app_api, slot->window_type_id);
+		if (window == NULL || window->dock_id == NULL || ui->dock_window_is_docked(ctx, window->dock_id) != 1) {
+			continue;
+		}
+		(void)ui->dock_tab_set_active(ctx, window->dock_id);
+	}
 }
 
 /* Build (or rebuild) the workspace's sk-ui dockspace model: the main
@@ -631,6 +719,7 @@ static void dockspace_dock_model_build(sk_editor_workspace_t* workspace) {
 	if (ui->dock_builder_finish(ctx) != 0) {
 		return;
 	}
+	dockspace_activate_lowest_order_tabs(workspace);
 
 	/* Close/undock notifications from the dock chrome (dock_tab_close /
 	 * dock_window_undock) land here; the chrome keeps move/redock and tab
@@ -647,11 +736,178 @@ void sk_editor_dockspace_init(sk_editor_workspace_t* workspace) {
 	}
 }
 void sk_editor_dockspace_reset(sk_editor_workspace_t* workspace) {
+	/* Close windows that are not part of this workspace's default set
+	 * (on-demand mask 0, or a mask that does not admit the type). Then
+	 * rebuild the InitDockSpace tree. Windows without a dock_id (test
+	 * stubs) stay if their mask matches. */
+	sk_editor_window_t* open[SK_EDITOR_LAYOUT_APPLY_CAP];
+	u32 n = sk_editor_window_iterate(workspace->app_context, workspace->app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+	u32 i;
+	if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+		n = SK_EDITOR_LAYOUT_APPLY_CAP;
+	}
+	sk_editor_workspace_clear_dockspace(workspace);
+	for (i = 0u; i < n; ++i) {
+		sk_editor_window_t* window = open[i];
+		if (!sk_editor_workspace_mask_contains(window->workspace_mask, workspace->type_id)) {
+			sk_editor_window_close(workspace->app_context, workspace->app_api, window);
+		}
+	}
 	dockspace_build(workspace);
 }
 
 struct sk_ui_context_t* sk_editor_workspace_dock_context(const sk_editor_workspace_t* workspace) {
 	return workspace->dock_ctx;
+}
+
+void sk_editor_workspace_set_dock_context(sk_editor_workspace_t* workspace, sk_ui_context_t* ctx) {
+	if (workspace == NULL || workspace->initialized != 0) {
+		return;
+	}
+	workspace->dock_ctx = ctx;
+	workspace->owns_dock_ctx = 0;
+}
+
+void sk_editor_workspace_clear_dockspace(sk_editor_workspace_t* workspace) {
+	if (workspace == NULL || workspace->ui == NULL || workspace->dock_ctx == NULL) {
+		return;
+	}
+	if (sk_ui_dock_node_is_valid(workspace->dock_root)) {
+		(void)workspace->ui->dockspace_destroy(workspace->dock_ctx, workspace->dock_space_id);
+		workspace->dock_root = SK_UI_DOCK_NODE_INVALID;
+	}
+	dockspace_zones_invalidate(workspace);
+	workspace->dock_built = 0;
+}
+
+sk_ui_dock_node_t sk_editor_workspace_dock_root(const sk_editor_workspace_t* workspace) {
+	return workspace != NULL ? workspace->dock_root : SK_UI_DOCK_NODE_INVALID;
+}
+
+i32 sk_editor_workspace_dock_window(sk_editor_workspace_t* workspace, sk_editor_window_t* window) {
+	sk_ui_dock_node_t zone;
+	if (workspace == NULL || window == NULL || workspace->ui == NULL || workspace->dock_ctx == NULL || workspace->dock_built == 0 || window->dock_id == NULL ||
+		window->dock_position == SK_EDITOR_DOCK_NONE) {
+		return -1;
+	}
+	zone = workspace_zone_for(workspace, window->dock_position);
+	if (!sk_ui_dock_node_is_valid(zone)) {
+		return -1;
+	}
+	(void)editor_dock_ensure_chrome(workspace, window);
+	return workspace->ui->dock_window_to_node(workspace->dock_ctx, window->dock_id, zone, SK_UI_DOCK_DIR_CENTER);
+}
+
+static i32 editor_layout_id_wanted(const_chr_t* dock_ids, u32 count, const_chr_t dock_id) {
+	u32 i;
+	if (dock_id == NULL) {
+		return 0;
+	}
+	for (i = 0u; i < count; ++i) {
+		if (dock_ids[i] != NULL && strcmp(dock_ids[i], dock_id) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+i32 sk_editor_workspace_save_dock_json(const sk_editor_workspace_t* workspace, char* out, u32 cap, u32* out_len) {
+	if (workspace->ui == NULL || workspace->dock_ctx == NULL || workspace->dock_built == 0) {
+		return -1;
+	}
+	return workspace->ui->dock_layout_save_json(workspace->dock_ctx, workspace->dock_space_id, out, cap, out_len);
+}
+
+i32 sk_editor_workspace_apply_layout(sk_editor_workspace_t* workspace, const_chr_t* dock_ids, u32 count, const_chr_t dock_json, u32 dock_json_len) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_app_context_t* app_context = workspace->app_context;
+	const sk_app_api_t* app_api = workspace->app_api;
+	sk_editor_window_t* open[SK_EDITOR_LAYOUT_APPLY_CAP];
+	u32 n;
+	u32 i;
+	i32 loaded = 0;
+
+	/* Tear the live model first so window_close does not go through the
+	 * dock tab callback (and so chrome ids can be reused). */
+	sk_editor_workspace_clear_dockspace(workspace);
+
+	n = sk_editor_window_iterate(app_context, app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+	if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+		n = SK_EDITOR_LAYOUT_APPLY_CAP;
+	}
+	for (i = 0u; i < n; ++i) {
+		sk_editor_window_t* window = open[i];
+		if (!editor_layout_id_wanted(dock_ids, count, window->dock_id)) {
+			sk_editor_window_close(app_context, app_api, window);
+		}
+	}
+
+	for (i = 0u; i < count; ++i) {
+		const sk_editor_window_t* impl = sk_editor_window_impl_by_dock_id(app_context, app_api, dock_ids[i]);
+		if (impl == NULL) {
+			continue; /* unknown / stale window id */
+		}
+		(void)sk_editor_window_open(app_context, app_api, impl->type_id);
+	}
+
+	workspace->ui = (const sk_ui_api_t*)app_api->get_api(app_context, SK_UI_API_TYPE_ID);
+	if (workspace->ui != NULL && workspace->dock_ctx == NULL) {
+		workspace->dock_ctx = workspace->ui->context_create(NULL);
+		workspace->owns_dock_ctx = 1;
+	}
+
+	if (workspace->ui != NULL && workspace->dock_ctx != NULL) {
+		const sk_ui_api_t* ui = workspace->ui;
+		sk_ui_context_t* ctx = workspace->dock_ctx;
+
+		n = sk_editor_window_iterate(app_context, app_api, open, SK_EDITOR_LAYOUT_APPLY_CAP);
+		if (n > SK_EDITOR_LAYOUT_APPLY_CAP) {
+			n = SK_EDITOR_LAYOUT_APPLY_CAP;
+		}
+		for (i = 0u; i < n; ++i) {
+			sk_editor_window_t* window = open[i];
+			if (window->dock_id == NULL) {
+				continue;
+			}
+			if (!sk_ui_node_is_valid(ui->find_by_id(ctx, window->dock_id))) {
+				(void)ui->widget_editor_window(ctx, ui->context_root(ctx), window->title, window->dock_id);
+			}
+			(void)ui->dock_window_register(ctx, window->dock_id, NULL, NULL);
+		}
+
+		if (dock_json != NULL && dock_json_len > 0u) {
+			if (ui->dock_layout_load_json(ctx, workspace->dock_space_id, dock_json, dock_json_len) == 0) {
+				workspace->dock_root = ui->dockspace_find(ctx, workspace->dock_space_id);
+				if (sk_ui_dock_node_is_valid(workspace->dock_root)) {
+					ui->dock_set_tab_callback(ctx, editor_dock_tab_cb, workspace->registry);
+					workspace->dock_built = 1;
+					loaded = 1;
+				}
+			}
+		}
+
+		if (loaded == 0) {
+			sk_array_free(&workspace->docks);
+			sk_array_init(&workspace->docks, alloc);
+			for (i = 0u; i < n; ++i) {
+				sk_editor_dock_slot_t slot;
+				sk_editor_window_t* window = open[i];
+				if (window->dock_id == NULL || window->dock_position == SK_EDITOR_DOCK_NONE) {
+					continue;
+				}
+				slot.window_type_id = window->type_id;
+				slot.dock_position = window->dock_position;
+				slot.order = window->order;
+				if (sk_array_push(&workspace->docks, slot) != 0) {
+					break;
+				}
+			}
+			dockspace_dock_model_build(workspace);
+		}
+	}
+
+	workspace->initialized = 1;
+	return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1075,6 +1331,171 @@ SK_TEST(editor_scene_default_dock_layout) {
 	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "sk.editor_window.console"));
 	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "sk.editor_window.console"), ui->dock_find_node_for_window(ctx, "sk.editor_window.debugger")));
 
+	editor->workspace_destroy(scene_ws);
+	ew_ui_fixture_stop(&fx);
+}
+
+SK_TEST(editor_preset_active_tab_is_lowest_order) {
+	ew_ui_fixture_t fx;
+	sk_app_context_t* app;
+	const sk_editor_api_t* editor;
+	const sk_ui_api_t* ui;
+	sk_editor_workspace_t* scene_ws;
+	sk_editor_workspace_t* graph_ws;
+	sk_ui_context_t* ctx;
+	const_chr_t tabs[8];
+	u32 count;
+	u32 active;
+	sk_ui_dock_node_t leaf;
+
+	TEST_ASSERT_EQUAL_INT(0, ew_ui_fixture_start(&fx));
+	app = fx.boot.context;
+	sk_editor_bind_tables(app, fx.boot.api);
+	sk_editor_workspace_register_impls(app, fx.boot.api);
+	sk_editor_windows_register_impls(app, fx.boot.api);
+	editor = (const sk_editor_api_t*)fx.boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	ui = fx.ui;
+	TEST_ASSERT_NOT_NULL(editor);
+
+	/* Scene preset: each leaf activates its lowest-order window (APX-379). */
+	scene_ws = editor->workspace_create(app, fx.boot.api, SK_EDITOR_WORKSPACE_SCENE);
+	TEST_ASSERT_NOT_NULL(scene_ws);
+	editor->dockspace_init(scene_ws);
+	ctx = editor->workspace_dock_context(scene_ws);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	/* RightTop: EntityTree (order 0) is active, not History (order 10). */
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.entity_tree");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(leaf));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.entity_tree", tabs[active]);
+
+	/* BottomRight: Console (order 10) is active, not Debugger (order 20). */
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.console");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(leaf));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.console", tabs[active]);
+
+	/* Single-tab leaves: Center (SceneView), RightBottom (Properties),
+	 * BottomLeft (ProjectBrowser). */
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.scene_view");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.scene_view", tabs[active]);
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.properties");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.properties", tabs[active]);
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.project_browser");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.project_browser", tabs[active]);
+
+	/* Graph preset after a workspace switch follows the same rule: Center is
+	 * GraphEditor, BottomRight keeps Console active. */
+	graph_ws = editor->workspace_create(app, fx.boot.api, SK_EDITOR_WORKSPACE_GRAPH);
+	TEST_ASSERT_NOT_NULL(graph_ws);
+	editor->workspace_switch(graph_ws);
+	editor->dockspace_init(graph_ws);
+	ctx = editor->workspace_dock_context(graph_ws);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.graph_editor");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(leaf));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.graph_editor", tabs[active]);
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.console");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(leaf));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.console", tabs[active]);
+
+	editor->workspace_destroy(graph_ws);
+	editor->workspace_destroy(scene_ws);
+	ew_ui_fixture_stop(&fx);
+}
+
+SK_TEST(editor_layout_roundtrip_preserves_selected_tab) {
+	ew_ui_fixture_t fx;
+	sk_app_context_t* app;
+	const sk_editor_api_t* editor;
+	const sk_ui_api_t* ui;
+	sk_editor_workspace_t* scene_ws;
+	sk_editor_workspace_t* graph_ws;
+	sk_ui_context_t* ctx;
+	sk_editor_window_t* open[16];
+	const_chr_t dock_ids[16];
+	char dock_json[65536];
+	u32 dock_len = 0u;
+	u32 n;
+	u32 i;
+	const_chr_t tabs[8];
+	u32 count;
+	u32 active;
+	sk_ui_dock_node_t leaf;
+
+	TEST_ASSERT_EQUAL_INT(0, ew_ui_fixture_start(&fx));
+	app = fx.boot.context;
+	sk_editor_bind_tables(app, fx.boot.api);
+	sk_editor_workspace_register_impls(app, fx.boot.api);
+	sk_editor_windows_register_impls(app, fx.boot.api);
+	editor = (const sk_editor_api_t*)fx.boot.api->get_api(app, SK_EDITOR_API_TYPE_ID);
+	ui = fx.ui;
+	TEST_ASSERT_NOT_NULL(editor);
+
+	scene_ws = editor->workspace_create(app, fx.boot.api, SK_EDITOR_WORKSPACE_SCENE);
+	TEST_ASSERT_NOT_NULL(scene_ws);
+	editor->dockspace_init(scene_ws);
+	ctx = editor->workspace_dock_context(scene_ws);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	/* Simulate the user selecting Debugger in the BottomRight leaf. */
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_tab_set_active(ctx, "sk.editor_window.debugger"));
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.debugger");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.debugger", tabs[active]);
+
+	/* Capture the layout: dock JSON (holds per-leaf active tabs) + the open
+	 * window ids the restore must keep. */
+	TEST_ASSERT_EQUAL_INT(0, sk_editor_workspace_save_dock_json(scene_ws, dock_json, (u32)sizeof(dock_json), &dock_len));
+	TEST_ASSERT_TRUE(dock_len > 0u);
+	n = sk_editor_window_iterate(app, fx.boot.api, open, 16u);
+	TEST_ASSERT_TRUE(n > 0u && n <= 16u);
+	for (i = 0u; i < n; ++i) {
+		dock_ids[i] = open[i]->dock_id;
+	}
+
+	/* Switch to Graph (fresh preset), then back to Scene (saved layout). */
+	sk_editor_workspace_clear_dockspace(scene_ws);
+	graph_ws = editor->workspace_create(app, fx.boot.api, SK_EDITOR_WORKSPACE_GRAPH);
+	TEST_ASSERT_NOT_NULL(graph_ws);
+	editor->workspace_switch(graph_ws);
+	editor->dockspace_init(graph_ws);
+	ctx = editor->workspace_dock_context(graph_ws);
+	TEST_ASSERT_NOT_NULL(ctx);
+	/* The Graph preset itself defaults to the lowest-order window. */
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.console");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.console", tabs[active]);
+
+	editor->workspace_switch(scene_ws);
+	TEST_ASSERT_EQUAL_INT(0, sk_editor_workspace_apply_layout(scene_ws, dock_ids, n, dock_json, dock_len));
+
+	/* The restored Scene layout keeps the user-selected tab (Debugger), not
+	 * the preset default (Console). */
+	ctx = editor->workspace_dock_context(scene_ws);
+	TEST_ASSERT_NOT_NULL(ctx);
+	leaf = ui->dock_find_node_for_window(ctx, "sk.editor_window.debugger");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(leaf));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, leaf, tabs, 8u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("sk.editor_window.debugger", tabs[active]);
+
+	editor->workspace_destroy(graph_ws);
 	editor->workspace_destroy(scene_ws);
 	ew_ui_fixture_stop(&fx);
 }

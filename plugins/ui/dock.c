@@ -3911,13 +3911,15 @@ static i32 ui_dock_layout_fill_live(sk_ui_context_t* ctx, ui_dockspace_t* space,
 		if (!sk_ui_node_is_valid(win) && ui_dock_queue_pending(ctx, space, src->tabs[i], live, SK_UI_DOCK_DIR_CENTER) != 0) {
 			return -1;
 		}
-		if (src->tab_count > 0u && src->active_index == i) {
-			slot->active_index = slot->tab_count - 1u;
-		}
 	}
+	/* Tab-append leaves the last tab active (last-tab-wins); the saved
+	 * layout must come back with the tab the user had selected, so restore
+	 * the captured active_index once every tab is appended. */
 	if (slot->tab_count == 0u) {
 		slot->active_index = 0u;
-	} else if (slot->active_index >= slot->tab_count) {
+	} else if (src->active_index < slot->tab_count) {
+		slot->active_index = src->active_index;
+	} else {
 		slot->active_index = slot->tab_count - 1u;
 	}
 	return 0;

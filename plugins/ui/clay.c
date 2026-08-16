@@ -220,9 +220,25 @@ void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font) {
 	ui_clay_state.font = font;
 }
 
+i32 ui_clay_measure_text_extent(f32 px, const_chr_t utf8, f32* out_advance, f32* out_max_x) {
+	if (ui_clay_state.font_system == NULL || ui_clay_state.font == NULL || px <= 0.0f) {
+		return -1;
+	}
+	return ui_text_layout_measure_extent(ui_clay_state.font_system, ui_clay_state.font, px, utf8 != NULL ? utf8 : "", out_advance, NULL, out_max_x, NULL);
+}
+
 i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font) {
 	Clay_Dimensions dims;
 	if (!ui_clay_state.initialized) {
+		/* First init: honour a font binding set via ui_clay_set_font before
+		 * the first layout (layout callers pass NULL/NULL), so text measures
+		 * with real glyph advances instead of the per-glyph fallback. */
+		if (font_system == NULL) {
+			font_system = ui_clay_state.font_system;
+		}
+		if (font == NULL) {
+			font = ui_clay_state.font;
+		}
 		if (ui_clay_init(allocator, viewport_width, viewport_height, font_system, font) != 0) {
 			return -1;
 		}
