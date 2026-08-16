@@ -2,23 +2,30 @@
 
 /**
  * @file properties_window.h
- * @brief Properties / Inspector window (APX-374): v2 migration.
+ * @brief Properties / Inspector window (APX-371): v2 migration.
  *
  * Port of main-branch Skore::PropertiesWindow (migration manifest §3.7)
  * onto the v2 editor shell: a RightBottom / All-workspaces inspector that
- * shows the current selection — entity (header + component list), asset,
- * resource or material node — through the notify.h observers
+ * shows the current selection — entity (header + per-component property
+ * rows), asset, resource or material node — through the notify.h observers
  * (ENTITY_SELECTION / ENTITY_DESELECTION, ENTITY_DEBUG_SELECTION /
  * ENTITY_DEBUG_DESELECTION, ASSET_SELECTION, RESOURCE_SELECTION,
  * MATERIAL_NODE_SELECTION), each filtered by the workspace id exactly like
- * the C++ ctor bindings.
+ * the C++ ctor bindings. Selection is consumed through the observer structs
+ * published by the hierarchy and content browser — no Events.
  *
  * In-scope surface (manifest §3.7): entity header (name / UUID / layer
- * MOCK), component list with Add / Remove / Reset / Move Up / Move Down,
- * asset name + UUID (+ MOCK import settings Apply/Reimport), and generic
- * resource fields. Out of scope (mocked): the scene/texture preview pane,
- * material-graph node property editing (RID + MOCK name shown), and layer
- * data (the v2 EntityResource payload has no Layer field — session state).
+ * MOCK), per-component collapsing headers with property rows drawn from the
+ * payload fields using the v2 widget set (numeric, text, bool, enum,
+ * vector, color, asset reference — all read-only MOCK until v2 can edit
+ * arbitrary payload fields), the Add Component popup (search filter +
+ * registered component types) and the '...' component settings popup
+ * (Reset / Remove / Move Up / Move Down), asset name + UUID (+ MOCK import
+ * settings Apply/Reimport), and generic resource fields. The manifest lists
+ * no multi-select for the inspector. Out of scope (mocked): the
+ * scene/texture preview pane, material-graph node property editing (RID +
+ * MOCK name shown), and layer data (the v2 EntityResource payload has no
+ * Layer field — session state).
  *
  * Entity/component data comes from the attached repository + scene
  * (`set_scene`; same contract as the Entity Tree): the scene payload's
