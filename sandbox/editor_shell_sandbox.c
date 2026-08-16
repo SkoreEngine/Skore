@@ -11,12 +11,14 @@
  * icon atlas bound as the host image (finfo.images). The Scene dockspace
  * also auto-opens the Entity Tree window (APX-370), which draws its mock
  * scene hierarchy (Demo Scene / Main Camera / Directional Light / Player /
- * Character Mesh rows), and the Scene Viewport window (APX-372), which
- * draws its toolbar chrome + a 512x288 placeholder viewport texture
+ * Character Mesh rows), the Scene Viewport window (APX-372), which draws
+ * its toolbar chrome + a 512x288 placeholder viewport texture
  * (checkerboard/gradient, generated on the CPU) letterboxed into the dock
- * content — the placeholder view rides the same host images array at slot
- * SK_EDITOR_SCENE_VIEW_TEX_SLOT. Same offscreen capture
- * recipe as the dock preview (docs/widget-lavapipe-png-review.md).
+ * content, and the APX-374 windows (History mock undo list, Debugger mock
+ * profiler tabs, Properties inspector, ...). The placeholder view rides the
+ * same host images array at slot SK_EDITOR_SCENE_VIEW_TEX_SLOT. Same
+ * offscreen capture recipe as the dock preview
+ * (docs/widget-lavapipe-png-review.md).
  *
  * Note: an OPEN menu popup is painted in tree order (sk-ui painter's
  * algorithm), i.e. under the later toolbar/dock siblings — input still
@@ -42,9 +44,15 @@
 #include "render_device.h"
 #include "ui.h"
 #include "windows/console_window.h"
+#include "windows/debugger_window.h"
 #include "windows/entity_tree_window.h"
+#include "windows/history_window.h"
+#include "windows/packages_window.h"
 #include "windows/project_browser_window.h"
+#include "windows/properties_window.h"
+#include "windows/resource_debugger_window.h"
 #include "windows/scene_view_window.h"
+#include "windows/settings_window.h"
 
 #include "skore_test_font_ttf.h"
 
@@ -407,6 +415,12 @@ static i32 sandbox_init(shell_sandbox_t* s, int argc, char* argv[]) {
 	sk_editor_console_register(s->app, s->app_api);
 	sk_editor_entity_tree_register(s->app, s->app_api);
 	sk_editor_scene_view_register(s->app, s->app_api);
+	sk_editor_history_register(s->app, s->app_api);
+	sk_editor_packages_register(s->app, s->app_api);
+	sk_editor_settings_register(s->app, s->app_api);
+	sk_editor_debugger_register(s->app, s->app_api);
+	sk_editor_resource_debugger_register(s->app, s->app_api);
+	sk_editor_properties_register(s->app, s->app_api);
 	sk_editor_windows_register_impls(s->app, s->app_api);
 	s->shell = sk_editor_shell_create(s->app, s->app_api, ui);
 	if (s->shell == NULL) {

@@ -28,9 +28,15 @@
 #include "logger.h"
 #include "window_ops.h"
 #include "windows/console_window.h"
+#include "windows/debugger_window.h"
 #include "windows/entity_tree_window.h"
+#include "windows/history_window.h"
+#include "windows/packages_window.h"
 #include "windows/project_browser_window.h"
+#include "windows/properties_window.h"
+#include "windows/resource_debugger_window.h"
 #include "windows/scene_view_window.h"
+#include "windows/settings_window.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -638,6 +644,36 @@ sk_editor_window_t* sk_editor_shell_open_window(sk_editor_shell_t* shell, sk_typ
 			if (ops != NULL && ops->open != NULL) {
 				window = ops->open(shell->app_context, shell->app_api);
 			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_HISTORY)) {
+			const sk_editor_history_ops_t* ops = sk_editor_history_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_PACKAGES)) {
+			const sk_editor_packages_ops_t* ops = sk_editor_packages_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_SETTINGS)) {
+			const sk_editor_settings_ops_t* ops = sk_editor_settings_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open_editor_settings != NULL) {
+				window = ops->open_editor_settings(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_DEBUGGER)) {
+			const sk_editor_debugger_ops_t* ops = sk_editor_debugger_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_RESOURCE_DEBUGGER)) {
+			const sk_editor_resource_debugger_ops_t* ops = sk_editor_resource_debugger_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
+		} else if (SK_TYPE_ID_EQ(window_type_id, SK_EDITOR_WINDOW_PROPERTIES)) {
+			const sk_editor_properties_ops_t* ops = sk_editor_properties_ops(shell->app_context, shell->app_api);
+			if (ops != NULL && ops->open != NULL) {
+				window = ops->open(shell->app_context, shell->app_api);
+			}
 		}
 		if (window == NULL) {
 			window = sk_editor_window_open(shell->app_context, shell->app_api, window_type_id);
@@ -966,10 +1002,24 @@ static void shell_act_open_packages(sk_app_context_t* app_context, const sk_app_
 	(void)app_api;
 }
 
-static void shell_act_open_settings(sk_app_context_t* app_context, const sk_app_api_t* app_api, void* user) {
-	(void)sk_editor_shell_open_window((sk_editor_shell_t*)user, SK_EDITOR_WINDOW_SETTINGS);
-	(void)app_context;
-	(void)app_api;
+static void shell_act_open_editor_settings(sk_app_context_t* app_context, const sk_app_api_t* app_api, void* user) {
+	const sk_editor_settings_ops_t* ops = sk_editor_settings_ops(app_context, app_api);
+	(void)user;
+	if (ops != NULL && ops->open_editor_settings != NULL) {
+		(void)ops->open_editor_settings(app_context, app_api);
+	} else {
+		(void)sk_editor_shell_open_window((sk_editor_shell_t*)user, SK_EDITOR_WINDOW_SETTINGS);
+	}
+}
+
+static void shell_act_open_project_settings(sk_app_context_t* app_context, const sk_app_api_t* app_api, void* user) {
+	const sk_editor_settings_ops_t* ops = sk_editor_settings_ops(app_context, app_api);
+	(void)user;
+	if (ops != NULL && ops->open_project_settings != NULL) {
+		(void)ops->open_project_settings(app_context, app_api);
+	} else {
+		(void)sk_editor_shell_open_window((sk_editor_shell_t*)user, SK_EDITOR_WINDOW_SETTINGS);
+	}
 }
 
 /* Toolbar actions (mock where the feature is not implemented yet). */
@@ -1040,8 +1090,8 @@ static void shell_register_default_menu(sk_editor_shell_t* shell) {
 	/* Edit */
 	SHELL_MENU_ITEM("Edit/Undo", 10, NULL, shell_enabled_false, "Ctrl+Z");
 	SHELL_MENU_ITEM("Edit/Redo", 20, NULL, shell_enabled_false, "Ctrl+Shift+Z");
-	SHELL_MENU_ITEM("Edit/Editor Settings", 1000, shell_act_open_settings, NULL, NULL);
-	SHELL_MENU_ITEM("Edit/Project Settings", 1010, shell_act_open_settings, NULL, NULL);
+	SHELL_MENU_ITEM("Edit/Editor Settings", 1000, shell_act_open_editor_settings, NULL, NULL);
+	SHELL_MENU_ITEM("Edit/Project Settings", 1010, shell_act_open_project_settings, NULL, NULL);
 	SHELL_MENU_ITEM("Edit/Packages", 1015, shell_act_open_packages, NULL, NULL);
 
 	/* Tools */
@@ -1337,6 +1387,12 @@ static sk_editor_shell_t* shell_fixture_boot(shell_ui_fixture_t* fx, const sk_ed
 	sk_editor_console_register(fx->boot.context, fx->boot.api);
 	sk_editor_entity_tree_register(fx->boot.context, fx->boot.api);
 	sk_editor_scene_view_register(fx->boot.context, fx->boot.api);
+	sk_editor_history_register(fx->boot.context, fx->boot.api);
+	sk_editor_packages_register(fx->boot.context, fx->boot.api);
+	sk_editor_settings_register(fx->boot.context, fx->boot.api);
+	sk_editor_debugger_register(fx->boot.context, fx->boot.api);
+	sk_editor_resource_debugger_register(fx->boot.context, fx->boot.api);
+	sk_editor_properties_register(fx->boot.context, fx->boot.api);
 	sk_editor_windows_register_impls(fx->boot.context, fx->boot.api);
 	/* Isolate persist from AppFolder leftovers: point at a missing temp file
 	 * so shell_create's layout_init does not pick up another test's document. */

@@ -25,9 +25,15 @@
 #include "resource_assets_types.h"
 #include "ui.h"
 #include "windows/console_window.h"
+#include "windows/debugger_window.h"
 #include "windows/entity_tree_window.h"
+#include "windows/history_window.h"
+#include "windows/packages_window.h"
 #include "windows/project_browser_window.h"
+#include "windows/properties_window.h"
+#include "windows/resource_debugger_window.h"
 #include "windows/scene_view_window.h"
+#include "windows/settings_window.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -231,13 +237,19 @@ static i32 run_shell_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk
 		return 1;
 	}
 
-	/* Project Browser + Console + Entity Tree first so their registered ops
-	 * tables / impls win window_open (docs/editor/window-table-pattern.md);
+	/* Real window impls first so their registered ops tables / impls win
+	 * window_open over the APX-330 scaffolds (docs/editor/window-table-pattern.md);
 	 * the 14 scaffolds follow. */
 	sk_editor_project_browser_register(app, app_api);
 	sk_editor_console_register(app, app_api);
 	sk_editor_entity_tree_register(app, app_api);
 	sk_editor_scene_view_register(app, app_api);
+	sk_editor_history_register(app, app_api);
+	sk_editor_packages_register(app, app_api);
+	sk_editor_settings_register(app, app_api);
+	sk_editor_debugger_register(app, app_api);
+	sk_editor_resource_debugger_register(app, app_api);
+	sk_editor_properties_register(app, app_api);
 	sk_editor_windows_register_impls(app, app_api);
 
 	if (win_api->init() != 0) {
