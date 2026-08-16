@@ -241,7 +241,34 @@ labels also on 02; Packages / Debugger Statistics on 04).
 | Entity Tree search hint is clipped | 01, 03 | **Fixed.** Hint `"Search entities"` (`entity_tree_window.c:1810`) is fully inside the input, including the `g`/`y` descenders. |
 | Debugger Statistics `Dedicated (VRAM)` row clipped off the leaf bottom | 04 | **Fixed (APX-394).** The statistics body is a scroll host (`debugger.content.host`); the inner `debugger.content` panel is auto-height / `flex_shrink 0` so rows are not clipped inside a 100%-of-leaf box. The capture scrolls only far enough to land `debugger.stat.vram` in the leaf, so Frame/Process stay visible and `Dedicated (VRAM)` is fully on screen (`debugger_window.c` Dedicated (VRAM) row + `dgb_apply_stats_body_style`). |
 | Project Browser tile caption `Main.scene` clips to `Main.scen` | 01, 02, 03 | **Fixed (APX-393).** Caption is measured from Clay layout-font glyph advance (plus ink extent) and sized to that box with `flex_shrink 0`; the tile content width is the full thumb so a name that fits is not shaved by pad. Names wider than the tile are ellipsized (U+2026) instead of clip-shaved. Recaptured frames 01/02/03 show full `Main.scene` next to intact `Scenes` / `Textures` / `Hero.png` (seed `project_browser_window.c:269`; grid host `:1696`). |
-| Console WARN line cut at the panel edge (`…mapped via Clay floati`) | 01, 02, 03 | **Fixed.** Log rows wrap at the panel width (`label_set_wrap 1` at `console_window.c:384`/`:413`); the scroll body is sized from the laid-out rows (`console_sync_scroll_size`) so Auto-scroll still lands on the newest line. The WARN row is two lines: line 1 ends on a word break before the panel edge and line 2 carries `...constraints may differ (kept best-effort mapping)` fully inside the panel. |
+| Console WARN line cut at the panel edge (`…mapped via Clay floati`) | 01, 02, 03 | **Fixed (APX-390; re-verified APX-395).** Log rows wrap at the panel width (`label_set_wrap 1` at `console_window.c:384`/`:413`); the scroll body is sized from the laid-out rows (`console_sync_scroll_size`) so Auto-scroll still lands on the newest line. The WARN row is two lines: line 1 ends on a word break before the panel edge and line 2 carries `...constraints may differ (kept best-effort mapping)` fully inside the panel (pixel re-verification below). |
+
+## APX-395 — Console long-line wrap re-verified (pixel evidence)
+
+Rebuilt Release `sk-sandbox-shell` (Ninja, 230 targets) at the branch tip and
+re-ran the lavapipe offscreen recipe (`capture_create → paint →
+capture_frame → cpu_image_write_png`, 1280×720, scale 1.0, `--out-dir`).
+All four PNGs came out byte-identical to the tracked frames, so the
+committed captures are current. Reading the WARN row off frames 01/02/03
+(Console log body: scroll x 658–1264, y 613–719):
+
+- The log body holds six text rows at a uniform 14px line pitch; the
+  severity-prefix column and line height are unchanged by wrapping.
+- The Clay-limitation WARN renders as two bands: line 1 at y 675–683 spans
+  x 664–1226 (wraps at a word break 34px before the content edge at
+  x 1260); line 2 at y 689–698 spans x 664–1009 — the
+  `constraints may differ (kept best-effort mapping)` tail is fully inside
+  the panel and nothing is cut at the edge.
+- The same row on the pre-fix frame (commit 84ed44b) was a single band
+  ending at x 1259 — clipped mid-word (`…floati`) with no continuation
+  line at all.
+- The newest line (the wrapped WARN) is fully on screen — last ink at
+  y 698 against the body bottom at y 719 — so Auto-scroll stays pinned to
+  the latest row.
+
+The full long message is readable on all three frames; the fix needed no
+code change this pass — a fresh rebuild and recapture confirms the wrap
+behaviour at the panel width.
 
 ---
 
